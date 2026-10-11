@@ -9,8 +9,12 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@folio/ports": "workspace:*",
     "@folio/core": "workspace:*",
+    "@folio/ports": "workspace:*",
     "fflate": "^0.8"
+  },
+  "devDependencies": {
+    "@folio/testkit": "workspace:*",
+    "fast-check": "^3.23.2"
   }
 }

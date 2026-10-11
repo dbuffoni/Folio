@@ -11,5 +11,9 @@
   "dependencies": {
     "@folio/ports": "workspace:*",
     "zod": "^3"
+  },
+  "devDependencies": {
+    "@folio/testkit": "workspace:*",
+    "fast-check": "^3.23.2"
   }
 }

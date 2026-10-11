@@ -9,7 +9,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@folio/ports": "workspace:*",
-    "@folio/core": "workspace:*"
+    "@folio/core": "workspace:*",
+    "@folio/ports": "workspace:*"
+  },
+  "devDependencies": {
+    "@folio/testkit": "workspace:*",
+    "fast-check": "^3.23.2"
   }
 }

@@ -48,6 +48,7 @@ import type {
 } from '@folio/ports';
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
+import { importWithForms } from './formrepair.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
 import type { FontRegistry } from './fonts.ts';
@@ -319,17 +320,38 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     this.m.FPDF_ClosePage(page);
   }
 
+  hasFormFields(): boolean {
+    return this.m.FPDF_GetFormType(this.doc) !== 0;
+  }
+  /** Full, non-incremental serialisation of the current state. */
+  bytesNow(): Uint8Array {
+    return this.write(FPDF_NO_INCREMENTAL);
+  }
+  private reload(bytes: Uint8Array): void {
+    const password = this.password;
+    this.unload();
+    this.load(bytes, password);
+  }
+
   async importPages(src: PdfDocument, pages: PageIndex[], at: PageIndex): Promise<void> {
     this.alive();
-    if (!(src instanceof PdfiumDocument))
-      throw new InvalidArgumentError('Source document belongs to another engine');
+    if (!(src instanceof PdfiumDocument)) throw new InvalidArgumentError('Source document belongs to another engine');
     if (at < 0 || at > this.pageCount) throw new InvalidArgumentError(`Insert position ${at} out of range`);
     for (const p of pages) src.checkPage(p);
     if (pages.length === 0) return;
+    if (src.hasFormFields()) {
+      // PDFium drops the field tree of imported widgets: route form pages through the structural helper.
+      try {
+        const srcBytes = src === this ? this.bytesNow() : src.bytesNow();
+        const { bytes } = await importWithForms(this.bytesNow(), srcBytes, pages, at);
+        this.reload(bytes);
+        return;
+      } catch {
+        // Encrypted or unusual sources: fall back to the plain import (pages kept, fields become static).
+      }
+    }
     this.closePages();
-    const ok = scope(this.m, (a) =>
-      this.m.FPDF_ImportPagesByIndex(this.doc, src.doc, a.ints(pages), pages.length, at),
-    );
+    const ok = scope(this.m, (a) => this.m.FPDF_ImportPagesByIndex(this.doc, src.doc, a.ints(pages), pages.length, at));
     if (!ok) throw new InvalidPdfError('Could not import pages');
   }
 
@@ -822,9 +844,7 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
 
   async restore(bytes: Uint8Array): Promise<void> {
     this.alive();
-    const password = this.password;
-    this.unload();
-    this.load(bytes, password);
+    this.reload(bytes);
   }
 
   dispose(): void {

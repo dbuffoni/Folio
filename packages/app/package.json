@@ -9,10 +9,14 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@folio/ports": "workspace:*",
+    "@folio/ai": "workspace:*",
     "@folio/core": "workspace:*",
-    "@folio/services": "workspace:*",
     "@folio/db": "workspace:*",
-    "@folio/ai": "workspace:*"
+    "@folio/ports": "workspace:*",
+    "@folio/services": "workspace:*"
+  },
+  "devDependencies": {
+    "@folio/testkit": "workspace:*",
+    "fast-check": "^3.23.2"
   }
 }
