@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Folio",
+  "version": "0.1.0",
+  "identifier": "io.github.folio.Folio",
+  "build": {
+    "frontendDist": "../shell"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Folio",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 600,
+        "decorations": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage"],
+    "category": "Productivity",
+    "shortDescription": "Everyday PDF editor",
+    "longDescription": "Folio reorganises, merges, splits, annotates, signs, fills and edits PDF files. Everything runs on your device.",
+    "license": "GPL-3.0-or-later",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"],
+    "fileAssociations": [
+      { "ext": ["pdf"], "mimeType": "application/pdf", "name": "PDF document", "role": "Editor" }
+    ],
+    "linux": {
+      "appimage": { "bundleMediaFramework": false }
+    }
+  }
+}

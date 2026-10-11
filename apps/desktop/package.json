@@ -1,0 +1,16 @@
+{
+  "name": "@folio/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "appimage": "tauri build --bundles appimage",
+    "check": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
