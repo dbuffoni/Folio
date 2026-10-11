@@ -1,0 +1,13 @@
+node_modules
+pnpm-lock.yaml
+build
+dist
+.svelte-kit
+coverage
+target
+fixtures
+docs/mockup
+SPEC.md
+apps/desktop/src-tauri/gen
+tests/golden
+*.md

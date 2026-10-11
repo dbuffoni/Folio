@@ -1,0 +1,16 @@
+{
+  "name": "@folio/ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAI provider, prompt and schema",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@folio/ports": "workspace:*",
+    "@folio/core": "workspace:*",
+    "zod": "^3"
+  }
+}

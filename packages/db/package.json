@@ -1,0 +1,15 @@
+{
+  "name": "@folio/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SQL migrations and repositories",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@folio/ports": "workspace:*",
+    "@folio/core": "workspace:*"
+  }
+}

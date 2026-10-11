@@ -1,0 +1,16 @@
+{
+  "name": "@folio/services",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless PDF and application services",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@folio/ports": "workspace:*",
+    "@folio/core": "workspace:*",
+    "fflate": "^0.8"
+  }
+}

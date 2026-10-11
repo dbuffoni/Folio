@@ -1,0 +1,29 @@
+{
+  "name": "@folio/testkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fakes, fixture builders, matchers, oracles",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@folio/ai": "workspace:*",
+    "@folio/core": "workspace:*",
+    "@folio/db": "workspace:*",
+    "@folio/engine-pdfium": "workspace:*",
+    "@folio/ports": "workspace:*",
+    "@folio/services": "workspace:*",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "fast-check": "^3",
+    "jpeg-js": "^0.4",
+    "pdf-lib": "^1.17.1",
+    "pixelmatch": "^6",
+    "pngjs": "^7",
+    "vitest": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/pngjs": "^6.0.5"
+  }
+}
