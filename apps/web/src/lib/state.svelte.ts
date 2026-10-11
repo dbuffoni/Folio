@@ -1,0 +1,145 @@
+// Wires the UI-less application layer to Svelte. Models stay plain classes; any `changed` event bumps
+// one reactive counter, and components read it through `track()` to re-evaluate.
+import {
+  AppModel, ExportImagesModel, FindModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
+  type CommandContext, type DocumentSession, type Prompts,
+} from '@folio/app';
+import type { Emitter, Msg } from '@folio/core';
+import type { HandwritingFont } from '@folio/services';
+import { createWorkerEngine, loadHandwritingFont } from './engine/index.ts';
+import { setLocale } from './i18n/index.ts';
+import { bridge, bump, live, raw, track } from './live.svelte.ts';
+import { createPlatform, isTauri } from './platform/index.ts';
+
+export const VERSION = '0.1.0';
+
+const state = $state({ ready: false, error: '' as string });
+export { track, raw };
+export const boot = state;
+/** `dep(track(), value)`: explicit form of the dependency every read of a live model registers. */
+export const dep = <T>(_version: number, value: T): T => value;
+const watch = (e: Emitter<void>): void => void e.on(bump);
+
+// ---- prompts: the dialogs the application layer can ask for --------------------------------------
+
+export type PromptRequest =
+  | { kind: 'password'; fileName: string; wrong: boolean; resolve: (v: string | null) => void }
+  | { kind: 'close'; fileName: string; resolve: (v: 'save' | 'discard' | 'cancel') => void }
+  | { kind: 'confirm'; message: Msg; danger: boolean; confirmLabel?: Msg; resolve: (v: boolean) => void }
+  | { kind: 'signed'; fileName: string; resolve: (v: 'incremental' | 'rewrite' | 'cancel') => void }
+  | { kind: 'recovery'; items: Array<{ sessionId: string; name: string; savedAt: string }>; resolve: (v: string[]) => void }
+  | { kind: 'link'; host: string; uri: string; resolve: (v: boolean) => void };
+class UiPrompts implements Prompts {
+  // Raw state: entries are compared by identity when they are answered.
+  queue = $state.raw<PromptRequest[]>([]);
+  private ask<R>(req: Record<string, unknown>): Promise<R> {
+    return new Promise<R>((resolve) => {
+      const entry = {
+        ...req,
+        resolve: (v: R) => {
+          this.queue = this.queue.filter((q) => q !== (entry as unknown as PromptRequest));
+          resolve(v);
+        },
+      } as unknown as PromptRequest;
+      this.queue = [...this.queue, entry];
+    });
+  }
+  askPassword = (fileName: string, wrong: boolean) => this.ask<string | null>({ kind: 'password', fileName, wrong });
+  confirmClose = (fileName: string) => this.ask<'save' | 'discard' | 'cancel'>({ kind: 'close', fileName });
+  confirm = (message: Msg, opts: { danger?: boolean; confirmLabel?: Msg } = {}) => this.ask<boolean>({ kind: 'confirm', message, danger: !!opts.danger, confirmLabel: opts.confirmLabel });
+  confirmSignedSave = (fileName: string) => this.ask<'incremental' | 'rewrite' | 'cancel'>({ kind: 'signed', fileName });
+  offerRecovery = (items: Array<{ sessionId: string; name: string; savedAt: string }>) => this.ask<string[]>({ kind: 'recovery', items });
+  confirmOpenLink = (host: string, uri: string) => this.ask<boolean>({ kind: 'link', host, uri });
+}
+export const prompts = new UiPrompts();
+
+// ---- application objects (assigned once by `start`) -----------------------------------------------
+
+export let app: AppModel;
+export let services: Services;
+export const ui = live(new UiState());
+export let sign: SignModel;
+export const registry = createRegistry();
+export const desktop = isTauri();
+export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
+interface PerSession {
+  tools: ToolController;
+  organise: OrganiseModel;
+  form: FormModel;
+  find: FindModel;
+  smart: SmartFillModel;
+}
+const perSession = new Map<string, PerSession>();
+/** View-models of one document, created on first use and dropped with the tab. */
+export function models(view: DocumentSession): PerSession {
+  const session = raw(view);
+  let m = perSession.get(session.id);
+  if (!m) {
+    m = {
+      tools: new ToolController(session, raw(services), { error: (e) => app.reportError(e), info: (msg) => void app.toast('info', msg) }),
+      organise: new OrganiseModel(raw(app), session),
+      form: new FormModel(raw(app), session),
+      find: new FindModel(session),
+      smart: new SmartFillModel(raw(app), session),
+    };
+    for (const model of Object.values(m)) watch(model.changed);
+    void m.form.load();
+    perSession.set(session.id, m);
+  }
+  return live(m);
+}
+export function commandContext(): CommandContext {
+  // Commands work on the models themselves, never on their reactive views.
+  const session = raw(app).active;
+  const m = session ? raw(models(session)) : null;
+  return { app: raw(app), ui: raw(ui), sign: raw(sign), session, tools: m?.tools ?? null, find: m?.find ?? null, organise: m?.organise ?? null };
+}
+/** Runs a registry command by id against the active tab. */
+export const run = (id: string): Promise<boolean> => registry.run(id, commandContext());
+
+// Wizards are created when their dialog opens.
+export const wizards = {
+  merge: (): MergeWizard => observe(new MergeWizard(raw(app))),
+  split: (s: DocumentSession): SplitWizard => observe(new SplitWizard(raw(app), raw(s))),
+  images: (): ImagesWizard => observe(new ImagesWizard(raw(app))),
+  exportImages: (s: DocumentSession): ExportImagesModel => observe(new ExportImagesModel(raw(app), raw(s))),
+};
+function observe<T extends { changed: Emitter<void> }>(model: T): T {
+  watch(model.changed);
+  return live(model);
+}
+
+export async function start(): Promise<void> {
+  try {
+    const platform = await createPlatform(VERSION);
+    setLocale('en'); // English only in Release 1; dates and numbers still follow the platform locale
+    const engine = createWorkerEngine();
+    const rawServices = new Services({ platform, engine, loadFont: (name: HandwritingFont) => loadHandwritingFont(name) });
+    const rawApp = new AppModel(rawServices, prompts, { every: (ms, fn) => {
+      const id = setInterval(fn, ms);
+      return () => clearInterval(id);
+    } });
+    const rawSign = new SignModel(rawApp);
+    watch(rawApp.changed);
+    watch(raw(ui).changed);
+    watch(rawSign.changed);
+    rawApp.changed.on(() => {
+      // Forget the view-models of closed tabs.
+      for (const id of perSession.keys()) if (!rawApp.sessions.some((s) => s.id === id)) perSession.delete(id);
+    });
+    services = bridge(rawServices);
+    app = live(rawApp);
+    sign = live(rawSign);
+    await app.start();
+    await sign.load();
+    ui.sidebarOpen = app.settings.sidebar.open && window.innerWidth >= 820;
+    ui.inspectorOpen = app.settings.inspector.open && window.innerWidth >= 1100;
+    ui.startCoach(app.settings.onboardingDone);
+    state.ready = true;
+    bump();
+  } catch (e) {
+    state.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    console.error(e);
+  }
+}

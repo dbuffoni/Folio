@@ -185,50 +185,94 @@ export class WebFileService implements FileService {
   }
 }
 
-/** OPFS-backed private storage, with an in-memory fallback when OPFS is unavailable. */
-export class WebStorage implements AppStorage {
-  private memory = new Map<string, Uint8Array>();
-  private root: Promise<FileSystemDirectoryHandle | null>;
-  constructor() {
-    this.root = (async () => {
-      try {
-        return await (await navigator.storage.getDirectory()).getDirectoryHandle('folio-storage', { create: true });
-      } catch {
-        return null;
-      }
-    })();
-  }
+interface Backend {
+  write(key: string, data: Uint8Array): Promise<void>;
+  read(key: string): Promise<Uint8Array | null>;
+  remove(key: string): Promise<void>;
+  keys(): Promise<string[]>;
+}
+
+/** Origin-private file system: one flat directory, "/" in keys written as "__". */
+class OpfsBackend implements Backend {
+  constructor(private readonly root: FileSystemDirectoryHandle) {}
   private name = (key: string): string => key.replace(/\//g, '__');
   async write(key: string, data: Uint8Array): Promise<void> {
-    const root = await this.root;
-    if (!root) return void this.memory.set(key, data.slice());
-    const w = await (await root.getFileHandle(this.name(key), { create: true })).createWritable();
+    const w = await (await this.root.getFileHandle(this.name(key), { create: true })).createWritable();
     await w.write(data as unknown as FileSystemWriteChunkType);
     await w.close();
   }
   async read(key: string): Promise<Uint8Array | null> {
-    const root = await this.root;
-    if (!root) return this.memory.get(key)?.slice() ?? null;
     try {
-      return new Uint8Array(await (await (await root.getFileHandle(this.name(key))).getFile()).arrayBuffer());
+      return new Uint8Array(await (await (await this.root.getFileHandle(this.name(key))).getFile()).arrayBuffer());
     } catch {
       return null;
     }
   }
   async remove(key: string): Promise<void> {
-    const root = await this.root;
-    if (!root) return void this.memory.delete(key);
-    await root.removeEntry(this.name(key)).catch(() => undefined);
+    await this.root.removeEntry(this.name(key)).catch(() => undefined);
   }
-  async list(prefix: string): Promise<string[]> {
-    const root = await this.root;
-    if (!root) return [...this.memory.keys()].filter((k) => k.startsWith(prefix)).sort();
+  async keys(): Promise<string[]> {
     const out: string[] = [];
-    for await (const name of (root as unknown as { keys(): AsyncIterable<string> }).keys()) {
-      const key = name.replace(/__/g, '/');
-      if (key.startsWith(prefix)) out.push(key);
-    }
-    return out.sort();
+    for await (const name of (this.root as unknown as { keys(): AsyncIterable<string> }).keys()) out.push(name.replace(/__/g, '/'));
+    return out;
+  }
+}
+
+/** IndexedDB, for browsers whose OPFS cannot be written from the page (WebKit). */
+class IdbBackend implements Backend {
+  constructor(private readonly db: IDBDatabase) {}
+  static open(): Promise<IdbBackend> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('folio-storage', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('files');
+      req.onsuccess = () => resolve(new IdbBackend(req.result));
+      req.onerror = () => reject(req.error ?? new Error('IndexedDB is not available'));
+    });
+  }
+  private run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const req = fn(this.db.transaction('files', mode).objectStore('files'));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed'));
+    });
+  }
+  write = (key: string, data: Uint8Array): Promise<void> => this.run('readwrite', (s) => s.put(data.slice(), key)).then(() => undefined);
+  read = async (key: string): Promise<Uint8Array | null> => ((await this.run('readonly', (s) => s.get(key))) as Uint8Array | undefined) ?? null;
+  remove = (key: string): Promise<void> => this.run('readwrite', (s) => s.delete(key)).then(() => undefined);
+  keys = async (): Promise<string[]> => (await this.run('readonly', (s) => s.getAllKeys())).map(String);
+}
+
+class MemoryBackend implements Backend {
+  private map = new Map<string, Uint8Array>();
+  write = async (key: string, data: Uint8Array): Promise<void> => void this.map.set(key, data.slice());
+  read = async (key: string): Promise<Uint8Array | null> => this.map.get(key)?.slice() ?? null;
+  remove = async (key: string): Promise<void> => void this.map.delete(key);
+  keys = async (): Promise<string[]> => [...this.map.keys()];
+}
+
+/** Private app storage: OPFS where the page can write to it, else IndexedDB, else memory for this session. */
+export class WebStorage implements AppStorage {
+  private backend: Promise<Backend>;
+  constructor() {
+    this.backend = (async (): Promise<Backend> => {
+      try {
+        if (typeof FileSystemFileHandle !== 'undefined' && 'createWritable' in FileSystemFileHandle.prototype)
+          return new OpfsBackend(await (await navigator.storage.getDirectory()).getDirectoryHandle('folio-storage', { create: true }));
+      } catch {
+        // fall through to IndexedDB
+      }
+      try {
+        return await IdbBackend.open();
+      } catch {
+        return new MemoryBackend();
+      }
+    })();
+  }
+  write = async (key: string, data: Uint8Array): Promise<void> => (await this.backend).write(key, data);
+  read = async (key: string): Promise<Uint8Array | null> => (await this.backend).read(key);
+  remove = async (key: string): Promise<void> => (await this.backend).remove(key);
+  async list(prefix: string): Promise<string[]> {
+    return (await (await this.backend).keys()).filter((k) => k.startsWith(prefix)).sort();
   }
 }
 
@@ -250,7 +294,7 @@ export async function openWebDatabase(storage: AppStorage): Promise<Database> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const persist = (): void => {
     clearTimeout(timer);
-    timer = setTimeout(() => void storage.write('db/folio.sqlite3', sqlite3.capi.sqlite3_js_db_export(db.pointer!)), 250);
+    timer = setTimeout(() => void storage.write('db/folio.sqlite3', sqlite3.capi.sqlite3_js_db_export(db.pointer!)), 60);
   };
   const wrap = (d: Database): Database => ({
     execute: async (sql, params) => {

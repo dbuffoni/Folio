@@ -50,7 +50,7 @@ async function main(): Promise<number> {
     process.stdout.write(USAGE);
     return command ? 0 : 1;
   }
-  const { NodeImageCodec, FIXTURES, fixture } = await import('@folio/testkit');
+  const { NodeImageCodec, FIXTURES, fixture, sampleJpeg, signaturePng } = await import('@folio/testkit');
   const engine = await createNodeEngine();
   const images = new NodeImageCodec();
   const open = async (path: string) => engine.open(await readFile(path), { password: typeof flags.password === 'string' ? flags.password : undefined });
@@ -157,6 +157,8 @@ async function main(): Promise<number> {
       case 'fixtures': {
         const dir = typeof flags.out === 'string' ? flags.out : 'fixtures/generated';
         for (const [name, entry] of Object.entries(FIXTURES)) if (!entry.heavy || flags.all) await save(join(dir, `${name}.pdf`), await fixture(name));
+        for (const n of [1, 2, 3]) await save(join(dir, `photo-${n}.jpg`), sampleJpeg(160 + n * 40, 120, n));
+        await save(join(dir, 'signature.png'), signaturePng());
         break;
       }
       default:

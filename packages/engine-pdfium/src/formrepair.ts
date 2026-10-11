@@ -124,3 +124,46 @@ async function repair(pdf: import('pdf-lib').PDFDocument): Promise<RepairResult>
   const bytes = await pdf.save({ useObjectStreams: false, updateFieldAppearances: false });
   return { bytes, renamed };
 }
+
+const ascii = (s: string): Uint8Array => Uint8Array.from(s, (c) => c.charCodeAt(0));
+function indexOf(hay: Uint8Array, needle: Uint8Array, from = 0): number {
+  outer: for (let i = from; i <= hay.length - needle.length; i++) {
+    for (let k = 0; k < needle.length; k++) if (hay[i + k] !== needle[k]) continue outer;
+    return i;
+  }
+  return -1;
+}
+const latin1 = (b: Uint8Array, from: number, to: number): string =>
+  String.fromCharCode(...b.subarray(from, Math.min(b.length, to)));
+
+/** True when the catalog points at an /AcroForm dictionary that has no /Fields entry. */
+export function acroFormLacksFields(pdf: Uint8Array): boolean {
+  const at = indexOf(pdf, ascii('/AcroForm'));
+  if (at < 0) return false;
+  const ref = /^\/AcroForm\s+(\d+)\s+(\d+)\s+R/.exec(latin1(pdf, at, at + 48));
+  if (!ref) return false; // inline dictionaries are never written by the engine
+  const head = ascii(`${ref[1]} ${ref[2]} obj`);
+  for (let from = 0; ; ) {
+    const obj = indexOf(pdf, head, from);
+    if (obj < 0) return false;
+    from = obj + head.length;
+    const before = obj === 0 ? 10 : pdf[obj - 1]!;
+    if (before !== 10 && before !== 13 && before !== 32) continue; // "12 0 obj" inside "112 0 obj"
+    const end = indexOf(pdf, ascii('endobj'), obj);
+    return end > 0 && !latin1(pdf, obj, Math.min(end, obj + 65536)).includes('/Fields');
+  }
+}
+
+/**
+ * PDFium creates `/AcroForm << /DA /DR >>` as soon as a free-text annotation needs a default
+ * appearance. Without the required /Fields array other readers complain, so it is added on save.
+ */
+export async function ensureFieldsArray(pdf: Uint8Array): Promise<Uint8Array> {
+  if (!acroFormLacksFields(pdf) || indexOf(pdf, ascii('/Encrypt')) >= 0) return pdf;
+  const { PDFDict, PDFDocument, PDFName } = await import('pdf-lib');
+  const doc = await PDFDocument.load(pdf, { updateMetadata: false, ignoreEncryption: true });
+  const form = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+  if (!form || form.has(PDFName.of('Fields'))) return pdf;
+  form.set(PDFName.of('Fields'), doc.context.obj([]));
+  return doc.save({ useObjectStreams: false, updateFieldAppearances: false });
+}

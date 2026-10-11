@@ -544,6 +544,9 @@ export function runEngineConformance(
           expect(id).toBeTruthy();
           const bytes = await doc.save();
           await valid(bytes);
+          // An /AcroForm created for a default appearance must still carry /Fields (poppler complains otherwise).
+          const raw = new TextDecoder('latin1').decode(bytes);
+          if (raw.includes('/AcroForm')) expect(raw).toContain('/Fields');
           const again = await engine.open(bytes);
           const list = await again.listAnnotations(0);
           expect(list.length).toBe(1);

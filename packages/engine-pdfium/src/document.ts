@@ -49,7 +49,7 @@ import type {
 } from '@folio/ports';
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
-import { importWithForms } from './formrepair.ts';
+import { ensureFieldsArray, importWithForms } from './formrepair.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
 import type { FontRegistry } from './fonts.ts';
@@ -836,7 +836,8 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     this.alive();
     // A document created in memory has no original bytes to append to.
     const incremental = !!opts.incremental && this.dataPtr !== 0;
-    return this.write(incremental ? FPDF_INCREMENTAL : FPDF_NO_INCREMENTAL);
+    if (incremental) return this.write(FPDF_INCREMENTAL);
+    return ensureFieldsArray(this.write(FPDF_NO_INCREMENTAL));
   }
 
   async snapshot(): Promise<Uint8Array> {
