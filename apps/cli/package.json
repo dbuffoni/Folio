@@ -8,12 +8,13 @@
     "folio-cli": "./src/main.ts"
   },
   "dependencies": {
-    "@folio/ports": "workspace:*",
-    "@folio/core": "workspace:*",
-    "@folio/engine-pdfium": "workspace:*",
-    "@folio/services": "workspace:*",
-    "@folio/db": "workspace:*",
     "@folio/ai": "workspace:*",
-    "@folio/app": "workspace:*"
+    "@folio/app": "workspace:*",
+    "@folio/core": "workspace:*",
+    "@folio/db": "workspace:*",
+    "@folio/engine-pdfium": "workspace:*",
+    "@folio/ports": "workspace:*",
+    "@folio/services": "workspace:*",
+    "@folio/testkit": "workspace:*"
   }
 }

@@ -95,6 +95,9 @@ importers:
       '@folio/services':
         specifier: workspace:*
         version: link:../../packages/services
+      '@folio/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
 
   apps/desktop:
     devDependencies:
