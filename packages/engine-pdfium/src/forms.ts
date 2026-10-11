@@ -179,6 +179,7 @@ export function setValue(d: DocInternals, id: FieldId, v: FieldValue): void {
   const m = d.m;
   const fh = d.form();
   let done = false;
+  let sawRadio = false;
   withField(d, id, (annot, _ref, page) =>
     scope(m, (a) => {
       const type = TYPES[m.FPDFAnnot_GetFormFieldType(fh, annot)];
@@ -206,8 +207,15 @@ export function setValue(d: DocInternals, id: FieldId, v: FieldValue): void {
         case 'radio': {
           if (typeof v !== 'string') throw new InvalidArgumentError(`Field "${id}" expects an option name`);
           const exp = getUtf16(m, (b, l) => m.FPDFAnnot_GetFormFieldExportValue(fh, annot, b, l));
-          if (exp !== v) return; // keep looking for the widget carrying this option
-          if (!m.FPDFAnnot_IsChecked(fh, annot)) click(d, a, page, annot);
+          const checked = !!m.FPDFAnnot_IsChecked(fh, annot);
+          if (v === '' || v === 'Off') {
+            // No selection: toggle the checked button off (allowed unless the group forbids it).
+            if (checked) click(d, a, page, annot);
+            sawRadio = true;
+            return undefined;
+          }
+          if (exp !== v) return undefined; // keep looking for the widget carrying this option
+          if (!checked) click(d, a, page, annot);
           done = true;
           return 'stop';
         }
@@ -224,6 +232,13 @@ export function setValue(d: DocInternals, id: FieldId, v: FieldValue): void {
           }
           if (type === 'dropdown' && wanted.length > 1)
             throw new InvalidArgumentError(`Field "${id}" takes one value`);
+          if (type === 'dropdown' && wanted.length === 0) {
+            // A combo box cannot be deselected through the widget; clear the value directly.
+            m.EPDFAnnot_SetFormFieldValue(fh, annot, a.utf16(''));
+            m.EPDFAnnot_GenerateFormFieldAP(annot);
+            done = true;
+            return 'stop';
+          }
           if (!m.FORM_SetFocusedAnnot(fh, annot)) throw new InvalidPdfError(`Could not focus field "${id}"`);
           labels.forEach((label, k) => {
             const sel = wanted.includes(label);
@@ -237,6 +252,7 @@ export function setValue(d: DocInternals, id: FieldId, v: FieldValue): void {
       return undefined;
     }),
   );
+  if (sawRadio) return;
   if (!done)
     throw new InvalidArgumentError(`"${String(v)}" is not an option of field "${id}"`, { field: id });
 }
@@ -301,7 +317,8 @@ export function flatten(d: DocInternals): void {
     for (let k = 0; hidden.length && k < m.FPDFPage_GetAnnotCount(page); k++) {
       const annot = m.FPDFPage_GetAnnot(page, k);
       if (!annot) continue;
-      if (hidden.includes(m.EPDFAnnot_GetObjectNumber(annot))) m.FPDFAnnot_SetFlags(annot, m.FPDFAnnot_GetFlags(annot) & ~FLAG_HIDDEN);
+      if (hidden.includes(m.EPDFAnnot_GetObjectNumber(annot)))
+        m.FPDFAnnot_SetFlags(annot, m.FPDFAnnot_GetFlags(annot) & ~FLAG_HIDDEN);
       m.FPDFPage_CloseAnnot(annot);
     }
     if (changed) d.commitPage(p);

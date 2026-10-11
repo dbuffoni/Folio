@@ -10,6 +10,7 @@ import {
 import type {
   Annotation,
   AnnotationBase,
+  AnnotationType,
   AnnotId,
   Color,
   LineEnding,
@@ -232,11 +233,13 @@ function read(d: DocInternals, a: Arena, annot: Ptr, index: number): Annotation 
       const p = a.alloc(20);
       const ok = m.EPDFAnnot_GetDefaultAppearance(annot, p, p + 4, p + 8, p + 12, p + 16);
       const align = m.EPDFAnnot_GetTextAlignment(annot);
+      // The typed getter only recognises Helvetica; the font name in /DA is authoritative.
+      const da = getStr(m, annot, 'DA');
       return {
         ...base,
         type,
         color: undefined,
-        fontFamily: ok ? FONT_FAMILY(a.i32(p, 0)) : 'sans',
+        fontFamily: /Times|TiRo|Serif/i.test(da) ? 'serif' : /Cour|Mono/i.test(da) ? 'mono' : ok && a.i32(p, 0) >= 0 ? FONT_FAMILY(a.i32(p, 0)) : 'sans',
         fontSize: ok ? a.f32(p, 1) : 12,
         textColor: ok ? { r: a.u32(p, 2), g: a.u32(p, 3), b: a.u32(p, 4) } : { r: 0, g: 0, b: 0 },
         align: align === 1 ? 'center' : align === 2 ? 'right' : 'left',
@@ -627,7 +630,7 @@ export function reorder(d: DocInternals, i: PageIndex, ids: AnnotId[]): void {
   });
 }
 
-export function flatten(d: DocInternals, pages: PageIndex[]): void {
+export function flatten(d: DocInternals, pages: PageIndex[], types?: AnnotationType[]): void {
   const m = d.m;
   for (const i of pages) {
     d.checkPage(i);
@@ -641,7 +644,8 @@ export function flatten(d: DocInternals, pages: PageIndex[]): void {
         subtype === WIDGET ||
         subtype === SUBTYPE.link ||
         subtype === POPUP ||
-        (m.FPDFAnnot_GetFlags(annot) & FLAG_HIDDEN) !== 0;
+        (m.FPDFAnnot_GetFlags(annot) & FLAG_HIDDEN) !== 0 ||
+        (types !== undefined && !types.includes(SUBTYPE_NAME[subtype] ?? 'other'));
       const done = !skip && m.EPDFAnnot_Flatten(page, annot);
       m.FPDFPage_CloseAnnot(annot);
       changed ||= done;

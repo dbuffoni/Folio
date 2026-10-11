@@ -396,6 +396,11 @@ export interface PdfEngine {
   create(): Promise<PdfDocument>;
   /** New document made of the given pages, in order. Source documents are not modified. */
   merge(parts: { doc: PdfDocument; pages: PageIndex[] }[]): Promise<PdfDocument>;
+  /**
+   * Draws one line of text with the given TrueType/OpenType font on a transparent background
+   * (typed signatures, text stamps previews). The image is cropped to the page box of the text.
+   */
+  rasterizeText(spec: { text: string; font: Uint8Array; fontSize: number; color: Color }): Promise<RasterImage>;
   dispose(): Promise<void>;
 }
 
@@ -433,8 +438,8 @@ export interface PdfDocument {
   removeAnnotation(i: PageIndex, id: AnnotId): Promise<void>;
   /** Puts the listed annotations in the given back-to-front order; the others keep their place. */
   reorderAnnotations(i: PageIndex, ids: AnnotId[]): Promise<void>;
-  /** Burns annotations (not form widgets) into page content. */
-  flattenAnnotations(pages?: PageIndex[]): Promise<void>;
+  /** Burns annotations (not form widgets) into page content; `types` limits it to some annotation types. */
+  flattenAnnotations(pages?: PageIndex[], types?: AnnotationType[]): Promise<void>;
 
   // forms
   listFormFields(): Promise<FormField[]>;

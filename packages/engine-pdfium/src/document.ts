@@ -13,6 +13,7 @@ import {
 } from '@folio/core';
 import type {
   Annotation,
+  AnnotationType,
   AnnotId,
   AttachmentInfo,
   DocMeta,
@@ -750,8 +751,8 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   async reorderAnnotations(i: PageIndex, ids: AnnotId[]): Promise<void> {
     annots.reorder(this, i, ids);
   }
-  async flattenAnnotations(pages?: PageIndex[]): Promise<void> {
-    annots.flatten(this, pages ?? Array.from({ length: this.pageCount }, (_, k) => k));
+  async flattenAnnotations(pages?: PageIndex[], types?: AnnotationType[]): Promise<void> {
+    annots.flatten(this, pages ?? Array.from({ length: this.pageCount }, (_, k) => k), types);
   }
   async listFormFields(): Promise<FormField[]> {
     this.alive();

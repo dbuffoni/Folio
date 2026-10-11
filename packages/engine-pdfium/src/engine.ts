@@ -1,8 +1,8 @@
 import { init } from '@embedpdf/pdfium';
 import { InvalidArgumentError } from '@folio/core';
-import type { PageIndex, PdfDocument, PdfEngine } from '@folio/ports';
-import { PdfiumDocument, type EngineShared } from './document.ts';
-import type { Pdfium } from './mem.ts';
+import type { Color, PageIndex, PdfDocument, PdfEngine, RasterImage } from '@folio/ports';
+import { MAX_BITMAP_SIDE, PdfiumDocument, type EngineShared } from './document.ts';
+import { scope, type Pdfium } from './mem.ts';
 import { FontRegistry, type FontData } from './fonts.ts';
 
 export interface PdfiumEngineOptions {
@@ -63,6 +63,53 @@ export class PdfiumEngine implements PdfEngine {
       throw e;
     }
     return out;
+  }
+
+  async rasterizeText(spec: { text: string; font: Uint8Array; fontSize: number; color: Color }): Promise<RasterImage> {
+    this.alive();
+    const m = this.shared.m;
+    if (spec.text.trim() === '' || !(spec.fontSize > 0)) throw new InvalidArgumentError('Nothing to draw');
+    const doc = m.FPDF_CreateNewDocument();
+    try {
+      return scope(m, (a) => {
+        const font = m.FPDFText_LoadFont(doc, a.bytes(spec.font), spec.font.length, 2, true);
+        if (!font) throw new InvalidArgumentError('The font could not be loaded');
+        const text = m.FPDFPageObj_CreateTextObj(doc, font, spec.fontSize);
+        m.FPDFText_SetText(text, a.utf16(spec.text));
+        const b = a.alloc(16);
+        m.FPDFPageObj_GetBounds(text, b, b + 4, b + 8, b + 12);
+        const pad = Math.ceil(spec.fontSize * 0.2);
+        const width = Math.max(1, Math.ceil(a.f32(b, 2) - a.f32(b, 0)) + 2 * pad);
+        const height = Math.max(1, Math.ceil(a.f32(b, 3) - a.f32(b, 1)) + 2 * pad);
+        if (width > MAX_BITMAP_SIDE || height > MAX_BITMAP_SIDE) throw new InvalidArgumentError('Text is too large');
+        m.FPDFPageObj_SetFillColor(text, spec.color.r, spec.color.g, spec.color.b, 255);
+        m.FPDFPageObj_SetMatrix(text, a.floats([1, 0, 0, 1, pad - a.f32(b, 0), pad - a.f32(b, 1)]));
+        const page = m.FPDFPage_New(doc, 0, width, height);
+        m.FPDFPage_InsertObject(page, text);
+        const bitmap = m.FPDFBitmap_Create(width, height, 1);
+        m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0);
+        m.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, 0x10);
+        const buf = m.FPDFBitmap_GetBuffer(bitmap);
+        const stride = m.FPDFBitmap_GetStride(bitmap);
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let y = 0; y < height; y++) data.set(m.pdfium.HEAPU8.subarray(buf + y * stride, buf + y * stride + width * 4), y * width * 4);
+        // PDFium renders premultiplied alpha on a transparent bitmap: un-premultiply for the port's contract.
+        for (let i = 0; i < data.length; i += 4) {
+          const al = data[i + 3]!;
+          if (al > 0 && al < 255) {
+            data[i] = Math.min(255, (data[i]! * 255) / al);
+            data[i + 1] = Math.min(255, (data[i + 1]! * 255) / al);
+            data[i + 2] = Math.min(255, (data[i + 2]! * 255) / al);
+          }
+        }
+        m.FPDFBitmap_Destroy(bitmap);
+        m.FPDF_ClosePage(page);
+        m.FPDFFont_Close(font);
+        return { width, height, data };
+      });
+    } finally {
+      m.FPDF_CloseDocument(doc);
+    }
   }
 
   async dispose(): Promise<void> {
