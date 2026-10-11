@@ -58,3 +58,4 @@ export async function fixture(name: keyof typeof FIXTURES | string): Promise<Uin
   if (!bytes) cache.set(name, (bytes = await entry.build()));
   return bytes.slice();
 }
+export * from './forms-corpus.ts';

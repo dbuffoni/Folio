@@ -15,3 +15,4 @@ export * from './stamp.ts';
 export * from './form.ts';
 export * from './text-edit.ts';
 export * from './object-edit.ts';
+export * from './smartfill.ts';

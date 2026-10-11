@@ -14,6 +14,8 @@
     "fflate": "^0.8"
   },
   "devDependencies": {
+    "@folio/ai": "workspace:*",
+    "@folio/db": "workspace:*",
     "@folio/testkit": "workspace:*",
     "fast-check": "^3.23.2"
   }
