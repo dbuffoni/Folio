@@ -1,0 +1,12 @@
+{
+  "extends": "$app/tsconfig",
+  "include": ["src", "tests", "*"],
+  "exclude": ["src/service-worker"],
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"]
+  }
+}

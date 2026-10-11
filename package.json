@@ -24,9 +24,9 @@
     "fixtures:fetch": "tsx tools/fixtures-fetch.ts",
     "bench": "tsx tools/bench.ts",
     "cli": "tsx apps/cli/src/main.ts",
-    "lint": "eslint . && depcruise packages apps --config .dependency-cruiser.cjs && prettier --check .",
+    "lint": "eslint . && depcruise packages apps/cli apps/web/src --config .dependency-cruiser.cjs && tsx tools/sync-migrations.ts --check",
     "format": "prettier --write .",
-    "check": "tsc -b --noEmit false --emitDeclarationOnly --outDir node_modules/.tsbuild && pnpm --filter @folio/web check",
+    "check": "tsc -p tsconfig.json && pnpm --filter @folio/web check",
     "licenses": "tsx tools/licenses.ts",
     "appimage": "pnpm --filter @folio/desktop appimage",
     "appimage:smoke": "bash apps/desktop/scripts/smoke.sh"
@@ -50,7 +50,7 @@
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.1",
     "vitest": "^5.0.3"
   }

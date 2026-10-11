@@ -743,6 +743,7 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     return annots.list(this, i);
   }
   async upsertAnnotation(i: PageIndex, a: Annotation): Promise<AnnotId> {
+    await this.shared.fonts.ready;
     return annots.upsert(this, i, a);
   }
   async removeAnnotation(i: PageIndex, id: AnnotId): Promise<void> {
@@ -774,9 +775,11 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     return objects.list(this, i);
   }
   async replaceTextRun(i: PageIndex, objId: ObjId, text: string, style?: TextStyle): Promise<TextEditResult> {
+    await this.shared.fonts.ready;
     return objects.replaceText(this, i, objId, text, style);
   }
   async addText(i: PageIndex, spec: TextSpec): Promise<ObjId> {
+    await this.shared.fonts.ready;
     return objects.addText(this, i, spec);
   }
   async addImage(i: PageIndex, img: ImageSpec): Promise<ObjId> {

@@ -59,6 +59,7 @@ export function cutsForEveryN(pageCount: number, n: number): PageIndex[] {
   return out;
 }
 
+// eslint-disable-next-line no-control-regex
 const ILLEGAL = /[\\/:*?"<>|\u0000-\u001f]/g;
 /** Expands `{name}`, `{n}`, `{from}`, `{to}` (FR-MRG-05). `{n}` is zero-padded to the width of the part count. */
 export function expandTemplate(template: string, baseName: string, part: SplitPart, total: number): string {

@@ -8,8 +8,8 @@ import { FontRegistry, type FontData } from './fonts.ts';
 export interface PdfiumEngineOptions {
   /** Contents of pdfium.wasm. */
   wasmBinary: ArrayBuffer | Uint8Array;
-  /** Bundled font programs; without them added text uses the non-embedded PDF standard 14 fonts. */
-  fonts?: FontData;
+  /** Bundled font programs; without them added text uses the non-embedded PDF standard 14 fonts. A promise loads them lazily. */
+  fonts?: FontData | Promise<FontData>;
 }
 
 /** PdfEngine backed by PDFium compiled to WebAssembly. Runs in a Web Worker and in plain Node. */
@@ -22,12 +22,14 @@ export class PdfiumEngine implements PdfEngine {
     const wasm = opts.wasmBinary instanceof Uint8Array ? opts.wasmBinary.slice().buffer : opts.wasmBinary;
     const m = (await init({ wasmBinary: wasm as ArrayBuffer })) as unknown as Pdfium;
     m.PDFiumExt_Init();
+    const fonts = new FontRegistry(m, opts.fonts instanceof Promise ? {} : (opts.fonts ?? {}));
+    if (opts.fonts instanceof Promise) fonts.provide(opts.fonts);
     let docSeq = 0;
     let annotSeq = 0;
     const session = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
     return new PdfiumEngine({
       m,
-      fonts: new FontRegistry(m, opts.fonts ?? {}),
+      fonts,
       nextDocId: () => `doc-${++docSeq}`,
       nextAnnotId: () => `folio-${session}-${(++annotSeq).toString(36)}`,
     });

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { FolioError, History } from '@folio/core';
 import type { Annotation, FreeTextAnnotation, StampAnnotation } from '@folio/ports';
-import { FakeClock, NodeImageCodec, decodePng, fixture, flatFormDoc, inkRatio, meanColor, mutoolDraw, pdfcpuFormFields, pdffonts, pdftoppm, pdftotext, qpdfQdf, samplePng, sharedEngine, signaturePng } from '@folio/testkit';
+import { FakeClock, NodeImageCodec, decodePng, flatFormDoc, inkRatio, meanColor, mutoolDraw, pdfcpuFormFields, pdffonts, pdftoppm, pdftotext, qpdfQdf, samplePng, sharedEngine, signaturePng } from '@folio/testkit';
 import { AnnotationService, alignRects, constrainBox, constrainLine, distributeRects, moveAnnotation, resizeAnnotation, snapRect } from './annotation.ts';
 import { FormService, clampToField, currentValue, detectAreas, formatFieldValue, nextStop, tabOrder } from './form.ts';
 import { NavigationService } from './navigation.ts';

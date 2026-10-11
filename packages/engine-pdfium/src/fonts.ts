@@ -27,10 +27,22 @@ export function nearestFamily(font: { name: string; family: string; flags: numbe
 export class FontRegistry {
   /** FPDF_FONT handles are owned by a document; cache them per document pointer. */
   private loaded = new Map<Ptr, Map<string, Ptr>>();
+  /** Resolves when lazily loaded font data has arrived (immediately when fonts were given up front). */
+  ready: Promise<void> = Promise.resolve();
   constructor(
     private readonly m: Pdfium,
-    private readonly data: FontData,
+    private data: FontData,
   ) {}
+
+  /** Supplies font data after construction (the browser worker fetches fonts in the background). */
+  provide(data: Promise<FontData>): void {
+    this.ready = data.then(
+      (d) => {
+        this.data = d;
+      },
+      () => undefined, // fonts could not be fetched: the PDF standard 14 fallback stays in use
+    );
+  }
 
   /** Display name of what `load` will embed for the family. */
   displayName(family: StandardFontFamily, variant: FontVariant = 'regular'): string {

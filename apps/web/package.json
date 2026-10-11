@@ -1,0 +1,40 @@
+{
+  "name": "@folio/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@embedpdf/pdfium": "2.15.1",
+    "@folio/ai": "workspace:*",
+    "@folio/app": "workspace:*",
+    "@folio/core": "workspace:*",
+    "@folio/db": "workspace:*",
+    "@folio/engine-pdfium": "workspace:*",
+    "@folio/ports": "workspace:*",
+    "@folio/services": "workspace:*",
+    "@lucide/svelte": "^1.55.0",
+    "@sqlite.org/sqlite-wasm": "3.53.4-build2",
+    "@tauri-apps/api": "^2.12.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
+    "@sveltejs/adapter-static": "^4.0.0",
+    "@sveltejs/kit": "^3.0.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4"
+  }
+}

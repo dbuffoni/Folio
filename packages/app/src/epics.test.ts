@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import type { FreeTextAnnotation, StampAnnotation } from '@folio/ports';
-import { FIXTURE_PASSWORD, PERSON, fixture, flatFormDoc, inkRatio, mutoolDraw, pdfcpuFormFields, pdffonts, pdfinfo, pdftoppm, pdftotext, sampleJpeg, samplePng, signaturePng } from '@folio/testkit';
+import { FIXTURE_PASSWORD, PERSON, flatFormDoc, inkRatio, mutoolDraw, pdfcpuFormFields, pdffonts, pdfinfo, pdftoppm, pdftotext, sampleJpeg, samplePng, signaturePng } from '@folio/testkit';
 import { createTestApp, markers, settle } from './testing.ts';
 
 describe('E1 Merge two PDFs', () => {
