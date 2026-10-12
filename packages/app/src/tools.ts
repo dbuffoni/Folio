@@ -297,7 +297,7 @@ export class ToolController {
   /**
    * Enter with a tool armed: does what a click, or a drag of default size, would do at the centre of
    * the page. The new item is selected, so the arrow keys move it and Shift+arrows move it faster.
-   * Returns false when the armed tool has nothing to place (Select, or markup without a text selection).
+   * With Select and a text selection, Enter highlights it. Returns false when there is nothing to place.
    */
   async placeWithKeyboard(page: PageIndex): Promise<boolean> {
     if (this.typing || this.inlineEdit) return false;
@@ -335,15 +335,9 @@ export class ToolController {
       case 'cross':
         await this.pointerDown(page, c);
         return true;
-      case 'highlight':
-      case 'underline':
-      case 'strikeout':
-      case 'squiggly': {
-        const ok = await this.applyMarkup(this.tool);
-        if (ok && !this.sticky) this.tool = 'select';
-        this.emit();
-        return ok;
-      }
+      case 'select':
+        // The keyboard counterpart of the mini toolbar's Highlight, for a selected piece of text.
+        return this.session.selection.kind === 'text' ? this.applyMarkup('highlight') : false;
       default:
         return false;
     }

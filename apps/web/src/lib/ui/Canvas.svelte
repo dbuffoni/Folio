@@ -102,7 +102,12 @@
         e.preventDefault();
         requestAnimationFrame(() => scroller?.querySelector<HTMLElement>('.fld')?.focus());
       }
-    } else if (e.key === 'Enter' && !e.repeat && m.tools.tool !== 'select' && !m.tools.typing) {
+    } else if (
+      e.key === 'Enter' &&
+      !e.repeat &&
+      !m.tools.typing &&
+      (m.tools.tool !== 'select' || session.selection.kind === 'text')
+    ) {
       // Keyboard path for every click-to-place tool: place it at the centre of the page, then use the arrows.
       e.preventDefault();
       void m.tools.placeWithKeyboard(session.view.page);

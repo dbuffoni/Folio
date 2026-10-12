@@ -622,6 +622,61 @@ describe('Annotations can be placed from the keyboard @NFR-11', () => {
   });
 });
 
+describe('Keyboard placement covers every placement tool @NFR-11', () => {
+  it('a text selection is highlighted; shapes, whiteout, marks and typed text land on the page', async () => {
+    const t = await createTestApp();
+    const s = await t.open('invoice', '/a.pdf');
+    const tools = t.tools(s);
+    const size = s.pageInfos[0]!.size;
+    const centre = { x: size.width / 2, y: size.height / 2 };
+    const near = (r: { x: number; y: number; width: number; height: number }): boolean =>
+      Math.abs(r.x + r.width / 2 - centre.x) < 80 && Math.abs(r.y + r.height / 2 - centre.y) < 80;
+
+    // A word is selected (as the mouse would do), then Enter with the underline tool marks it up once.
+    const layer = await s.text.layer(0);
+    const run = layer.runs.find((r) => r.text.startsWith('Payment within'))!;
+    const c = layer.chars[run.charStart + 2]!.rect;
+    await tools.doubleClick(0, { x: c.x + c.width / 2, y: run.rect.y + 4 });
+    expect(await tools.selectedText()).toBe('Payment');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    expect((await s.doc.listAnnotations(0)).map((a) => a.type)).toEqual(['highlight']);
+    // A markup tool armed with no selection has nothing to place.
+    tools.setTool('underline');
+    expect(await tools.placeWithKeyboard(0)).toBe(false);
+
+    // Shapes and whiteout are drawn at the centre at the default size.
+    tools.setTool('ellipse');
+    await tools.placeWithKeyboard(0);
+    const shape = (await s.doc.listAnnotations(0)).find((a) => a.type === 'circle')!;
+    expect(near(shape.rect)).toBe(true);
+    expect(shape.rect).toMatchObject({ width: 120, height: 80 });
+    tools.setTool('whiteout');
+    await tools.placeWithKeyboard(0);
+    await settle();
+    expect(s.dirty).toBe(true);
+
+    // Marks go to the centre; add-text and cover-type open the editor there and commit like a click.
+    tools.setTool('check');
+    await tools.placeWithKeyboard(0);
+    tools.setTool('cross');
+    await tools.placeWithKeyboard(0);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.length).toBe(2);
+    expect(stamps.every((a) => near(a.rect))).toBe(true);
+    tools.setTool('add-text');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    expect(tools.typing).toMatchObject({ kind: 'textbox', page: 0 });
+    // While a text box is open, Enter does not place a second thing.
+    expect(await tools.placeWithKeyboard(0)).toBe(false);
+    await tools.commitTyping('typed');
+    tools.setTool('cover-type');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    expect(tools.typing).toMatchObject({ kind: 'cover', page: 0 });
+    tools.cancel();
+    expect(tools.typing).toBeNull();
+  });
+});
+
 describe('Typed text boxes keep everything that was typed @FR-ANN-03', () => {
   it('sizes the box to the wrapped text and keeps it on the page', async () => {
     const t = await createTestApp();

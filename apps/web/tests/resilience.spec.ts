@@ -78,6 +78,9 @@ test('print dialog accepts only ranges that exist in the document @FR-VIEW-09', 
   await expect(dialog).toBeVisible();
   const print = dialog.getByRole('button', { name: 'Print', exact: true });
   await expect(print).toBeEnabled();
+  // Page range and copies are Folio's; the scale belongs to the browser or system print dialog.
+  await expect(dialog.getByLabel('Copies')).toBeVisible();
+  await expect(dialog.getByLabel('Scale')).toHaveCount(0);
   await dialog.getByRole('radio', { name: 'Range' }).check();
   const range = dialog.getByRole('textbox', { name: 'Range' });
   await expect(print).toBeDisabled(); // empty range
