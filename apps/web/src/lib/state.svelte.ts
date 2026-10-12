@@ -8,13 +8,13 @@ import type { Emitter, Msg } from '@folio/core';
 import type { HandwritingFont } from '@folio/services';
 import { createWorkerEngine, loadHandwritingFont } from './engine/index.ts';
 import { setLocale } from './i18n/index.ts';
-import { bridge, bump, live, raw, track } from './live.svelte.ts';
+import { bridge, bump, bumpPage, live, raw, track, trackPage } from './live.svelte.ts';
 import { createPlatform, isTauri } from './platform/index.ts';
 
 export const VERSION = '0.1.0';
 
 const state = $state({ ready: false, error: '' as string });
-export { track, raw };
+export { track, trackPage, raw };
 export const boot = state;
 /** `dep(track(), value)`: explicit form of the dependency every read of a live model registers. */
 export const dep = <T>(_version: number, value: T): T => value;
@@ -84,6 +84,7 @@ export function models(view: DocumentSession): PerSession {
       smart: new SmartFillModel(raw(app), session),
     };
     for (const model of Object.values(m)) watch(model.changed);
+    void session.pageChanged.on(bumpPage);
     void m.form.load();
     perSession.set(session.id, m);
   }

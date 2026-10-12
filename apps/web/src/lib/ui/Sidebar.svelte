@@ -4,7 +4,7 @@
   import type { ListedAnnotation } from '@folio/services';
   import { formatBytes, parsePdfDate } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, app, models, services, track } from '#lib/state.svelte.ts';
+  import { dep, app, models, raw, services, track, trackPage } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import Thumb from './Thumb.svelte';
   import { rgb } from './raster.ts';
@@ -13,7 +13,7 @@
   let { session }: { session: DocumentSession } = $props();
   const m = $derived(models(session));
   const tab = $derived(dep(track(), session.sidebarTab));
-  const page = $derived(dep(track(), session.view.page));
+  const page = $derived(dep(trackPage(), raw(session).view.page));
   const count = $derived(dep(track(), session.pageCount));
   const sv = $derived(dep(track(), session.structureVersion));
   const find = $derived(dep(track(), m.find));

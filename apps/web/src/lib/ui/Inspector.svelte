@@ -3,7 +3,7 @@
   import { describePageSize, formatBytes, parsePdfDate, ptToIn, ptToMm } from '@folio/core';
   import type { Annotation, Color, PageObject } from '@folio/ports';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, app, models, run, services, track, ui } from '#lib/state.svelte.ts';
+  import { dep, app, models, run, services, track, trackPage, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import SmartFillPanel from './SmartFillPanel.svelte';
   import { colorToHex, hexToColor, rgb } from './raster.ts';
@@ -39,6 +39,7 @@
   };
   const pageSize = $derived.by(() => {
     void v;
+    void trackPage();
     const s = session.pageInfos[session.view.page]?.size;
     if (!s) return '';
     const d = describePageSize(s);

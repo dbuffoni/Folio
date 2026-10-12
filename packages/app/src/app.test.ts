@@ -408,6 +408,25 @@ describe('viewer', () => {
     s.fit({ width: 1272, height: 900 });
     expect(s.view.zoom).toBeCloseTo(zoom, 5);
   });
+  it('scroll-reported pages update the indicator without a full refresh, except in fit-page @FR-VIEW-08', async () => {
+    const t = await createTestApp();
+    const s = await t.open('mixed-sizes', '/m.pdf');
+    let changed = 0;
+    let paged = 0;
+    s.changed.on(() => changed++);
+    s.pageChanged.on(() => paged++);
+    s.reportPage(2);
+    expect(s.view.page).toBe(2);
+    expect({ changed, paged }).toEqual({ changed: 0, paged: 1 });
+    s.reportPage(2);
+    expect(paged).toBe(1);
+    s.goToPage(3);
+    expect({ changed, paged }).toEqual({ changed: 1, paged: 2 });
+    s.setZoom('fit-page');
+    changed = 0;
+    s.reportPage(1);
+    expect({ changed, paged }).toEqual({ changed: 1, paged: 3 });
+  });
   it('fits the zoom to the viewport and switches layouts @FR-VIEW-01', async () => {
     const t = await createTestApp();
     const s = await t.open('text', '/a.pdf');

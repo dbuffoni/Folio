@@ -1,7 +1,7 @@
 <script lang="ts">
   import { layoutPages, scrollTopFor, visibleRange, wheelZoom, type DocumentSession } from '@folio/app';
   import { t, tm } from '#lib/i18n/index.ts';
-  import { dep, models, run, track } from '#lib/state.svelte.ts';
+  import { dep, models, raw, run, track } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import PageView from './PageView.svelte';
 
@@ -25,6 +25,14 @@
   const layout = $derived(layoutPages(pages, view.zoom, view.layout === 'single' ? 'continuous' : view.layout, view.rotation));
   const boxes = $derived(layout.boxes.map((b) => ({ ...b, index: pages[b.index]!.index })));
   const range = $derived(visibleRange(boxes, scrollTop, viewport.height));
+  // Pages in the viewport render at once; the margin around it waits until scrolling stops, so a
+  // fast scroll does not queue full-resolution renders of pages that are about to leave.
+  let scrolling = $state(false);
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const inView = $derived(new Set(range.visible));
+  const margin = $derived(new Set(visibleRange(boxes, scrollTop, viewport.height, 1).mounted));
+  const renders = (i: number): boolean => view.layout === 'single' || inView.has(i) || (!scrolling && margin.has(i));
+  $effect(() => () => clearTimeout(idleTimer));
 
   $effect(() => {
     if (!scroller) return;
@@ -48,11 +56,14 @@
   function onscroll(): void {
     if (!scroller) return; // a late scroll event while the canvas is being replaced
     scrollTop = scroller.scrollTop;
+    scrolling = true;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => (scrolling = false), 120);
     if (view.layout === 'single') return;
     const current = visibleRange(boxes, scrollTop, viewport.height).current;
-    if (current !== session.view.page) {
+    if (current !== raw(session).view.page) {
       reported = current;
-      session.goToPage(current);
+      session.reportPage(current);
     }
   }
   $effect(() => {
@@ -130,7 +141,7 @@
   <div class="pages" style="width:{Math.max(layout.width, viewport.width)}px;height:{layout.height}px">
     {#each boxes as b (`${sv}-${b.index}`)}
       {#if range.mounted.includes(b.index) || view.layout === 'single'}
-        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={true} />
+        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} />
       {/if}
     {/each}
   </div>

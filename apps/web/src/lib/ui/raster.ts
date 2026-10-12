@@ -6,6 +6,23 @@ export function paint(canvas: HTMLCanvasElement, img: RasterImage): void {
   if (canvas.height !== img.height) canvas.height = img.height;
   canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
 }
+const pending = new Map<HTMLCanvasElement, { img: RasterImage; stale: () => boolean }>();
+let frame = 0;
+function flush(): void {
+  frame = 0;
+  for (const [canvas, job] of pending) {
+    pending.delete(canvas);
+    if (job.stale()) continue;
+    paint(canvas, job.img);
+    break;
+  }
+  if (pending.size) frame = requestAnimationFrame(flush);
+}
+/** Like `paint`, but at most one canvas per animation frame so bitmaps arriving together do not stall scrolling. */
+export function paintSoon(canvas: HTMLCanvasElement, img: RasterImage, stale: () => boolean = () => false): void {
+  pending.set(canvas, { img, stale });
+  if (!frame) frame = requestAnimationFrame(flush);
+}
 export function pngUrl(bytes: Uint8Array): string {
   return URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
 }

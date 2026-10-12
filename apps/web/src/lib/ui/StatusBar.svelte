@@ -2,7 +2,7 @@
   import { formatChord, parsePageJump, stepZoom, type DocumentSession } from '@folio/app';
   import { formatBytes } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, isMac, track, ui } from '#lib/state.svelte.ts';
+  import { dep, isMac, raw, track, trackPage, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import { tip } from './tip.ts';
@@ -12,7 +12,8 @@
   const dirty = $derived(dep(track(), session.dirty));
   const count = $derived(dep(track(), session.pageCount));
   let pageText = $state('1');
-  const currentPage = $derived(view.page);
+  // Follows scrolling without the rest of the status bar re-evaluating on every page change.
+  const currentPage = $derived(dep(trackPage(), raw(session).view.page));
   $effect(() => {
     pageText = String(currentPage + 1);
   });
@@ -27,18 +28,18 @@
   ]);
   function jump(): void {
     const p = parsePageJump(pageText, count);
-    if (p === null) pageText = String(view.page + 1);
+    if (p === null) pageText = String(currentPage + 1);
     else session.goToPage(p);
   }
 </script>
 
 <footer id="statusbar">
   <button class="ib" class:on={ui.sidebarOpen} onclick={() => ui.toggleSidebar()} use:tip={[t('cmd.toggleSidebar'), 'F4']} aria-label={t('cmd.toggleSidebar')} aria-pressed={ui.sidebarOpen}><Icon name="panel-left" /></button>
-  <button class="ib" disabled={view.page === 0} onclick={() => session.goToPage(view.page - 1)} aria-label={t('ui.prevPage')}><Icon name="chevron-left" /></button>
+  <button class="ib" disabled={currentPage === 0} onclick={() => session.goToPage(currentPage - 1)} aria-label={t('ui.prevPage')}><Icon name="chevron-left" /></button>
   <span>{t('ui.page')}</span>
   <input type="text" inputmode="numeric" bind:value={pageText} onchange={jump} onkeydown={(e) => e.key === 'Enter' && (jump(), e.currentTarget.blur())} aria-label={t('ui.pageNumber')} />
   <span>{t('ui.pageOf', { count })}</span>
-  <button class="ib" disabled={view.page >= count - 1} onclick={() => session.goToPage(view.page + 1)} aria-label={t('ui.nextPage')}><Icon name="chevron-right" /></button>
+  <button class="ib" disabled={currentPage >= count - 1} onclick={() => session.goToPage(currentPage + 1)} aria-label={t('ui.nextPage')}><Icon name="chevron-right" /></button>
   <span class="vsep"></span>
   <button class="ib" onclick={() => session.setZoom('custom', stepZoom(view.zoom, -1))} use:tip={[t('cmd.zoomOut'), k('Mod+-')]} aria-label={t('cmd.zoomOut')}><Icon name="minus" /></button>
   <button class="btn ghost sm" style="min-width:74px;justify-content:center" aria-haspopup="menu" aria-label={t('ui.zoom')} onclick={(e) => ((menu = { x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 300 }))}>
