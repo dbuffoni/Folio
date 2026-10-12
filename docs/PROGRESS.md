@@ -21,6 +21,7 @@ Run `tools/gate.sh <phase>` to re-check a gate, `pnpm trace` for the requirement
 
 Not implemented
 
+- **Text selection from the keyboard**: there is no caret, so a piece of text can only be selected with the pointer. Keyboard-only users can place and move every annotation (Enter at the centre of the page, then arrows), and Enter highlights an existing selection, but cannot start a text-based markup on their own. Accepted limit for Release 1 (NFR-11 is met for placement, not for text markup).
 - **Print scale** (part of FR-VIEW-09): the print dialog of Folio offers page range and copies; scale is chosen in the browser or system print dialog, which a print frame cannot preset. Folio-side scaling needs page scaling (Post-R1 machinery).
 - **Merge option "unify page size"** (part of FR-MRG-02): needs page scaling (Post-R1 machinery).
 - **FakePdfEngine**: services and view-models are tested against the real engine, which starts in ~20 ms in Node.
