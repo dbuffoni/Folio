@@ -13,14 +13,13 @@
   let which = $state<'all' | 'current' | 'range'>('all');
   let range = $state('');
   let copies = $state(1);
-  let scale = $state<'fit' | 'actual'>('fit');
   const copiesOk = $derived(Number.isInteger(copies) && copies >= 1 && copies <= 99);
   const rangeOk = $derived(which !== 'range' || (!!session && range.trim() !== '' && isValidPageRanges(range, session.pageCount)));
   async function print(): Promise<void> {
     if (!session) return;
     const pages = which === 'all' ? undefined : which === 'current' ? [session.view.page] : parsePageRanges(range, session.pageCount);
     ui.closeDialog();
-    await app.print({ pages, copies, scale }, session);
+    await app.print({ pages, copies }, session);
   }
   // insert blank
   let where = $state<'before' | 'after'>('after');
@@ -51,10 +50,7 @@
       </div>
       {#if which === 'range'}<input type="text" bind:value={range} placeholder="1-3,7" aria-label={t('dialog.print.range')} aria-invalid={!rangeOk} style={rangeOk ? '' : 'border-color:var(--color-danger)'} />{/if}
     </div>
-    <div class="g2">
-      <div class="field"><label for="pc">{t('dialog.print.copies')}</label><input id="pc" type="number" min="1" max="99" step="1" bind:value={copies} aria-invalid={!copiesOk} style={copiesOk ? '' : 'border-color:var(--color-danger)'} /></div>
-      <div class="field"><label for="ps">{t('dialog.print.scale')}</label><select id="ps" bind:value={scale}><option value="fit">{t('dialog.print.fit')}</option><option value="actual">{t('dialog.print.actual')}</option></select></div>
-    </div>
+    <div class="field"><label for="pc">{t('dialog.print.copies')}</label><input id="pc" type="number" min="1" max="99" step="1" bind:value={copies} aria-invalid={!copiesOk} style={copiesOk ? '' : 'border-color:var(--color-danger)'} /></div>
     {#snippet footer()}
       <button class="btn" onclick={() => ui.closeDialog()}>{t('action.cancel')}</button>
       <button class="btn primary" disabled={!rangeOk || !copiesOk} onclick={print}><Icon name="printer" />{t('dialog.print.print')}</button>

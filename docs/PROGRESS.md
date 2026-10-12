@@ -21,6 +21,7 @@ Run `tools/gate.sh <phase>` to re-check a gate, `pnpm trace` for the requirement
 
 Not implemented
 
+- **Print scale** (part of FR-VIEW-09): the print dialog of Folio offers page range and copies; scale is chosen in the browser or system print dialog, which a print frame cannot preset. Folio-side scaling needs page scaling (Post-R1 machinery).
 - **Merge option "unify page size"** (part of FR-MRG-02): needs page scaling (Post-R1 machinery).
 - **FakePdfEngine**: services and view-models are tested against the real engine, which starts in ~20 ms in Node.
 - **CJK fixture**: no CJK font is bundled or installed; Greek, Cyrillic, Hebrew and Polish text are covered.
