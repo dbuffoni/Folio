@@ -120,7 +120,8 @@
   });
   $effect(() => {
     void renderTick;
-    if (!visible || !(themeInvertsImages(theme) || mode === 'edit')) return void (images = []);
+    const imageSelected = sel.kind === 'object' && sel.page === page;
+    if (!visible || !(themeInvertsImages(theme) || mode === 'edit' || imageSelected)) return void (images = []);
     untrack(() => void services.objects.imagesOn(session.doc, page).then((o) => (images = o)));
   });
   const showAreas = $derived(
@@ -204,7 +205,7 @@
     alt: e.altKey,
     mod: e.ctrlKey || e.metaKey,
   });
-  let down = false;
+  let down = $state(false);
   async function onpointerdown(e: PointerEvent): Promise<void> {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -273,8 +274,11 @@
 
   // ---- form fields ------------------------------------------------------------------------------
   let suggest = $state<{ id: string; items: string[] } | null>(null);
+  let activeSuggestion = $state(-1);
+  let chosenByKey: { id: string; value: string } | null = null;
   async function loadSuggestions(field: FormField, value: string): Promise<void> {
     const items = await m.form.suggestions(field, value);
+    activeSuggestion = -1;
     suggest = items.length && !(items.length === 1 && items[0] === value) ? { id: field.id, items } : null;
   }
   const fieldFont = (f: FormField, r: Rect): number =>
@@ -416,14 +420,46 @@
             )}
             oninput={(e) => loadSuggestions(f, e.currentTarget.value)}
             onblur={() => setTimeout(() => suggest?.id === f.id && (suggest = null), 150)}
-            onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            onchange={(e) => m.form.set(f, e.currentTarget.value)}
+            role={suggest?.id === f.id ? 'combobox' : undefined}
+            aria-expanded={suggest?.id === f.id ? true : undefined}
+            aria-controls={suggest?.id === f.id ? `sugg-${f.id}` : undefined}
+            aria-autocomplete={suggest?.id === f.id ? 'list' : undefined}
+            aria-activedescendant={suggest?.id === f.id && activeSuggestion >= 0 ? `sugg-${f.id}-${activeSuggestion}` : undefined}
+            onkeydown={(e) => {
+              const open = suggest?.id === f.id ? suggest.items : null;
+              if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                e.preventDefault();
+                const n = open.length;
+                activeSuggestion = e.key === 'ArrowDown' ? (activeSuggestion + 1) % n : (activeSuggestion - 1 + n) % n;
+              } else if (open && e.key === 'Enter' && activeSuggestion >= 0) {
+                e.preventDefault();
+                // Commit the choice once: browsers differ on whether leaving the field then fires "change".
+                const chosen = open[activeSuggestion]!;
+                e.currentTarget.value = chosen;
+                chosenByKey = { id: f.id, value: chosen };
+                suggest = null;
+                void m.form.set(f, chosen);
+                e.currentTarget.blur();
+              } else if (open && e.key === 'Escape') {
+                e.stopPropagation();
+                suggest = null;
+              } else if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+            onchange={(e) => {
+              const done = chosenByKey;
+              chosenByKey = null;
+              if (done?.id === f.id && done.value === e.currentTarget.value) return;
+              void m.form.set(f, e.currentTarget.value);
+            }}
           />
           {#if suggest?.id === f.id}
-            <div class="sugg" style="left:{r.x}px;top:{r.y + r.height + 2}px" role="listbox">
-              {#each suggest.items as s (s)}<button
+            <div class="sugg" id="sugg-{f.id}" style="left:{r.x}px;top:{r.y + r.height + 2}px" role="listbox">
+              {#each suggest.items as s, si (s)}<button
                   role="option"
-                  aria-selected="false"
+                  id="sugg-{f.id}-{si}"
+                  tabindex="-1"
+                  class:on={si === activeSuggestion}
+                  aria-selected={si === activeSuggestion}
                   onpointerdown={(e) => (e.preventDefault(), (suggest = null), void m.form.set(f, s))}
                   >{s}</button
                 >{/each}
@@ -500,7 +536,12 @@
       </div>
     {/each}
     {#if drag?.objectPreview}
-      <div class="abox" style={css(drag.objectPreview)}></div>
+      <div class="abox" style={css(drag.objectPreview)}>
+        <b class="h tl" data-handle="tl"></b><b class="h tr" data-handle="tr"></b><b
+          class="h bl"
+          data-handle="bl"
+        ></b><b class="h br" data-handle="br"></b>
+      </div>
     {:else if selectedImage}
       <div class="abox" style={css(selectedImage.bounds)}>
         <b class="h tl" data-handle="tl"></b><b class="h tr" data-handle="tr"></b><b
@@ -603,14 +644,13 @@
     {/if}
     {#if notice}
       {@const r = vr(
-        lines.length
-          ? (lines.find((l) => l.text === notice.result.text)?.line.rect ?? {
-              x: 40,
-              y: 40,
-              width: 10,
-              height: 10,
-            })
-          : { x: 40, y: 40, width: 10, height: 10 },
+        notice.rect ??
+          lines.find((l) => l.text === notice.result.text)?.line.rect ?? {
+            x: 40,
+            y: 40,
+            width: 10,
+            height: 10,
+          },
       )}
       <div class="fl fbadge" role="status" style="left:{Math.max(4, r.x)}px;top:{Math.max(0, r.y - 30)}px">
         <Icon name="triangle-alert" /><span

@@ -119,6 +119,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   const prompts = new ScriptedPrompts();
   const app = new AppModel(services, prompts, ticker);
   await app.start();
+  await app.offerRecovery();
   const ui = new UiState();
   const sign = new SignModel(app);
   const registry = createRegistry();

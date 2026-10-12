@@ -271,14 +271,28 @@ export function placeAt(at: Point, size: Size, page: Size): Rect {
   const height = Math.min(size.height, page.height);
   return { x: clamp(at.x - width / 2, 0, page.width - width), y: clamp(at.y - height / 2, 0, page.height - height), width, height };
 }
-/** Resize keeping the aspect ratio (signatures and image stamps). `anchor` is the fixed corner. */
-export function resizeLocked(rect: Rect, anchor: Point, corner: Point, minSize = 8): Rect {
+/**
+ * Resize keeping the aspect ratio (signatures and image stamps). `anchor` is the fixed corner.
+ * With `bounds` (the page) the result is scaled down so it never leaves them.
+ */
+export function resizeLocked(rect: Rect, anchor: Point, corner: Point, minSize = 8, bounds?: Rect): Rect {
   const aspect = rect.width / rect.height;
   let width = Math.max(minSize, Math.abs(corner.x - anchor.x));
   let height = width / aspect;
   if (height < Math.abs(corner.y - anchor.y)) {
     height = Math.max(minSize, Math.abs(corner.y - anchor.y));
     width = height * aspect;
+  }
+  if (bounds) {
+    const right = corner.x >= anchor.x;
+    const up = corner.y >= anchor.y;
+    const roomX = right ? bounds.x + bounds.width - anchor.x : anchor.x - bounds.x;
+    const roomY = up ? bounds.y + bounds.height - anchor.y : anchor.y - bounds.y;
+    const k = Math.min(1, roomX / width, roomY / height);
+    if (k < 1 && k > 0) {
+      width *= k;
+      height *= k;
+    }
   }
   return { x: corner.x >= anchor.x ? anchor.x : anchor.x - width, y: corner.y >= anchor.y ? anchor.y : anchor.y - height, width, height };
 }

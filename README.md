@@ -53,7 +53,8 @@ apps/desktop             Tauri 2 shell (Rust): scoped files, keyring, SQLite, HT
 ```
 
 Services were built and tested before any screen existed; the UI only binds to view-models that
-already pass their tests. [SPEC.md](SPEC.md) is the full specification and
+already pass their tests. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is a one-page map of the
+code, [SPEC.md](SPEC.md) is the full specification and
 [docs/adr](docs/adr) records the decisions that deviate from or refine it.
 
 ## Tests
@@ -73,6 +74,11 @@ already pass their tests. [SPEC.md](SPEC.md) is the full specification and
 
 No telemetry, no accounts, no network calls by default; an end-to-end test fails on any outbound
 request. Smart Fill contacts a service only after you add a key, and shows what will be sent first.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture rules, test conventions and
+definition of done.
 
 ## Licence
 

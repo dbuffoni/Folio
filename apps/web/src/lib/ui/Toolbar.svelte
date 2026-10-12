@@ -171,7 +171,7 @@
     {@render cmdBtn('task.split', 'scissors', t('tool.split'))}
     <span class="grow"></span>
     <span class="chip acc">{t('ui.selected', { count: selCount })}</span>
-    <button class="btn ghost sm" onclick={() => m.organise.selectAll()}>{t('ui.selectAll')}</button>
+    <button class="btn sm" onclick={() => m.organise.selectAll()}>{t('ui.selectAll')}</button>
   {:else if mode === 'annotate'}
     {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
     <span class="vsep"></span>

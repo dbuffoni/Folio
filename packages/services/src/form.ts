@@ -244,11 +244,19 @@ export class FormService {
   /** Typed text for a non-fillable form: a border-less FreeText annotation that other viewers can still edit. */
   coverText(rect: Rect, text: string, style: Partial<CoverTextStyle> = {}): FreeTextAnnotation {
     const s = { ...DEFAULT_COVER_STYLE, ...style };
-    return { type: 'freetext', id: this.deps.newId(), rect, contents: text, fontFamily: s.fontFamily, fontSize: s.fontSize, textColor: s.color, align: 'left', borderWidth: 0 };
+    // The box grows downwards (top edge kept) so wrapped lines are not clipped; width is the field's.
+    const perLine = Math.max(1, Math.floor((rect.width - 4) / (s.fontSize * 0.6)));
+    const lines = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
+    const height = lines > 1 ? Math.max(rect.height, lines * s.fontSize * 1.3 + 4) : rect.height;
+    const box = height > rect.height ? { ...rect, y: rect.y + rect.height - height, height } : rect;
+    return { type: 'freetext', id: this.deps.newId(), rect: box, contents: text, fontFamily: s.fontFamily, fontSize: s.fontSize, textColor: s.color, align: 'left', borderWidth: 0 };
   }
   /** Ghost → text box in one click (FR-FRM-07). */
   fromArea(area: DetectedArea, text = '', style: Partial<CoverTextStyle> = {}): Annotation {
-    const fontSize = Math.min(style.fontSize ?? DEFAULT_COVER_STYLE.fontSize, Math.max(7, area.rect.height * 0.7));
+    const wanted = Math.min(style.fontSize ?? DEFAULT_COVER_STYLE.fontSize, Math.max(7, area.rect.height * 0.7));
+    // A long value shrinks (down to 6 pt) instead of running past the end of the field and being clipped.
+    const fits = text.length === 0 ? wanted : ((area.rect.width - 4) / (text.length * 0.6));
+    const fontSize = Math.max(Math.min(6, wanted), Math.min(wanted, fits));
     return this.coverText(area.rect, text, { ...style, fontSize });
   }
 

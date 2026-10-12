@@ -46,17 +46,30 @@
   });
   const filled = $derived(dep(v, m.form.fields.filter((f) => !f.readOnly && f.type !== 'button' && f.type !== 'signature' && f.value !== '' && f.value !== 'Off').length));
   const stampName = (a: Annotation): [string, string] => (a.type === 'stamp' ? (a.name === 'Signature' || a.name === 'Initials' ? ['ui.signature', 'signature'] : a.name === 'Date' ? ['ui.date', 'calendar'] : ['ui.stamp', 'stamp']) : (TITLE[a.type] ?? ['ui.other', 'paperclip']));
-  async function setSize(key: 'width' | 'height', value: number): Promise<void> {
-    if (!annot || !(value > 2)) return;
+  async function setSize(key: 'width' | 'height', value: number, input: HTMLInputElement): Promise<void> {
+    if (!annot) return;
+    const revert = (): void => void (input.value = String(Math.round(annot!.rect[key])));
+    if (!(value > 2)) return revert();
     const k = annot.rect.width / annot.rect.height;
-    const width = key === 'width' ? value : value * k;
-    const height = key === 'height' ? value : value / k;
+    let width = key === 'width' ? value : value * k;
+    let height = key === 'height' ? value : value / k;
+    // Never larger than what is left of the page from the box's corner.
+    const box = session.pageInfos[(sel as { page: number }).page]?.cropBox;
+    if (box) {
+      const fit = Math.min(1, (box.x + box.width - annot.rect.x) / width, (box.y + box.height - annot.rect.y) / height);
+      if (fit > 0 && fit < 1) {
+        width *= fit;
+        height *= fit;
+      }
+    }
     const { resizeAnnotation } = await import('@folio/services');
     await app.guard(() => session.run(services.annotations.update((sel as { page: number }).page, annot!, resizeAnnotation(annot!, { ...annot!.rect, width, height }))));
+    // Show what was applied (a clamped value must not stay as typed).
+    input.value = String(Math.round(key === 'width' ? width : height));
   }
   async function flattenSelected(): Promise<void> {
     if (sel.kind !== 'annotations' || !annot) return;
-    if (!(await app.prompts.confirm({ key: 'confirm.flattenAnnotations' }, { danger: true }))) return;
+    if (!(await app.prompts.confirm({ key: 'confirm.flattenAnnotations' }, { danger: true, confirmLabel: { key: 'cmd.flatten.annotations' } }))) return;
     await app.guard(() => session.run(services.exporter.flatten('annotations', [sel.page])));
   }
   async function replaceImage(): Promise<void> {
@@ -161,8 +174,8 @@
     {:else if annot.type === 'stamp'}
       <div class="ins-s">
         <h4>{t('ui.sizePosition')}</h4>
-        <div class="row"><label for="wd">{t('ui.width')}</label><input id="wd" type="number" min="4" value={Math.round(annot.rect.width)} onchange={(e) => setSize('width', Number(e.currentTarget.value))} /></div>
-        <div class="row"><label for="ht">{t('ui.height')}</label><input id="ht" type="number" min="4" value={Math.round(annot.rect.height)} onchange={(e) => setSize('height', Number(e.currentTarget.value))} /></div>
+        <div class="row"><label for="wd">{t('ui.width')}</label><input id="wd" type="number" min="4" value={Math.round(annot.rect.width)} onchange={(e) => setSize('width', Number(e.currentTarget.value), e.currentTarget)} /></div>
+        <div class="row"><label for="ht">{t('ui.height')}</label><input id="ht" type="number" min="4" value={Math.round(annot.rect.height)} onchange={(e) => setSize('height', Number(e.currentTarget.value), e.currentTarget)} /></div>
         <p class="note">{t('ui.keepProportions')}</p>
       </div>
       <div class="ins-s"><button class="btn" onclick={flattenSelected}><Icon name="layers" />{t('sign.flatten')}</button></div>
@@ -178,8 +191,8 @@
       <div class="kv"><span>{t('ui.height')}</span><b>{unit(image.bounds.height)} {app.settings.units}</b></div>
       {#if image.imageSize}<div class="kv"><span>px</span><b>{image.imageSize.width} × {image.imageSize.height}</b></div>{/if}
       <div class="row">
-        <button class="btn sm" onclick={() => app.guard(() => session.run(services.objects.rotate((sel as { page: number }).page, image!, -90)))}><Icon name="rotate-cw" /></button>
-        <button class="btn sm" onclick={() => app.guard(() => session.run(services.objects.rotate((sel as { page: number }).page, image!, 90)))}><Icon name="rotate-ccw" /></button>
+        <button class="btn sm" onclick={() => app.guard(() => session.run(services.objects.rotate((sel as { page: number }).page, image!, -90)))} aria-label={t('ui.rotateImageRight')}><Icon name="rotate-cw" /></button>
+        <button class="btn sm" onclick={() => app.guard(() => session.run(services.objects.rotate((sel as { page: number }).page, image!, 90)))} aria-label={t('ui.rotateImageLeft')}><Icon name="rotate-ccw" /></button>
       </div>
     </div>
     <div class="ins-s">

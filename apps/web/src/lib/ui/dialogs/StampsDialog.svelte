@@ -61,7 +61,7 @@
           </button>
           <button class="ib" disabled={i === 0} onclick={() => move(s.id, -1)} aria-label="↑ {s.name}"><Icon name="chevron-up" /></button>
           <button class="ib" disabled={i === custom.length - 1} onclick={() => move(s.id, 1)} aria-label="↓ {s.name}"><Icon name="chevron-down" /></button>
-          <button class="ib" onclick={async () => (await app.prompts.confirm({ key: 'confirm.removeStamp' }, { danger: true })) && sign.removeStamp(s.id)} aria-label="{t('action.delete')} {s.name}"><Icon name="trash-2" /></button>
+          <button class="ib" onclick={async () => (await app.prompts.confirm({ key: 'confirm.removeStamp' }, { danger: true, confirmLabel: { key: 'action.delete' } })) && sign.removeStamp(s.id)} aria-label="{t('action.delete')} {s.name}"><Icon name="trash-2" /></button>
         </div>
       {/each}
       <button class="btn sm" style="align-self:flex-start" onclick={fromImage}><Icon name="image-plus" />{t('stamp.fromImage')}</button>

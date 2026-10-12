@@ -57,10 +57,10 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'task.images', title: 'cmd.imagesToPdf', group: 'file', icon: 'images', keywords: 'photos jpg png scan', run: ({ ui }) => ui.openDialog('images') },
     { id: 'export.images', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
     { id: 'export.flatten', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {
-        if (await app.prompts.confirm({ key: 'confirm.flatten' }, { danger: true })) await app.guard(() => session!.run(app.services.exporter.flatten('both')));
+        if (await app.prompts.confirm({ key: 'confirm.flatten' }, { danger: true, confirmLabel: { key: 'cmd.flatten.both' } })) await app.guard(() => session!.run(app.services.exporter.flatten('both')));
       } },
     { id: 'export.flattenAnnotations', title: 'cmd.flattenAnnotations', group: 'export', icon: 'layers-2', when: doc, run: async ({ app, session }) => {
-        if (await app.prompts.confirm({ key: 'confirm.flattenAnnotations' }, { danger: true })) await app.guard(() => session!.run(app.services.exporter.flatten('annotations')));
+        if (await app.prompts.confirm({ key: 'confirm.flattenAnnotations' }, { danger: true, confirmLabel: { key: 'cmd.flatten.annotations' } })) await app.guard(() => session!.run(app.services.exporter.flatten('annotations')));
       } },
     { id: 'export.flattenedCopy', title: 'cmd.flattenedCopy', group: 'export', icon: 'file-output', when: doc, run: async ({ app, session }) => {
         const ref = await app.services.platform.files.pickSave({ suggestedName: session!.name.replace(/\.pdf$/i, '') + ' (flattened).pdf', kind: 'pdf' });

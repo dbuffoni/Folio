@@ -1,7 +1,16 @@
 // Engine conformance suite (SPEC §8.9, §15): the same tests run against every PdfEngine implementation.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FolioError } from '@folio/core';
-import type { Annotation, MarkupAnnotation, PdfDocument, PdfEngine, RasterImage, SearchHit, SearchQuery, StampAnnotation } from '@folio/ports';
+import type {
+  Annotation,
+  MarkupAnnotation,
+  PdfDocument,
+  PdfEngine,
+  RasterImage,
+  SearchHit,
+  SearchQuery,
+  StampAnnotation,
+} from '@folio/ports';
 import { FIXTURE_PASSWORD, fixture, inkRatio, meanColor, sampleRaster } from '@folio/testkit';
 
 export interface EngineCaps {
@@ -1081,6 +1090,142 @@ export function runEngineConformance(
         expect(await code(doc.addRect(0, { rect: { x: 0, y: 0, width: 0, height: 0 } }))).toBe(
           'invalidArgument',
         );
+        doc.dispose();
+      });
+    });
+
+    describe('robustness', () => {
+      it('rejects out-of-range and non-integer page indexes with a typed error, never a raw one', async () => {
+        const doc = await open('text');
+        for (const bad of [-1, 3, 99, 1.5, Number.NaN]) {
+          expect(await code(doc.getPageInfo(bad)), `getPageInfo(${bad})`).toBe('invalidArgument');
+          expect(await code(doc.getTextLayer(bad)), `getTextLayer(${bad})`).toBe('invalidArgument');
+          expect(await code(doc.listAnnotations(bad)), `listAnnotations(${bad})`).toBe('invalidArgument');
+          expect(await code(doc.render(bad, { scale: 1 })), `render(${bad})`).toBe('invalidArgument');
+          expect(await code(doc.rotatePages([bad], 90)), `rotatePages(${bad})`).toBe('invalidArgument');
+        }
+        expect(doc.pageCount).toBe(3);
+        expect(await markers(doc)).toEqual([1, 2, 3]);
+        doc.dispose();
+      });
+
+      it('refuses rotations other than 90, 180 and 270 and leaves the page untouched', async () => {
+        const doc = await open('text');
+        for (const deg of [45, 100, 1, 0, -90, 360, Number.NaN])
+          expect(await code(doc.rotatePages([0], deg as 90)), `${deg}`).toBe('invalidArgument');
+        expect((await doc.getPageInfo(0)).rotation).toBe(0);
+        doc.dispose();
+      });
+
+      it('dispose is idempotent and a disposed document refuses every operation with a typed error', async () => {
+        const doc = await open('text');
+        doc.dispose();
+        expect(() => doc.dispose()).not.toThrow();
+        expect(await code(doc.render(0, { scale: 1 }))).toBe('invalidArgument');
+        expect(await code(doc.save())).toBe('invalidArgument');
+        expect(await code(doc.getTextLayer(0))).toBe('invalidArgument');
+        expect(await code(doc.rotatePages([0], 90))).toBe('invalidArgument');
+      });
+
+      it('survives repeated open/dispose cycles without exhausting memory', async () => {
+        const bytes = await fixture('text');
+        for (let i = 0; i < 60; i++) {
+          const doc = await engine.open(bytes);
+          await doc.render(0, { scale: 0.3 });
+          doc.dispose();
+        }
+        const doc = await open('invoice');
+        expect((await doc.render(0, { scale: 1 })).width).toBeGreaterThan(0);
+        doc.dispose();
+      });
+
+      it('gives the same answers when operations on one document overlap', async () => {
+        const doc = await open('text');
+        const serial: string[] = [];
+        for (let i = 0; i < 3; i++) serial.push((await doc.getTextLayer(i)).text);
+        const [a, b, c] = await Promise.all([doc.getTextLayer(0), doc.getTextLayer(1), doc.getTextLayer(2)]);
+        expect([a.text, b.text, c.text]).toEqual(serial);
+        const renders = await Promise.all([0, 1, 2, 0].map((i) => doc.render(i, { scale: 0.5 })));
+        expect(renders[0]!.data).toEqual(renders[3]!.data);
+        expect(renders.every((r) => !isBlank(r))).toBe(true);
+        doc.dispose();
+      });
+
+      it('keeps two documents independent', async () => {
+        const a = await open('text');
+        const b = await open('text');
+        await a.deletePages([0]);
+        await a.rotatePages([0], 90);
+        expect([a.pageCount, b.pageCount]).toEqual([2, 3]);
+        expect((await b.getPageInfo(0)).rotation).toBe(0);
+        a.dispose();
+        expect((await b.render(0, { scale: 0.5 })).width).toBeGreaterThan(0);
+        b.dispose();
+      });
+
+      it('answers every input that is not a PDF with InvalidPdf', async () => {
+        const inputs: Array<[string, Uint8Array]> = [
+          ['empty', new Uint8Array(0)],
+          ['one byte', new Uint8Array([0x25])],
+          ['header only', new TextEncoder().encode('%PDF-1.7\n')],
+          ['header and EOF only', new TextEncoder().encode('%PDF-1.7\n%%EOF\n')],
+          ['zeros', new Uint8Array(4096)],
+          ['html', new TextEncoder().encode('<!doctype html><title>x</title>')],
+          ['png signature', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])],
+        ];
+        for (const [what, bytes] of inputs) expect(await code(engine.open(bytes)), what).toBe('invalidPdf');
+      });
+
+      it('never throws a raw error on truncated files: it opens in recovery mode or says InvalidPdf', async () => {
+        const full = await fixture('invoice');
+        for (let k = 1; k < 16; k++) {
+          const cut = Math.floor((full.length * k) / 16);
+          let doc: PdfDocument | undefined;
+          try {
+            doc = await engine.open(full.slice(0, cut));
+            // Whatever opened must be usable.
+            expect(doc.pageCount).toBeGreaterThanOrEqual(0);
+            if (doc.pageCount > 0) await doc.getTextLayer(0);
+          } catch (e) {
+            expect(e instanceof FolioError, `cut at ${cut}: ${String(e)}`).toBe(true);
+            expect(['invalidPdf', 'io', 'unsupportedFeature']).toContain((e as FolioError).code);
+          } finally {
+            doc?.dispose();
+          }
+        }
+      });
+
+      it('survives random byte corruption: typed errors only, and the engine stays usable (seeded fuzz)', async () => {
+        const full = await fixture('invoice');
+        let seed = 0x5eed1234;
+        const rnd = (): number => {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          return seed / 2 ** 32;
+        };
+        let opened = 0;
+        for (let round = 0; round < 40; round++) {
+          const bytes = full.slice();
+          for (let i = 0; i < 1 + Math.floor(rnd() * 24); i++)
+            bytes[Math.floor(rnd() * bytes.length)] = Math.floor(rnd() * 256);
+          let doc: PdfDocument | undefined;
+          try {
+            doc = await engine.open(bytes);
+            opened++;
+            if (doc.pageCount > 0) {
+              await doc.getPageInfo(0);
+              await doc.getTextLayer(0);
+              await doc.render(0, { scale: 0.3 });
+              await doc.listAnnotations(0);
+            }
+          } catch (e) {
+            expect(e instanceof FolioError, `round ${round}: ${String(e)}`).toBe(true);
+          } finally {
+            doc?.dispose();
+          }
+        }
+        expect(opened).toBeGreaterThan(0);
+        const doc = await open('text');
+        expect(await markers(doc)).toEqual([1, 2, 3]);
         doc.dispose();
       });
     });

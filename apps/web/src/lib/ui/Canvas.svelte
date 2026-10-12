@@ -11,6 +11,7 @@
   const view = $derived(dep(v, session.view));
   const sv = $derived(dep(v, session.structureVersion));
   const hint = $derived(dep(v, m.tools.hint));
+  const snapshot = $derived(dep(v, m.tools.tool) === 'snapshot');
   let scroller: HTMLDivElement | undefined = $state();
   let viewport = $state({ width: 800, height: 600 });
   let scrollTop = $state(0);
@@ -45,7 +46,8 @@
   // Scrolling reports the current page; a page change from elsewhere scrolls to it.
   let reported = -1;
   function onscroll(): void {
-    scrollTop = scroller!.scrollTop;
+    if (!scroller) return; // a late scroll event while the canvas is being replaced
+    scrollTop = scroller.scrollTop;
     if (view.layout === 'single') return;
     const current = visibleRange(boxes, scrollTop, viewport.height).current;
     if (current !== session.view.page) {
@@ -61,6 +63,25 @@
     reported = page;
     scroller.scrollTop = view.layout === 'single' ? 0 : scrollTopFor(boxes, page);
   });
+  // The current search match is brought into view below the floating find bar.
+  const findOpen = $derived(dep(v, m.find.open));
+  const matchIndex = $derived(dep(v, m.find.open ? m.find.current : -1));
+  $effect(() => {
+    if (matchIndex < 0 || !scroller) return;
+    void view.zoom;
+    const host = scroller;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const hit = host.querySelector<HTMLElement>('.hit.cur');
+        if (!hit) return;
+        const a = hit.getBoundingClientRect();
+        const b = host.getBoundingClientRect();
+        const top = a.top - b.top;
+        const FIND_BAR = 64;
+        if (top < FIND_BAR || a.bottom - b.top > b.height - 16) host.scrollTop += top - b.height / 3;
+      }),
+    );
+  });
   function onwheel(e: WheelEvent): void {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
@@ -70,7 +91,7 @@
     if ((e.target as HTMLElement).closest('input, textarea, select')) return;
     if (e.key === ' ') {
       e.preventDefault();
-      scroller!.scrollBy({ top: (e.shiftKey ? -0.9 : 0.9) * viewport.height });
+      scroller?.scrollBy({ top: (e.shiftKey ? -0.9 : 0.9) * viewport.height });
     } else if (e.key.startsWith('Arrow') && session.selection.kind === 'annotations') {
       e.preventDefault();
       void m.tools.nudgeSelection(e.key as 'ArrowLeft', e.shiftKey);
@@ -88,12 +109,14 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div id="canvas" bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} {onscroll} {onwheel} {onkeydown}>
+<div id="canvas" class:finding={findOpen} bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} {onscroll} {onwheel} {onkeydown}>
   {#if hint}
     <div class="callout canvashint" role="status">
       <Icon name="info" /><span>{tm(hint)}</span>
       <button class="link" onclick={() => run('tool.cover-type')}>{t('banner.useCover')}</button>
     </div>
+  {:else if snapshot}
+    <div class="callout canvashint" role="status"><Icon name="info" /><span>{t('hint.snapshot')}</span></div>
   {/if}
   <div class="pages" style="width:{Math.max(layout.width, viewport.width)}px;height:{layout.height}px">
     {#each boxes as b (`${sv}-${b.index}`)}

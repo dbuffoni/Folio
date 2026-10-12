@@ -241,9 +241,9 @@ export class FakeWindow implements WindowService {
   }
 }
 export class FakePrinting implements Printing {
-  readonly jobs: Array<{ bytes: number; opts?: unknown }> = [];
+  readonly jobs: Array<{ bytes: number; pdf: Uint8Array; opts?: unknown }> = [];
   async print(pdf: Uint8Array, opts?: unknown): Promise<void> {
-    this.jobs.push({ bytes: pdf.length, opts });
+    this.jobs.push({ bytes: pdf.length, pdf, opts });
   }
 }
 

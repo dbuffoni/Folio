@@ -395,6 +395,19 @@ describe('viewer', () => {
     await t.app.setSetting('pageTheme', 'sepia');
     expect((await t.open('text', '/b.pdf')).view.theme).toBe('sepia');
   });
+  it('fit width follows the widest page, so no page overflows and zoom does not change while scrolling @FR-VIEW-01', async () => {
+    const t = await createTestApp();
+    const s = await t.open('mixed-sizes', '/m.pdf');
+    const widths = s.pageInfos.map((p) => p.size.width);
+    expect(new Set(widths).size).toBeGreaterThan(1);
+    s.fit({ width: 1272, height: 900 });
+    const widest = Math.max(...widths);
+    expect(s.view.zoom).toBeCloseTo((1272 - 48) / widest, 3);
+    const zoom = s.view.zoom;
+    s.goToPage(s.pageInfos.findIndex((p) => p.size.width === Math.min(...widths)));
+    s.fit({ width: 1272, height: 900 });
+    expect(s.view.zoom).toBeCloseTo(zoom, 5);
+  });
   it('fits the zoom to the viewport and switches layouts @FR-VIEW-01', async () => {
     const t = await createTestApp();
     const s = await t.open('text', '/a.pdf');
@@ -476,14 +489,26 @@ describe('viewer', () => {
     t.ui.toggleInspector();
     expect([t.ui.sidebarOpen, t.ui.inspectorOpen]).toEqual([false, false]);
   });
+  it('shows an identical notice once and can dismiss them all @FR-APP-01', async () => {
+    const t = await createTestApp();
+    t.app.toast('warning', { key: 'images.notAnImage', params: { name: 'a.txt' } });
+    t.app.toast('warning', { key: 'images.notAnImage', params: { name: 'a.txt' } });
+    t.app.toast('warning', { key: 'images.notAnImage', params: { name: 'b.txt' } });
+    expect(t.app.toasts.length).toBe(2);
+    const progress = t.app.toast('info', { key: 'cmd.save' }, { progress: 0.2 });
+    t.app.dismissAllToasts();
+    expect(t.app.toasts.map((x) => x.id)).toEqual([progress]);
+  });
   it('prints a page range with copies through the OS dialog @FR-VIEW-09', async () => {
     const t = await createTestApp();
     const s = await t.open('text-25', '/a.pdf');
     expect(await t.app.print({ pages: [0, 4, 5], copies: 2, scale: 'actual' })).toBe(true);
-    expect(t.printing.jobs[0]!.opts).toEqual({ copies: 2, scale: 'actual' });
+    // The print frame cannot set copies, so the pages are repeated in the document that is handed over.
+    expect(t.printing.jobs[0]!.opts).toEqual({ copies: 1, scale: 'actual' });
+    await expect(t.printing.jobs[0]!.pdf).toHavePageCount(6);
     expect(await t.app.print()).toBe(true);
     expect(t.printing.jobs[1]!.opts).toEqual({ copies: 1, scale: 'fit' });
-    expect(t.printing.jobs[0]!.bytes).toBeLessThan(t.printing.jobs[1]!.bytes);
+    await expect(t.printing.jobs[1]!.pdf).toHavePageCount(25);
     expect(await t.app.print({ pages: [99] })).toBe(false);
     expect(t.toastKeys().at(-1)).toBe('error.invalidArgument.printRange');
     expect(s.dirty).toBe(false);
@@ -528,6 +553,9 @@ describe('command palette and shortcuts', () => {
     expect(titles('zzzz')).toEqual([]);
     expect(fuzzyScore('sv', 'Save')).toBeGreaterThan(0);
     expect(fuzzyScore('vs', 'Save')).toBe(0);
+    expect(fuzzyScore('rot', 'Document properties')).toBe(0);
+    expect(fuzzyScore('ps', 'Open pages')).toBeGreaterThan(0);
+    expect(fuzzyScore('sm', 'Split and merge')).toBeGreaterThan(0);
     expect(fuzzyScore('sig', 'Sign')).toBeGreaterThan(fuzzyScore('sig', 'Split and merge'));
     // Every command has a title key and an id; ids are unique (register throws otherwise).
     expect(t.registry.all().every((c) => c.title && c.id)).toBe(true);

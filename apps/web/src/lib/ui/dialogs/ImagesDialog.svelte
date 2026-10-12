@@ -20,7 +20,7 @@
   }
 </script>
 
-<Dialog title={t('images.title')} width={620} onclose={() => ui.closeDialog()}>
+<Dialog title={t('images.title')} width={620} onclose={() => (w.cancel(), ui.closeDialog())}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="dz small" ondragover={(e) => e.preventDefault()} {ondrop}><Icon name="plus" />{t('images.drop')} <button class="link" onclick={() => w.addFiles()}>{t('images.add')}</button></div>
   {#each items as item, i (item.id)}
@@ -49,8 +49,9 @@
       <select id="ipo" value={w.options.orientation} disabled={w.options.pageSize === 'image'} onchange={(e) => w.setOptions({ orientation: e.currentTarget.value as 'auto' })}><option value="auto">{t('images.orientationAuto')}</option><option value="portrait">{t('dialog.insert.portrait')}</option><option value="landscape">{t('dialog.insert.landscape')}</option></select>
     </div>
   </div>
+  {#if w.busy}<div class="progress" role="progressbar" aria-valuenow={Math.round(w.progress * 100)} aria-valuemin={0} aria-valuemax={100}><i style="width:{w.progress * 100}%"></i></div>{/if}
   {#snippet footer()}
-    <button class="btn" onclick={() => ui.closeDialog()}>{t('action.cancel')}</button>
-    <button class="btn primary" disabled={items.length === 0 || w.busy} onclick={go}>{t('images.create')}</button>
+    <button class="btn" onclick={() => (w.cancel(), ui.closeDialog())}>{t('action.cancel')}</button>
+    <button class="btn primary" disabled={items.length === 0 || w.busy} onclick={go}>{w.busy ? t('images.creating') : t('images.create')}</button>
   {/snippet}
 </Dialog>

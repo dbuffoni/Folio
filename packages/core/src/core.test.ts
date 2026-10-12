@@ -12,6 +12,7 @@ import {
   clampRect,
   describePageSize,
   fitRect,
+  fitTextBox,
   formatBytes,
   formatDate,
   formatPageRanges,
@@ -110,6 +111,32 @@ describe('geometry', () => {
         expect(whole.width).toBeCloseTo(shown.width * scale, 5);
       }),
     );
+  });
+});
+
+describe('text box sizing @FR-ANN-03', () => {
+  const page = { x: 0, y: 0, width: 612, height: 792 };
+  const inside = (r: { x: number; y: number; width: number; height: number }) =>
+    r.x >= page.x && r.y >= page.y && r.x + r.width <= page.x + page.width && r.y + r.height <= page.y + page.height;
+  it('grows to hold wrapped lines and keeps the top edge', () => {
+    const anchor = { x: 100, y: 600, width: 150, height: 20 };
+    const long = 'word '.repeat(120).trim();
+    const r = fitTextBox(long, 12, anchor, page);
+    expect(r.height).toBeGreaterThan(12 * 1.3 * 3);
+    expect(r.y + r.height).toBeCloseTo(anchor.y + anchor.height, 5);
+    expect(r.width).toBeLessThanOrEqual(400);
+    expect(inside(r)).toBe(true);
+  });
+  it('counts every paragraph, not just the first', () => {
+    const anchor = { x: 100, y: 600, width: 150, height: 20 };
+    const one = fitTextBox('a'.repeat(100), 12, anchor, page);
+    const two = fitTextBox(`${'a'.repeat(100)}\n${'b'.repeat(100)}`, 12, anchor, page);
+    expect(two.height).toBeGreaterThan(one.height);
+  });
+  it('stays inside the page near the right edge and the bottom', () => {
+    const r = fitTextBox('Edge text that is rather long and wraps', 12, { x: 590, y: 5, width: 20, height: 14 }, page);
+    expect(inside(r)).toBe(true);
+    expect(r.width).toBeGreaterThanOrEqual(12 * 4);
   });
 });
 

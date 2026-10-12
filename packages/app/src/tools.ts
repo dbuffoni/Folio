@@ -1,4 +1,4 @@
-import { Emitter, containsPoint, isFolioError, msg, rectFromPoints, translate, type Msg } from '@folio/core';
+import { Emitter, containsPoint, fitTextBox, isFolioError, msg, rectFromPoints, translate, type Msg } from '@folio/core';
 import type {
   Annotation,
   Color,
@@ -169,6 +169,8 @@ export interface EditNotice {
   kind: 'substituted' | 'overflow' | 'missingGlyphs';
   message: Msg;
   result: LineEditResult;
+  /** Where the edited line is (PDF user space): the notice is drawn next to it. */
+  rect?: Rect;
 }
 
 /**
@@ -260,6 +262,16 @@ export class ToolController {
     this.ghost = { ...ghost, page: null, rect: null };
     this.emit();
   }
+  private pageBounds(page: PageIndex): Rect {
+    return this.session.pageInfos[page]?.cropBox ?? { x: 0, y: 0, ...this.pageSize(page) };
+  }
+  private clampPoint(p: Point, page: PageIndex): Point {
+    const b = this.pageBounds(page);
+    return {
+      x: Math.min(b.x + b.width, Math.max(b.x, p.x)),
+      y: Math.min(b.y + b.height, Math.max(b.y, p.y)),
+    };
+  }
   private pageSize(page: PageIndex): Size {
     return this.session.pageInfos[page]?.size ?? { width: 612, height: 792 };
   }
@@ -304,6 +316,23 @@ export class ToolController {
             snap: { dx: 0, dy: 0, guides: [] },
           };
           return this.emit();
+        }
+        if (handle && sel.kind === 'object' && sel.page === page) {
+          const image = (await this.session.doc.listObjects(page)).find((o) => o.id === sel.id);
+          if (image) {
+            this.drag = {
+              page,
+              kind: 'resize',
+              handle,
+              start: p,
+              items: [],
+              preview: [],
+              object: image,
+              objectPreview: image.bounds,
+              snap: { dx: 0, dy: 0, guides: [] },
+            };
+            return this.emit();
+          }
         }
         const hit = this.services.annotations.hitTest(
           annotations.filter((a) => a.type !== 'link'),
@@ -453,7 +482,9 @@ export class ToolController {
       if (d.object) {
         const b = d.object.bounds;
         d.objectPreview =
-          d.kind === 'move' ? translate(b, dx, dy) : resizeLocked(b, this.anchorOf(b, d.handle!), p);
+          d.kind === 'move'
+            ? translate(b, dx, dy)
+            : resizeLocked(b, this.anchorOf(b, d.handle!), p, 8, this.pageBounds(page));
       } else if (d.kind === 'move') {
         const moved = d.items.map((a) => moveAnnotation(a, dx, dy));
         // Snap the first item to the page and to other annotations unless Alt is held.
@@ -471,7 +502,9 @@ export class ToolController {
         const anchor = this.anchorOf(a.rect, d.handle!);
         // Stamps and signatures keep their proportions; everything else resizes freely (Shift locks).
         const to =
-          a.type === 'stamp' || mods.shift ? resizeLocked(a.rect, anchor, p) : rectFromPoints(anchor, p);
+          a.type === 'stamp' || mods.shift
+            ? resizeLocked(a.rect, anchor, p, 8, this.pageBounds(page))
+            : rectFromPoints(anchor, this.clampPoint(p, page));
         d.preview = to.width > 4 && to.height > 4 ? [resizeAnnotation(a, to)] : d.preview;
       }
       return this.emit();
@@ -690,10 +723,15 @@ export class ToolController {
     }
     return false;
   }
+  private lastPaste: { text: string; page: PageIndex; step: number } | null = null;
   /** Paste annotations copied in this or another tab onto `page`. */
   async paste(text: string, page: PageIndex): Promise<number> {
-    const items = this.services.annotations.deserialize(text);
+    // Each further paste of the same copy on the same page steps further away from the original.
+    const again = this.lastPaste?.text === text && this.lastPaste.page === page;
+    const step = again ? this.lastPaste!.step + 1 : 1;
+    const items = this.services.annotations.deserialize(text, { x: 12 * step, y: -12 * step });
     if (items.length === 0) return 0;
+    this.lastPaste = { text, page, step };
     const refs = await this.safe(() =>
       this.session.run(
         this.services.annotations.addMany(
@@ -741,13 +779,13 @@ export class ToolController {
           : this.services.forms.coverText(t.rect, value, { fontSize: t.fontSize });
         await this.session.run(this.services.annotations.add(t.page, a));
       } else {
-        const lines = value.split('\n');
-        const height = Math.max(t.rect.height, lines.length * t.fontSize * 1.3 + 6);
-        const width = Math.max(
-          t.rect.width,
-          Math.min(400, Math.max(...lines.map((l) => l.length)) * t.fontSize * 0.55 + 12),
-        );
-        const rect = { x: t.rect.x, y: t.rect.y + t.rect.height - height, width, height };
+        const bounds = this.session.pageInfos[t.page]?.cropBox ?? {
+          x: 0,
+          y: 0,
+          width: t.rect.x + t.rect.width + 400,
+          height: t.rect.y + t.rect.height + 400,
+        };
+        const rect = fitTextBox(value, t.fontSize, t.rect, bounds);
         await this.session.run(
           this.services.annotations.add(t.page, {
             type: 'freetext',
@@ -819,16 +857,19 @@ export class ToolController {
       this.session.run(this.services.textEdit.editLine(e.page, e.layer, e.line, text, info)),
     );
     if (result) {
-      // Honest feedback (FR-EDT-02/04): say when a font was substituted or the line no longer fits.
-      if (result.font.kind === 'substituted')
+      // Honest feedback (FR-EDT-02/04): missing glyphs lose text, so they come first; then a line that no
+      // longer fits; then a substituted font. The notice is anchored on the line that was edited.
+      const rect = e.line.line.rect;
+      if (result.missingGlyphs)
+        this.notice = { kind: 'missingGlyphs', message: msg('edit.missingGlyphs'), result, rect };
+      else if (result.overflow) this.notice = { kind: 'overflow', message: msg('edit.overflow'), result, rect };
+      else if (result.font.kind === 'substituted')
         this.notice = {
           kind: 'substituted',
           message: msg('edit.fontSubstituted', { from: result.font.from, to: result.font.to }),
           result,
+          rect,
         };
-      else if (result.overflow) this.notice = { kind: 'overflow', message: msg('edit.overflow'), result };
-      else if (result.missingGlyphs)
-        this.notice = { kind: 'missingGlyphs', message: msg('edit.missingGlyphs'), result };
     }
     this.emit();
     return result ?? null;

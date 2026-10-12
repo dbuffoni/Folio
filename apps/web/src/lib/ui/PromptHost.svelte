@@ -49,7 +49,7 @@
     <p style="margin:0">{tm(p.message)}</p>
     {#snippet footer()}
       <button class="btn" onclick={() => p.resolve(false)}>{t('action.cancel')}</button>
-      <button class="btn primary" data-autofocus onclick={() => p.resolve(true)}>{p.confirmLabel ? tm(p.confirmLabel) : t('action.apply')}</button>
+      <button class={p.danger ? 'btn danger' : 'btn primary'} data-autofocus onclick={() => p.resolve(true)}>{p.confirmLabel ? tm(p.confirmLabel) : t('action.apply')}</button>
     {/snippet}
   </Dialog>
 {:else if current?.kind === 'signed'}

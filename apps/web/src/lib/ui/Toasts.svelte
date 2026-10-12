@@ -19,6 +19,9 @@
 </script>
 
 <div id="toasts" aria-live="polite">
+  {#if toasts.filter((x) => x.progress === undefined).length > 2}
+    <button class="dismissall" onclick={() => app.dismissAllToasts()}>{t('action.dismissAll')}</button>
+  {/if}
   {#each toasts as toast (toast.id)}
     <div class="toast {toast.kind}" role={toast.kind === 'error' ? 'alert' : 'status'}>
       <div class="msg">

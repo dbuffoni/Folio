@@ -165,7 +165,7 @@
       <div class="sigitem">
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">{s.name}{s.isDefault ? ` · ${t('action.default')}` : ''}</span>
         {#if !s.isDefault}<button class="btn sm" onclick={() => sign.setDefault(s.id)}>{t('action.setDefault')}</button>{/if}
-        <button class="ib" onclick={async () => (await app.prompts.confirm({ key: 'confirm.removeSignature' }, { danger: true })) && sign.remove(s.id)} aria-label="{t('action.delete')} {s.name}"><Icon name="trash-2" /></button>
+        <button class="ib" onclick={async () => (await app.prompts.confirm({ key: 'confirm.removeSignature' }, { danger: true, confirmLabel: { key: 'action.delete' } })) && sign.remove(s.id)} aria-label="{t('action.delete')} {s.name}"><Icon name="trash-2" /></button>
       </div>
     {/each}
   {/if}

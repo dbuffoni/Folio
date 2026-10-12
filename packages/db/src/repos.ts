@@ -331,6 +331,9 @@ export const PROFILE_TEMPLATES: Record<string, Array<Omit<ProfileField, 'id' | '
 };
 
 /** FR-AIF-01 reference data for auto-fill. */
+/** Longer names do not fit any list or dialog; they are cut when stored. */
+export const PROFILE_NAME_MAX = 60;
+
 export class ProfileRepo {
   constructor(private readonly db: Database, private readonly clock: Clock, private readonly newId: () => string, private readonly cipher: DataCipher) {}
 
@@ -362,15 +365,16 @@ export class ProfileRepo {
     if (!name.trim()) throw new InvalidArgumentError('Give the profile a name', { reason: 'emptyName' });
     const id = this.newId();
     const first = (await this.db.select<{ n: number }>('SELECT COUNT(*) AS n FROM profiles'))[0]!.n === 0;
-    await this.db.execute('INSERT INTO profiles (id, name, is_default, created_at) VALUES (?, ?, ?, ?)', [id, name.trim(), first ? 1 : 0, iso(this.clock)]);
+    await this.db.execute('INSERT INTO profiles (id, name, is_default, created_at) VALUES (?, ?, ?, ?)', [id, name.trim().slice(0, PROFILE_NAME_MAX), first ? 1 : 0, iso(this.clock)]);
     for (const set of templates) for (const f of PROFILE_TEMPLATES[set] ?? []) await this.setField(id, { ...f, value: '' });
     return (await this.get(id))!;
   }
   async rename(id: string, name: string): Promise<void> {
     if (!name.trim()) throw new InvalidArgumentError('Give the profile a name', { reason: 'emptyName' });
-    await this.db.execute('UPDATE profiles SET name = ? WHERE id = ?', [name.trim(), id]);
+    await this.db.execute('UPDATE profiles SET name = ? WHERE id = ?', [name.trim().slice(0, PROFILE_NAME_MAX), id]);
   }
   async setDefault(id: string): Promise<void> {
+    if ((await this.db.select('SELECT 1 FROM profiles WHERE id = ?', [id])).length === 0) throw new InvalidArgumentError('Unknown profile');
     await this.db.transaction(async (tx) => {
       await tx.execute('UPDATE profiles SET is_default = 0');
       await tx.execute('UPDATE profiles SET is_default = 1 WHERE id = ?', [id]);

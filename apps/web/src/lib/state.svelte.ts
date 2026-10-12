@@ -135,9 +135,23 @@ export async function start(): Promise<void> {
     await sign.load();
     ui.sidebarOpen = app.settings.sidebar.open && window.innerWidth >= 820;
     ui.inspectorOpen = app.settings.inspector.open && window.innerWidth >= 1100;
+    // Narrow windows: panels that would cover the page close when the window shrinks past their breakpoint.
+    let lastWidth = window.innerWidth;
+    window.addEventListener('resize', () => {
+      const w = window.innerWidth;
+      // Smart Fill lives in the inspector: keep it open while a run is in progress instead of hiding its dialog.
+      const active = rawApp.active;
+      const smartBusy = !!active && (perSession.get(active.id)?.smart.stage ?? 'idle') !== 'idle';
+      // Through the model's methods: they notify, a plain assignment would leave the screen stale.
+      if (lastWidth >= 1100 && w < 1100 && !smartBusy && ui.inspectorOpen) ui.toggleInspector();
+      if (lastWidth >= 820 && w < 820 && ui.sidebarOpen) ui.toggleSidebar();
+      lastWidth = w;
+    });
     ui.startCoach(app.settings.onboardingDone);
     state.ready = true;
     bump();
+    // After `ready`: the prompt needs the shell's dialogs, and waiting for it earlier would never end.
+    void app.offerRecovery().catch((e) => console.error(e));
     if (desktop) {
       // Read by the AppImage smoke test over WebDriver (SPEC §16.8).
       const report = (): void => {

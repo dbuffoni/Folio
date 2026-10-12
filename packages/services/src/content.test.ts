@@ -378,6 +378,15 @@ describe('SignatureService and StampService', () => {
     // Drag, aspect-locked resize, arrow nudges.
     const bigger = resizeLocked(placed.rect, { x: placed.rect.x, y: placed.rect.y }, { x: placed.rect.x + placed.rect.width * 2, y: placed.rect.y + 10 });
     expect(bigger.width / bigger.height).toBeCloseTo(placed.rect.width / placed.rect.height, 5);
+    // With page bounds the box never leaves the page, whatever the pointer does.
+    const bounds = { x: 0, y: 0, width: 612, height: 792 };
+    const huge = resizeLocked(placed.rect, { x: placed.rect.x, y: placed.rect.y }, { x: placed.rect.x + 5000, y: placed.rect.y + 5000 }, 8, bounds);
+    expect(huge.x + huge.width).toBeLessThanOrEqual(612 + 1e-6);
+    expect(huge.y + huge.height).toBeLessThanOrEqual(792 + 1e-6);
+    expect(huge.width / huge.height).toBeCloseTo(placed.rect.width / placed.rect.height, 5);
+    const flipped = resizeLocked(placed.rect, { x: placed.rect.x, y: placed.rect.y }, { x: -900, y: -900 }, 8, bounds);
+    expect(flipped.x).toBeGreaterThanOrEqual(-1e-6);
+    expect(flipped.y).toBeGreaterThanOrEqual(-1e-6);
     expect(nudge(placed.rect, 'ArrowLeft', false, page).x).toBeCloseTo(placed.rect.x - 1, 5);
     expect(nudge(placed.rect, 'ArrowUp', true, page).y).toBeCloseTo(placed.rect.y + 10, 5);
     expect(nudge({ x: 0, y: 0, width: 10, height: 10 }, 'ArrowDown', true, page).y).toBe(0);
@@ -590,6 +599,17 @@ describe('FormService', () => {
     const box = (await doc.listAnnotations(0))[0] as FreeTextAnnotation;
     expect(box).toMatchObject({ type: 'freetext', contents: 'Marta', borderWidth: 0 });
     expect(Math.abs(box.rect.x - first.x)).toBeLessThan(1.5);
+    // A value longer than the field shrinks to fit (not below 6 pt) instead of being clipped.
+    const long = s.fromArea(areas[0]!, 'x'.repeat(80)) as FreeTextAnnotation;
+    expect(long.fontSize).toBeLessThan(box.fontSize!);
+    expect(long.fontSize).toBeGreaterThanOrEqual(6);
+    // Past what one line can hold even at 6 pt, the box grows downwards instead of clipping the rest.
+    const huge = s.fromArea(areas[0]!, 'word '.repeat(80)) as FreeTextAnnotation;
+    expect(huge.rect.height).toBeGreaterThan(areas[0]!.rect.height);
+    expect(huge.rect.y + huge.rect.height).toBeCloseTo(areas[0]!.rect.y + areas[0]!.rect.height, 5);
+    const dragged = s.coverText({ x: 100, y: 500, width: 120, height: 14 }, 'a long value that needs several lines in this narrow box', { fontSize: 11 });
+    expect(dragged.rect.height).toBeGreaterThan(14);
+    expect(dragged.rect.y + dragged.rect.height).toBeCloseTo(514, 5);
     const bytes = await doc.save();
     await expect(bytes).toBeValidPdf();
     expect(inkRatio(await pdftoppm(bytes, 1), { x: first.x, y: 792 - first.y - first.height, width: 60, height: first.height - 3 })).toBeGreaterThan(0.02);
@@ -659,9 +679,15 @@ describe('TextEditService', () => {
     const l2 = await doc.getTextLayer(0);
     const sub = await history.execute(svc.editLine(0, l2, svc.lines(l2).find((l) => l.text === 'Invoce')!, 'Invoice №7', info));
     expect(sub.font).toEqual({ kind: 'substituted', from: 'LiberationSerif', to: 'Liberation Serif' });
+    expect(sub.missingGlyphs).toBe(false);
     bytes = await doc.save();
     expect(await pdftotext(bytes)).toContain('Invoice №7');
     expect((await pdffonts(bytes)).map((f) => f.subset).sort()).toEqual([false, true]);
+    // Characters no bundled font has are reported instead of silently becoming empty boxes.
+    const l3 = await doc.getTextLayer(0);
+    const cjk = await history.execute(svc.editLine(0, l3, svc.lines(l3).find((l) => l.text === 'Invoice №7')!, 'Invoice 日本語', info));
+    expect(cjk.missingGlyphs).toBe(true);
+    await history.undo();
     await history.undo();
     expect(await content()).toBe(before);
     doc.dispose();

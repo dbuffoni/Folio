@@ -115,11 +115,20 @@
   async function importProfile(): Promise<void> {
     const [ref] = await services.platform.files.pickOpen({ accept: ['json'] });
     if (!ref) return;
-    await app.guard(async () => services.profiles.importJson(JSON.parse(new TextDecoder().decode(await services.platform.files.read(ref)))));
+    await app.guard(async () => {
+      const text = new TextDecoder().decode(await services.platform.files.read(ref));
+      let data: unknown = null; // a file that is not JSON is reported like any other file that is not a profile
+      try {
+        data = JSON.parse(text);
+      } catch {
+        /* handled by importJson */
+      }
+      return services.profiles.importJson(data);
+    });
     await loadProfiles();
   }
   async function removeProfile(p: Profile): Promise<void> {
-    if (!(await app.prompts.confirm({ key: 'confirm.removeProfile' }, { danger: true }))) return;
+    if (!(await app.prompts.confirm({ key: 'confirm.removeProfile' }, { danger: true, confirmLabel: { key: 'action.delete' } }))) return;
     await services.profiles.remove(p.id);
     editing = null;
     await loadProfiles();
@@ -132,7 +141,7 @@
     if (pane === 'general') void services.recents.list().then((l) => (recentCount = l.length));
   });
   async function clearRecents(): Promise<void> {
-    if (!(await app.prompts.confirm({ key: 'confirm.clearRecents' }, { danger: true }))) return;
+    if (!(await app.prompts.confirm({ key: 'confirm.clearRecents' }, { danger: true, confirmLabel: { key: 'action.clear' } }))) return;
     await services.recents.clear();
     recentCount = 0;
     app.toast('success', { key: 'toast.recentsCleared' });
@@ -152,6 +161,30 @@
     const info = services.platform.app;
     await services.platform.clipboard.writeText(`Folio ${info.version} · ${info.os} · ${info.locale}\n${navigator.userAgent}\n\n${services.platform.log.dump()}`).catch(() => undefined);
     copied = true;
+  }
+  /** Rename keeps the old name when the new one is rejected (empty) and says why. */
+  async function renameProfile(id: string, previous: string, input: HTMLInputElement): Promise<void> {
+    const ok = await app.guard(async () => {
+      await services.profiles.rename(id, input.value);
+      return true;
+    });
+    if (!ok) input.value = previous;
+    await loadProfiles();
+  }
+  async function resetAll(): Promise<void> {
+    if (!(await app.prompts.confirm({ key: 'confirm.resetSettings' }, { danger: true, confirmLabel: { key: 'settings.reset' } }))) return;
+    await app.resetSettings();
+    app.toast('success', { key: 'toast.settingsReset' });
+  }
+  /** Out-of-range values go back to the last good one and the toast says what is allowed. */
+  async function setRecoveryInterval(input: HTMLInputElement): Promise<void> {
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < 5 || value > 600) {
+      input.value = String(s.recoveryIntervalSec);
+      app.toast('warning', { key: 'settings.recoveryIntervalRange' });
+      return;
+    }
+    await app.guard(() => set('recoveryIntervalSec', value));
   }
 </script>
 
@@ -213,7 +246,7 @@
       {:else if pane === 'profiles'}
         {#if current}
           {@const p = current}
-          <div class="row"><button class="btn sm ghost" style="flex:none" onclick={() => (editing = null)}><Icon name="chevron-left" /></button><input type="text" value={p.name} aria-label={t('settings.profile.name')} onchange={(e) => services.profiles.rename(p.id, e.currentTarget.value).then(loadProfiles)} />
+          <div class="row"><button class="btn sm ghost" style="flex:none" onclick={() => (editing = null)}><Icon name="chevron-left" /></button><input type="text" value={p.name} aria-label={t('settings.profile.name')} maxlength="60" onchange={(e) => renameProfile(p.id, p.name, e.currentTarget)} />
             {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => services.profiles.setDefault(p.id).then(loadProfiles)}>{t('action.setDefault')}</button>{/if}
           </div>
           <div class="ptable">
@@ -239,7 +272,7 @@
             {/each}
           </ul>
           <div class="field"><label for="pn">{t('settings.profile.new')}</label>
-            <div class="row"><input id="pn" type="text" bind:value={newName} placeholder={t('settings.profile.name')} style="flex:1" /><button class="btn" style="flex:none" disabled={!newName.trim()} onclick={createProfile}><Icon name="plus" />{t('action.add')}</button><button class="btn" style="flex:none" onclick={importProfile}>{t('settings.profile.import')}</button></div>
+            <div class="row"><input id="pn" type="text" maxlength="60" bind:value={newName} placeholder={t('settings.profile.name')} style="flex:1" /><button class="btn" style="flex:none" disabled={!newName.trim()} onclick={createProfile}><Icon name="plus" />{t('action.add')}</button><button class="btn" style="flex:none" onclick={importProfile}>{t('settings.profile.import')}</button></div>
             <div class="row" style="flex-wrap:wrap;gap:10px">
               <span class="note" style="flex:none">{t('settings.profile.templates')}</span>
               {#each Object.keys(PROFILE_TEMPLATES) as k (k)}<label style="width:auto;display:flex;gap:4px;align-items:center;flex:none"><input type="checkbox" bind:group={newTemplates} value={k} />{t(`settings.profile.template.${k}`)}</label>{/each}
@@ -252,14 +285,14 @@
           <div class="field"><label for="un">{t('settings.units')}</label><select id="un" value={s.units} onchange={(e) => set('units', e.currentTarget.value as 'mm')}><option value="mm">{t('settings.units.mm')}</option><option value="in">{t('settings.units.in')}</option><option value="pt">{t('settings.units.pt')}</option></select></div>
           <div class="field"><label for="lg">{t('settings.language')}</label><select id="lg" value={s.language} onchange={(e) => set('language', e.currentTarget.value)}><option value="en">{t('settings.language.en')}</option></select></div>
           <div class="field"><label for="df">{t('settings.dateFormat')}</label><select id="df" value={s.dateFormat} onchange={(e) => set('dateFormat', e.currentTarget.value as 'iso')}>{#each DATE_FORMATS as f (f)}<option value={f}>{formatDate(new Date(), f, 'en')}</option>{/each}</select></div>
-          <div class="field"><label for="ri">{t('settings.recoveryInterval')}</label><input id="ri" type="number" min="5" max="600" value={s.recoveryIntervalSec} onchange={(e) => app.guard(() => set('recoveryIntervalSec', Number(e.currentTarget.value)))} /></div>
+          <div class="field"><label for="ri">{t('settings.recoveryInterval')}</label><input id="ri" type="number" min="5" max="600" value={s.recoveryIntervalSec} onchange={(e) => setRecoveryInterval(e.currentTarget)} /></div>
         </div>
         <div class="field"><label for="au">{t('settings.author')}</label><input id="au" type="text" value={s.authorName} onchange={(e) => set('authorName', e.currentTarget.value)} /><span class="hint">{t('settings.authorHint', { name: services.platform.app.userName ?? '—' })}</span></div>
         <div class="togrow"><div>{t('settings.keepBackup')}<small>{t('settings.keepBackupHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.keepBackup')} checked={s.keepBackup} onchange={(e) => set('keepBackup', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('settings.flattenStamps')}<small>{t('settings.flattenStampsHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.flattenStamps')} checked={s.flattenStampsOnSave} onchange={(e) => set('flattenStampsOnSave', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('sign.encrypt')}<small>{t('sign.encryptHint')}</small></div><input type="checkbox" class="tog" aria-label={t('sign.encrypt')} checked={s.encryptSignatures} onchange={(e) => set('encryptSignatures', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('settings.recents')}<small>{t('settings.recentsCount', { count: recentCount })}</small></div><button class="btn sm danger" onclick={clearRecents}>{t('settings.clearList')}</button></div>
-        <div class="togrow"><div>{t('settings.reset')}</div><button class="btn sm" onclick={() => app.resetSettings()}>{t('settings.reset')}</button></div>
+        <div class="togrow"><div>{t('settings.reset')}</div><button class="btn sm" onclick={resetAll}>{t('settings.reset')}</button></div>
         <div class="togrow"><div>{t('settings.deleteData')}<small>{t('settings.deleteDataHint')}</small></div><button class="btn sm danger" onclick={deleteData}><Icon name="trash-2" />{t('action.delete')}</button></div>
       {:else if pane === 'privacy'}
         <div class="callout info"><Icon name="shield" /><span>{t('settings.privacy.body1')}</span></div>

@@ -3,7 +3,21 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import type { FreeTextAnnotation, StampAnnotation } from '@folio/ports';
-import { FIXTURE_PASSWORD, PERSON, flatFormDoc, inkRatio, mutoolDraw, pdfcpuFormFields, pdffonts, pdfinfo, pdftoppm, pdftotext, sampleJpeg, samplePng, signaturePng } from '@folio/testkit';
+import {
+  FIXTURE_PASSWORD,
+  PERSON,
+  flatFormDoc,
+  inkRatio,
+  mutoolDraw,
+  pdfcpuFormFields,
+  pdffonts,
+  pdfinfo,
+  pdftoppm,
+  pdftotext,
+  sampleJpeg,
+  samplePng,
+  signaturePng,
+} from '@folio/testkit';
 import { createTestApp, markers, settle } from './testing.ts';
 
 describe('E1 Merge two PDFs', () => {
@@ -11,10 +25,15 @@ describe('E1 Merge two PDFs', () => {
     const t = await createTestApp();
     await t.put('/docs/report.pdf', 'text');
     await t.put('/docs/annex.pdf', 'bookmarks');
-    const before = [t.files.get('/docs/report.pdf')!, t.files.get('/docs/annex.pdf')!].map((b) => Buffer.from(b).toString('base64'));
+    const before = [t.files.get('/docs/report.pdf')!, t.files.get('/docs/annex.pdf')!].map((b) =>
+      Buffer.from(b).toString('base64'),
+    );
     const w = t.merge();
     await w.addFiles([t.files.ref('/docs/report.pdf'), t.files.ref('/docs/annex.pdf')]);
-    expect(w.items.map((i) => [i.name, i.info.pageCount])).toEqual([['report.pdf', 3], ['annex.pdf', 5]]);
+    expect(w.items.map((i) => [i.name, i.info.pageCount])).toEqual([
+      ['report.pdf', 3],
+      ['annex.pdf', 5],
+    ]);
     expect([w.totalPages, w.canMerge]).toEqual([8, true]);
     w.move(w.items[1]!.id, 0);
     await w.setRange(w.items[0]!.id, '1-2');
@@ -22,13 +41,42 @@ describe('E1 Merge two PDFs', () => {
     const session = await w.mergeAndOpen();
     expect(session).toMatchObject({ name: 'annex (merged).pdf', pageCount: 5, dirty: true });
     expect(t.app.active).toBe(session);
-    expect((await session!.doc.getOutline()).map((n) => [n.title, (n.target as { page: number }).page])).toEqual([['annex', 0], ['report', 2]]);
+    expect(
+      (await session!.doc.getOutline()).map((n) => [n.title, (n.target as { page: number }).page]),
+    ).toEqual([
+      ['annex', 0],
+      ['report', 2],
+    ]);
     expect((await markers(session!)).slice(2)).toEqual([1, 2, 3]);
-    expect([t.files.get('/docs/report.pdf')!, t.files.get('/docs/annex.pdf')!].map((b) => Buffer.from(b).toString('base64'))).toEqual(before);
+    expect(
+      [t.files.get('/docs/report.pdf')!, t.files.get('/docs/annex.pdf')!].map((b) =>
+        Buffer.from(b).toString('base64'),
+      ),
+    ).toEqual(before);
     t.files.nextSave = ['/docs/merged.pdf'];
     expect(await t.app.save(session!)).toBe(true);
     await expect(t.files.get('/docs/merged.pdf')!).toBeValidPdf();
     await expect(t.files.get('/docs/merged.pdf')!).toHavePageCount(5);
+  });
+
+  it('merging open tabs uses their current (unsaved) content, including tabs that were never saved @FR-MRG-01 @FR-APP-05', async () => {
+    const t = await createTestApp();
+    const a = await t.open('text', '/docs/a.pdf');
+    await t.organise(a).delete(0);
+    expect(a.dirty).toBe(true);
+    const b = await t.open('invoice', '/docs/b.pdf');
+    const w = t.merge();
+    await w.addOpenDocuments();
+    expect(w.items.map((i) => [i.name, i.info.pageCount])).toEqual([
+      ['a.pdf', 2],
+      ['b.pdf', b.pageCount],
+    ]);
+    const merged = await w.mergeAndOpen();
+    expect((await markers(merged!)).slice(0, 2)).toEqual([2, 3]);
+    // a tab that has no file on disk (the merge result itself) is offered too
+    const w2 = t.merge();
+    await w2.addOpenDocuments();
+    expect(w2.items.map((i) => i.name)).toEqual(['a.pdf', 'b.pdf', 'a (merged).pdf']);
   });
 
   it('prompts for the password of encrypted inputs and excludes corrupt or empty ones with an inline warning @FR-MRG-01', async () => {
@@ -38,7 +86,12 @@ describe('E1 Merge two PDFs', () => {
     await t.put('/broken.pdf', 'garbage');
     t.files.put('/photo.jpg', sampleJpeg(200, 100));
     const w = t.merge();
-    await w.addFiles([t.files.ref('/a.pdf'), t.files.ref('/locked.pdf'), t.files.ref('/broken.pdf'), t.files.ref('/photo.jpg')]);
+    await w.addFiles([
+      t.files.ref('/a.pdf'),
+      t.files.ref('/locked.pdf'),
+      t.files.ref('/broken.pdf'),
+      t.files.ref('/photo.jpg'),
+    ]);
     expect(w.items.map((i) => i.info.problem)).toEqual([undefined, 'passwordRequired', 'invalid', undefined]);
     expect(w.totalPages).toBe(4);
     await w.setPassword(w.items[1]!.id, 'wrong');
@@ -47,6 +100,8 @@ describe('E1 Merge two PDFs', () => {
     expect([w.items[1]!.info.problem, w.items[1]!.info.pageCount]).toEqual([undefined, 1]);
     await w.setRange(w.items[0]!.id, '7');
     expect(w.items[0]!.info.problem).toBe('badRange');
+    // A range typo must not silently drop the file: merging waits until it is fixed or the file removed.
+    expect(w.canMerge).toBe(false);
     await w.setRange(w.items[0]!.id, '');
     w.sort('name');
     expect(w.items.map((i) => i.name)).toEqual(['a.pdf', 'broken.pdf', 'locked.pdf', 'photo.jpg']);
@@ -75,7 +130,12 @@ describe('E2 Sign a document', () => {
     const strokes = [Array.from({ length: 30 }, (_, i) => ({ x: 10 + i * 6, y: 40 + Math.sin(i / 3) * 20 }))];
     const draft = t.sign.draftFromStrokes(strokes, t.sign.inkColors.blue!);
     const stored = await t.sign.save(draft, 'My signature', tools);
-    expect(stored).toMatchObject({ name: 'My signature', kind: 'signature', source: 'drawn', isDefault: true });
+    expect(stored).toMatchObject({
+      name: 'My signature',
+      kind: 'signature',
+      source: 'drawn',
+      isDefault: true,
+    });
     expect(t.sign.creating).toBeNull();
     // The one-time note that this is not a certificate-based signature.
     expect(t.sign.showNote).toBe(true);
@@ -107,8 +167,14 @@ describe('E2 Sign a document', () => {
     const bytes = t.files.get('/docs/contract.pdf')!;
     await expect(bytes).toBeValidPdf();
     await expect(bytes).toHaveAnnotation('stamp');
-    const region = { x: moved.rect.x, y: 792 - moved.rect.y - moved.rect.height, width: moved.rect.width, height: moved.rect.height };
-    for (const img of [await pdftoppm(bytes, 1), await mutoolDraw(bytes, 1)]) expect(inkRatio(img, region)).toBeGreaterThan(0.01);
+    const region = {
+      x: moved.rect.x,
+      y: 792 - moved.rect.y - moved.rect.height,
+      width: moved.rect.width,
+      height: moved.rect.height,
+    };
+    for (const img of [await pdftoppm(bytes, 1), await mutoolDraw(bytes, 1)])
+      expect(inkRatio(img, region)).toBeGreaterThan(0.01);
 
     // A second document offers the stored signature immediately, without the note.
     const second = await t.open('text', '/docs/other.pdf');
@@ -128,16 +194,25 @@ describe('E2 Sign a document', () => {
     const s = await t.open('text', '/a.pdf');
     const tools = t.tools(s);
     t.sign.openCreate('signature');
-    const typed = await t.sign.save(await t.sign.draftFromText('Marta Esempio', 'DancingScript', t.sign.inkColors.black!), 'Typed');
+    const typed = await t.sign.save(
+      await t.sign.draftFromText('Marta Esempio', 'DancingScript', t.sign.inkColors.black!),
+      'Typed',
+    );
     const image = await t.sign.save(await t.sign.draftFromImage(signaturePng(), 180), 'Scanned');
     t.sign.openCreate('initials');
     await t.sign.save(await t.sign.draftFromText('ME', 'Caveat', t.sign.inkColors.blue!), 'Initials');
-    expect(t.sign.of('signature').map((x) => [x.name, x.source, x.isDefault])).toEqual([['Typed', 'typed', true], ['Scanned', 'image', false]]);
+    expect(t.sign.of('signature').map((x) => [x.name, x.source, x.isDefault])).toEqual([
+      ['Typed', 'typed', true],
+      ['Scanned', 'image', false],
+    ]);
     expect(t.sign.of('initials').length).toBe(1);
     await t.sign.setDefault(image!.id);
     await t.sign.rename(image!.id, 'Paper scan');
     await t.sign.remove(typed!.id);
-    expect(t.sign.signatures.map((x) => [x.name, x.isDefault])).toEqual([['Paper scan', true], ['Initials', true]]);
+    expect(t.sign.signatures.map((x) => [x.name, x.isDefault])).toEqual([
+      ['Paper scan', true],
+      ['Initials', true],
+    ]);
     await t.registry.run('sign.initials', t.ctx());
     await tools.pointerMove(0, { x: 500, y: 60 });
     await tools.pointerDown(0, { x: 500, y: 60 });
@@ -147,15 +222,33 @@ describe('E2 Sign a document', () => {
     await tools.pointerMove(0, { x: 200, y: 60 });
     await tools.pointerDown(0, { x: 200, y: 60 });
     // Built-in and custom stamps.
-    t.sign.placeStamp(tools, t.sign.builtinStamps.find((b) => b.style?.text === 'PAID')!);
+    t.sign.placeStamp(
+      tools,
+      t.sign.builtinStamps.find((b) => b.style?.text === 'PAID')!,
+    );
     await tools.pointerMove(0, { x: 300, y: 400 });
     await tools.pointerDown(0, { x: 300, y: 400 });
-    await t.sign.addTextStamp('Received', { text: 'RECEIVED', color: { r: 29, g: 78, b: 216 }, fontFamily: 'sans', bold: true, border: true, rotation: 0 });
+    await t.sign.addTextStamp('Received', {
+      text: 'RECEIVED',
+      color: { r: 29, g: 78, b: 216 },
+      fontFamily: 'sans',
+      bold: true,
+      border: true,
+      rotation: 0,
+    });
     await t.sign.addImageStamp('Logo', samplePng(60, 40));
     await t.sign.addSelectionStamp(s, 0, { x: 60, y: 700, width: 200, height: 40 }, 'Heading');
-    expect(t.sign.customStamps.map((c) => [c.name, c.kind])).toEqual([['Received', 'text'], ['Logo', 'image'], ['Heading', 'selection']]);
+    expect(t.sign.customStamps.map((c) => [c.name, c.kind])).toEqual([
+      ['Received', 'text'],
+      ['Logo', 'image'],
+      ['Heading', 'selection'],
+    ]);
     await t.sign.renameStamp(t.sign.customStamps[1]!.id, 'Company logo');
-    await t.sign.reorderStamps([t.sign.customStamps[2]!.id, t.sign.customStamps[0]!.id, t.sign.customStamps[1]!.id]);
+    await t.sign.reorderStamps([
+      t.sign.customStamps[2]!.id,
+      t.sign.customStamps[0]!.id,
+      t.sign.customStamps[1]!.id,
+    ]);
     expect(t.sign.customStamps.map((c) => c.name)).toEqual(['Heading', 'Received', 'Company logo']);
     for (const def of t.sign.customStamps) {
       t.sign.placeStamp(tools, def);
@@ -177,12 +270,16 @@ describe('E2 Sign a document', () => {
     await t.app.setSetting('encryptSignatures', true);
     t.sign.openCreate('signature');
     await t.sign.save(await t.sign.draftFromText('Marta', 'Kalam', t.sign.inkColors.black!), 'Secret');
-    const row = (await t.db.select<{ encrypted: number; png: string }>('SELECT encrypted, png FROM signatures'))[0]!;
+    const row = (
+      await t.db.select<{ encrypted: number; png: string }>('SELECT encrypted, png FROM signatures')
+    )[0]!;
     expect(row.encrypted).toBe(1);
     expect(Buffer.from(row.png, 'base64').subarray(0, 4).toString('latin1')).not.toBe('\x89PNG');
     expect(t.sign.signatures[0]!.png.subarray(1, 4).toString()).toBe('80,78,71');
     await t.app.setSetting('encryptSignatures', false);
-    expect((await t.db.select<{ encrypted: number }>('SELECT encrypted FROM signatures'))[0]!.encrypted).toBe(0);
+    expect((await t.db.select<{ encrypted: number }>('SELECT encrypted FROM signatures'))[0]!.encrypted).toBe(
+      0,
+    );
   });
 });
 
@@ -199,7 +296,10 @@ describe('E3 Edit text', () => {
     await tools.pointerMove(0, at);
     expect(tools.hoverLine!.line).toMatchObject({ text: 'Invoce', fontName: 'LiberationSerif' });
     await tools.pointerDown(0, at);
-    expect(tools.inlineEdit).toMatchObject({ text: 'Invoce', badge: { text: 'LiberationSerif 24pt', substituted: false } });
+    expect(tools.inlineEdit).toMatchObject({
+      text: 'Invoce',
+      badge: { text: 'LiberationSerif 24pt', substituted: false },
+    });
     expect(tools.inlineEdit!.caret).toBeGreaterThanOrEqual(5);
     tools.rememberEditSize(24);
     const res = await tools.commitInlineEdit('Invoice');
@@ -210,11 +310,21 @@ describe('E3 Edit text', () => {
     // A glyph the subset does not have: nearest bundled font, amber notice explains.
     await tools.pointerDown(0, at);
     await tools.commitInlineEdit('Invoice №7');
-    expect(tools.notice).toMatchObject({ kind: 'substituted', message: { key: 'edit.fontSubstituted', params: { from: 'LiberationSerif', to: 'Liberation Serif' } } });
+    expect(tools.notice).toMatchObject({
+      kind: 'substituted',
+      message: { key: 'edit.fontSubstituted', params: { from: 'LiberationSerif', to: 'Liberation Serif' } },
+    });
     await settle();
     const bytes = await s.doc.save();
     expect(await pdftotext(bytes)).toContain('Invoice №7');
     expect((await pdffonts(bytes)).length).toBe(2);
+    // Characters no bundled font has: that is the notice (it wins over the font substitution) and it sits on the line.
+    await tools.pointerDown(0, at);
+    await tools.commitInlineEdit('Invoice 日本語');
+    expect(tools.notice).toMatchObject({ kind: 'missingGlyphs', message: { key: 'edit.missingGlyphs' } });
+    expect(tools.notice!.rect).toMatchObject({ width: expect.any(Number) });
+    await s.undo();
+    await settle();
     // Unchanged text and Esc are no-ops.
     const steps = s.historyState.done.length;
     await tools.pointerDown(0, at);
@@ -244,7 +354,10 @@ describe('E3 Edit text', () => {
     await tools.pointerDown(0, { x: 100, y: 500 });
     expect(tools.typing).toMatchObject({ kind: 'cover', page: 0 });
     await tools.commitTyping('Typed over the scan');
-    expect((await s.doc.listAnnotations(0))[0]).toMatchObject({ type: 'freetext', contents: 'Typed over the scan' });
+    expect((await s.doc.listAnnotations(0))[0]).toMatchObject({
+      type: 'freetext',
+      contents: 'Typed over the scan',
+    });
     expect(tools.tool).toBe('cover-type');
   });
 
@@ -269,10 +382,23 @@ describe('E3 Edit text', () => {
     tools.setTool('whiteout');
     const heading = (await s.text.layer(0)).runs.find((r) => r.text === 'Two images below')!;
     await tools.pointerDown(0, { x: heading.rect.x - 2, y: heading.rect.y - 2 });
-    await tools.pointerMove(0, { x: heading.rect.x + heading.rect.width + 2, y: heading.rect.y + heading.rect.height + 2 });
-    await tools.pointerUp(0, { x: heading.rect.x + heading.rect.width + 2, y: heading.rect.y + heading.rect.height + 2 });
+    await tools.pointerMove(0, {
+      x: heading.rect.x + heading.rect.width + 2,
+      y: heading.rect.y + heading.rect.height + 2,
+    });
+    await tools.pointerUp(0, {
+      x: heading.rect.x + heading.rect.width + 2,
+      y: heading.rect.y + heading.rect.height + 2,
+    });
     await settle();
-    expect(inkRatio(await s.doc.render(0, { scale: 1, annotations: false }), { x: heading.rect.x, y: 792 - heading.rect.y - heading.rect.height, width: heading.rect.width, height: heading.rect.height })).toBe(0);
+    expect(
+      inkRatio(await s.doc.render(0, { scale: 1, annotations: false }), {
+        x: heading.rect.x,
+        y: 792 - heading.rect.y - heading.rect.height,
+        width: heading.rect.width,
+        height: heading.rect.height,
+      }),
+    ).toBe(0);
     expect((await s.text.layer(0)).text).toContain('Two images below');
     // Select an image, drag it, delete it.
     tools.setTool('select');
@@ -283,6 +409,17 @@ describe('E3 Edit text', () => {
     await tools.pointerUp(0, { x: 140, y: 580 });
     await settle();
     expect((await t.services.objects.imagesOn(s.doc, 0))[0]!.bounds).toMatchObject({ x: 112, y: 540 });
+    // A handle of the selected image resizes it and keeps it selected.
+    const before = (await t.services.objects.imagesOn(s.doc, 0))[0]!.bounds;
+    await tools.pointerDown(0, { x: before.x + before.width, y: before.y }, {}, 'br');
+    expect(s.selection).toMatchObject({ kind: 'object', page: 0 });
+    expect(tools.drag).toMatchObject({ kind: 'resize' });
+    await tools.pointerMove(0, { x: before.x + before.width + 30, y: before.y - 30 });
+    await tools.pointerUp(0, { x: before.x + before.width + 30, y: before.y - 30 });
+    await settle();
+    const resized = (await t.services.objects.imagesOn(s.doc, 0))[0]!.bounds;
+    expect(resized.width).toBeGreaterThan(before.width + 20);
+    expect(s.selection).toMatchObject({ kind: 'object', page: 0 });
     await tools.pointerDown(0, { x: 150, y: 580 });
     await tools.pointerUp(0, { x: 150, y: 580 });
     expect(await tools.deleteSelection()).toBe(1);
@@ -290,11 +427,18 @@ describe('E3 Edit text', () => {
     expect((await t.services.objects.imagesOn(s.doc, 0)).length).toBe(1);
     // Insert a new image through the placement ghost.
     const prepared = await t.services.objects.prepare(samplePng(80, 40));
-    tools.beginPlacement({ kind: 'image', size: { width: 160, height: 80 }, make: (rect) => ({ image: { image: prepared.image, rect } }) });
+    tools.beginPlacement({
+      kind: 'image',
+      size: { width: 160, height: 80 },
+      make: (rect) => ({ image: { image: prepared.image, rect } }),
+    });
     await tools.pointerMove(0, { x: 300, y: 200 });
     await tools.pointerDown(0, { x: 300, y: 200 });
     await settle();
-    expect((await t.services.objects.imagesOn(s.doc, 0)).map((o) => o.imageSize)).toContainEqual({ width: 80, height: 40 });
+    expect((await t.services.objects.imagesOn(s.doc, 0)).map((o) => o.imageSize)).toContainEqual({
+      width: 80,
+      height: 40,
+    });
     await expect(await s.doc.save()).toBeValidPdf();
   });
 });
@@ -327,14 +471,29 @@ describe('E4 Fill a form', () => {
     expect(form.tab(1)!.field.name).toBe('person.name');
     expect(form.tab(-1)!.field.name).toBe('langs');
     await settle();
-    expect(Object.fromEntries(form.fields.map((f) => [f.name, f.value]))).toMatchObject({ 'person.name': 'Marta Esempio', code: 'ab12', agree: 'Yes', color: 'blue', country: 'France' });
+    expect(Object.fromEntries(form.fields.map((f) => [f.name, f.value]))).toMatchObject({
+      'person.name': 'Marta Esempio',
+      code: 'ab12',
+      agree: 'Yes',
+      color: 'blue',
+      country: 'France',
+    });
     await t.app.save();
     const bytes = t.files.get('/form.pdf')!;
     await expect(bytes).toBeValidPdf();
     const rows = Object.fromEntries((await pdfcpuFormFields(bytes)).map((r) => [r.name, r.value]));
-    expect(rows).toMatchObject({ 'person.name': 'Marta Esempio', code: 'ab12', agree: 'Yes', color: 'blue', country: 'France', langs: 'EN,IT' });
+    expect(rows).toMatchObject({
+      'person.name': 'Marta Esempio',
+      code: 'ab12',
+      agree: 'Yes',
+      color: 'blue',
+      country: 'France',
+      langs: 'EN,IT',
+    });
     // Appearance streams exist: an independent renderer shows the typed name.
-    expect(inkRatio(await pdftoppm(bytes, 1), { x: 74, y: 792 - 700, width: 90, height: 18 })).toBeGreaterThan(0.03);
+    expect(
+      inkRatio(await pdftoppm(bytes, 1), { x: 74, y: 792 - 700, width: 90, height: 18 }),
+    ).toBeGreaterThan(0.03);
     // Each field edit is its own undo step.
     expect(s.historyState.done.length).toBe(7);
   });
@@ -342,9 +501,26 @@ describe('E4 Fill a form', () => {
   it('offers profile values while typing, exports and imports data, resets and flattens with confirmation @FR-FRM-05 @FR-FRM-10 @FR-AIF-01', async () => {
     const t = await createTestApp();
     const profile = await t.services.profiles.create('Personal', ['identity', 'contacts']);
-    await t.services.profiles.setField(profile.id, { key: 'full_name', label: 'Full name', type: 'text', value: PERSON.fullName, aliases: ['name'] });
-    await t.services.profiles.setField(profile.id, { key: 'email', label: 'Email', type: 'email', value: PERSON.email });
-    await t.services.profiles.setField(profile.id, { key: 'tax_id', label: 'Tax code', type: 'text', value: PERSON.taxId, sensitive: true });
+    await t.services.profiles.setField(profile.id, {
+      key: 'full_name',
+      label: 'Full name',
+      type: 'text',
+      value: PERSON.fullName,
+      aliases: ['name'],
+    });
+    await t.services.profiles.setField(profile.id, {
+      key: 'email',
+      label: 'Email',
+      type: 'email',
+      value: PERSON.email,
+    });
+    await t.services.profiles.setField(profile.id, {
+      key: 'tax_id',
+      label: 'Tax code',
+      type: 'text',
+      value: PERSON.taxId,
+      sensitive: true,
+    });
     const s = await t.open('acroform', '/form.pdf');
     const form = t.form(s);
     await form.load();
@@ -353,12 +529,20 @@ describe('E4 Fill a form', () => {
     expect(sugg[0]).toBe(PERSON.fullName);
     expect(sugg).not.toContain(PERSON.taxId);
     expect(await form.suggestions(name, 'mar')).toEqual([PERSON.fullName, PERSON.email]);
-    expect(await form.suggestions(form.fields.find((f) => f.name === 'agree')!, '')).toEqual([]);
+    expect(
+      await form.suggestions(
+        form.fields.find((f) => f.name === 'agree')!,
+        '',
+      ),
+    ).toEqual([]);
     await form.set(name, PERSON.fullName);
     await settle();
     t.files.nextSave = ['/form.json'];
     expect(await form.exportJson()).toBe(true);
-    expect(JSON.parse(new TextDecoder().decode(t.files.get('/form.json')!))).toMatchObject({ version: 1, fields: { 'person.name': PERSON.fullName, agree: false } });
+    expect(JSON.parse(new TextDecoder().decode(t.files.get('/form.json')!))).toMatchObject({
+      version: 1,
+      fields: { 'person.name': PERSON.fullName, agree: false },
+    });
     t.prompts.confirmAnswers = [false, true];
     await form.reset();
     expect(form.fields.find((f) => f.name === 'person.name')!.value).toBe(PERSON.fullName);
@@ -376,7 +560,11 @@ describe('E4 Fill a form', () => {
     await settle();
     expect(form.fields).toEqual([]);
     expect(form.banner.kind).toBe('none');
-    expect(t.prompts.asked.filter((a) => a.startsWith('confirm:'))).toEqual(['confirm:form.confirmReset', 'confirm:form.confirmReset', 'confirm:form.confirmFlatten']);
+    expect(t.prompts.asked.filter((a) => a.startsWith('confirm:'))).toEqual([
+      'confirm:form.confirmReset',
+      'confirm:form.confirmReset',
+      'confirm:form.confirmFlatten',
+    ]);
   });
 
   it('explains that dynamic XFA forms cannot be edited @FR-FRM-09', async () => {
@@ -388,11 +576,57 @@ describe('E4 Fill a form', () => {
   });
 });
 
+describe('Typed text boxes keep everything that was typed @FR-ANN-03', () => {
+  it('sizes the box to the wrapped text and keeps it on the page', async () => {
+    const t = await createTestApp();
+    const s = await t.open('text', '/a.pdf');
+    const tools = t.tools(s);
+    tools.setTool('textbox');
+    tools.setOptions({ fontSize: 12 });
+    await tools.pointerDown(0, { x: 100, y: 400 });
+    const first = 'This sentence is long enough to wrap onto several lines inside the text box that was drawn. '.repeat(3).trim();
+    await tools.commitTyping(`${first}\nSecond paragraph that must survive.`);
+    tools.setTool('textbox');
+    await tools.pointerDown(0, { x: 590, y: 30 });
+    await tools.commitTyping('Edge text that is rather long and wraps');
+    const [a, b] = (await s.doc.listAnnotations(0)).filter((x) => x.type === 'freetext');
+    const page = s.pageInfos[0]!.cropBox;
+    expect(a!.rect.height).toBeGreaterThan(12 * 1.3 * 5);
+    for (const r of [a!.rect, b!.rect]) {
+      expect(r.x).toBeGreaterThanOrEqual(page.x);
+      expect(r.x + r.width).toBeLessThanOrEqual(page.x + page.width + 0.01);
+      expect(r.y).toBeGreaterThanOrEqual(page.y);
+    }
+    expect(a!.contents).toContain('Second paragraph that must survive.');
+  });
+});
+
 describe('E5 Smart Fill', () => {
   const profileFor = async (t: Awaited<ReturnType<typeof createTestApp>>) => {
-    const p = await t.services.profiles.create('Personal', ['identity', 'contacts', 'address', 'bank', 'company']);
-    const values: Record<string, string> = { first_name: PERSON.firstName, last_name: PERSON.lastName, full_name: PERSON.fullName, birth_date: PERSON.birthDate, email: PERSON.email, tax_id: PERSON.taxId, phone: PERSON.phone, street: PERSON.street, city: PERSON.city, postal_code: PERSON.postalCode, country: PERSON.country, iban: PERSON.iban, company: PERSON.company };
-    for (const f of p.fields) if (values[f.key]) await t.services.profiles.setField(p.id, { ...f, value: values[f.key]! });
+    const p = await t.services.profiles.create('Personal', [
+      'identity',
+      'contacts',
+      'address',
+      'bank',
+      'company',
+    ]);
+    const values: Record<string, string> = {
+      first_name: PERSON.firstName,
+      last_name: PERSON.lastName,
+      full_name: PERSON.fullName,
+      birth_date: PERSON.birthDate,
+      email: PERSON.email,
+      tax_id: PERSON.taxId,
+      phone: PERSON.phone,
+      street: PERSON.street,
+      city: PERSON.city,
+      postal_code: PERSON.postalCode,
+      country: PERSON.country,
+      iban: PERSON.iban,
+      company: PERSON.company,
+    };
+    for (const f of p.fields)
+      if (values[f.key]) await t.services.profiles.setField(p.id, { ...f, value: values[f.key]! });
     return p;
   };
 
@@ -408,17 +642,55 @@ describe('E5 Smart Fill', () => {
     expect(await sf.aiAvailable()).toBe(false);
     await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true });
     expect(await sf.aiAvailable()).toBe(true);
-    ai.enqueue((req) => ({ fields: req.candidates.map((c) => ({ ref: c.ref, label: c.label ?? '', fieldType: c.fieldType, profileKey: ({ 'First name': 'first_name', 'Last name': 'last_name', 'Date of birth': 'birth_date', Email: 'email', 'Tax code': 'tax_id' } as Record<string, string>)[c.label ?? ''] ?? null, transform: 'none', choiceValue: null, confidence: 0.95 })), newAreas: [] }));
+    ai.enqueue((req) => ({
+      fields: req.candidates.map((c) => ({
+        ref: c.ref,
+        label: c.label ?? '',
+        fieldType: c.fieldType,
+        profileKey:
+          (
+            {
+              'First name': 'first_name',
+              'Last name': 'last_name',
+              'Date of birth': 'birth_date',
+              Email: 'email',
+              'Tax code': 'tax_id',
+            } as Record<string, string>
+          )[c.label ?? ''] ?? null,
+        transform: 'none',
+        choiceValue: null,
+        confidence: 0.95,
+      })),
+      newAreas: [],
+    }));
     await sf.start();
     expect(sf.stage).toBe('preflight');
-    expect(sf.preflight).toMatchObject({ mode: 'mapping_only', pages: [1], candidateCount: 6, valueKeys: [], includesImage: false });
+    expect(sf.preflight).toMatchObject({
+      mode: 'mapping_only',
+      pages: [1],
+      candidateCount: 6,
+      valueKeys: [],
+      includesImage: false,
+    });
     expect(sf.preflight!.estimatedTokens).toBeGreaterThan(0);
     expect(ai.requests.length).toBe(0);
     await sf.confirmPreflight(true);
     expect(sf.stage).toBe('review');
     expect(t.app.settings.ai.preflightAcknowledged).toEqual(['mapping_only']);
     expect(JSON.stringify(ai.requests[0])).not.toContain(PERSON.email);
-    const correct = sf.suggestions.filter((x) => ({ 'First name': 'first_name', 'Last name': 'last_name', 'Date of birth': 'birth_date', Email: 'email', 'Tax code': 'tax_id', 'Send me the newsletter': null } as Record<string, string | null>)[x.label] === x.profileKey).length;
+    const correct = sf.suggestions.filter(
+      (x) =>
+        (
+          ({
+            'First name': 'first_name',
+            'Last name': 'last_name',
+            'Date of birth': 'birth_date',
+            Email: 'email',
+            'Tax code': 'tax_id',
+            'Send me the newsletter': null,
+          }) as Record<string, string | null>
+        )[x.label] === x.profileKey,
+    ).length;
     expect(correct / sf.suggestions.length).toBeGreaterThanOrEqual(0.85);
     sf.locate(sf.suggestions[0]!.ref);
     expect(sf.located).toBe(sf.suggestions[0]!.ref);
@@ -434,7 +706,9 @@ describe('E5 Smart Fill', () => {
       expect(Math.abs(b.rect.x - truth.x)).toBeLessThanOrEqual(3);
       expect(Math.abs(b.rect.y - truth.y)).toBeLessThanOrEqual(3);
     }
-    expect(t.app.toasts.at(-1)).toMatchObject({ message: { key: 'toast.smartFillApplied', params: { count: 4 } } });
+    expect(t.app.toasts.at(-1)).toMatchObject({
+      message: { key: 'toast.smartFillApplied', params: { count: 4 } },
+    });
     expect(sf.stage).toBe('idle');
     await s.undo();
     await settle();
@@ -443,14 +717,25 @@ describe('E5 Smart Fill', () => {
     // Key removed: the same button runs the local heuristic, with no request at all.
     ai.configured = false;
     const offline = t.smartFill(s);
-    await t.services.mappings.forget((await t.services.smartFill.analyze(s.doc, [0], (await t.services.profiles.getDefault())!, { useAi: false, mode: 'mapping_only' })).fingerprint, (await t.services.profiles.getDefault())!.id);
+    await t.services.mappings.forget(
+      (
+        await t.services.smartFill.analyze(s.doc, [0], (await t.services.profiles.getDefault())!, {
+          useAi: false,
+          mode: 'mapping_only',
+        })
+      ).fingerprint,
+      (await t.services.profiles.getDefault())!.id,
+    );
     const before = ai.requests.length;
     await offline.start();
     expect(offline.stage).toBe('review');
     expect(offline.result!.source).toBe('heuristic');
     expect(ai.requests.length).toBe(before);
     expect(t.http.requests.length).toBe(0);
-    expect(offline.suggestions.find((x) => x.label === 'First name')).toMatchObject({ value: 'Marta', accepted: true });
+    expect(offline.suggestions.find((x) => x.label === 'First name')).toMatchObject({
+      value: 'Marta',
+      accepted: true,
+    });
     expect(await offline.apply(true)).toBeGreaterThanOrEqual(4);
   });
 
@@ -464,19 +749,32 @@ describe('E5 Smart Fill', () => {
     const notes = sf.suggestions.find((x) => x.ref === 'notes')!;
     expect(notes.profileKey).toBeNull();
     await sf.addToProfile('notes', 'notes', 'Notes', 'Please call before delivery');
-    expect(sf.suggestions.find((x) => x.ref === 'notes')).toMatchObject({ profileKey: 'notes', value: 'Please call before delivery', accepted: true });
+    expect(sf.suggestions.find((x) => x.ref === 'notes')).toMatchObject({
+      profileKey: 'notes',
+      value: 'Please call before delivery',
+      accepted: true,
+    });
     sf.setScope('all');
     sf.setProfile(sf.profiles[0]!.id);
     expect(await sf.apply()).toBe(3);
     await settle();
-    expect(Object.fromEntries((await s.fields()).map((f) => [f.name, f.value]))).toMatchObject({ 'person.name': PERSON.fullName, country: 'Italy', notes: 'Please call before delivery' });
+    expect(Object.fromEntries((await s.fields()).map((f) => [f.name, f.value]))).toMatchObject({
+      'person.name': PERSON.fullName,
+      country: 'Italy',
+      notes: 'Please call before delivery',
+    });
     expect(s.historyState.done.length).toBe(1);
     // Same form again (another copy of the file): filled from the remembered mapping.
     const again = await t.open('acroform', '/form-copy.pdf');
     const sf2 = t.smartFill(again);
     await sf2.start();
     expect(sf2.result!.source).toBe('remembered');
-    expect(sf2.suggestions.filter((x) => x.accepted).map((x) => x.ref).sort()).toEqual(['country', 'notes', 'person.name']);
+    expect(
+      sf2.suggestions
+        .filter((x) => x.accepted)
+        .map((x) => x.ref)
+        .sort(),
+    ).toEqual(['country', 'notes', 'person.name']);
     await sf2.analyse(true);
     expect(sf2.result!.source).toBe('heuristic');
     sf2.cancel();
@@ -490,16 +788,38 @@ describe('E5 Smart Fill', () => {
 });
 
 describe('E6 Images to PDF', () => {
+  it('reports progress and a cancelled run creates nothing and shows no error @FR-OPT-03', async () => {
+    const t = await createTestApp();
+    for (let i = 1; i <= 3; i++) t.files.put(`/pics/${i}.jpg`, sampleJpeg(200, 100, i));
+    const w = t.images();
+    await w.addFiles([1, 2, 3].map((i) => t.files.ref(`/pics/${i}.jpg`)));
+    const before = t.app.sessions.length;
+    const run = w.create();
+    w.cancel();
+    expect(await run).toBeNull();
+    expect(t.app.sessions.length).toBe(before);
+    expect(t.toastKeys()).toEqual([]);
+    expect(w.busy).toBe(false);
+    const s = await w.create();
+    expect(s?.pageCount).toBe(3);
+    expect(w.progress).toBe(1);
+  });
+
   it('turns three photos into one PDF with one image per page, reordered, with a selectable margin @FR-OPT-03 @FR-MRG-03', async () => {
     const t = await createTestApp();
     t.files.put('/pics/1.jpg', sampleJpeg(400, 300, 1));
     t.files.put('/pics/2.jpg', sampleJpeg(300, 400, 2));
     t.files.put('/pics/3.jpg', sampleJpeg(500, 500, 3));
     t.files.put('/pics/notes.txt', new Uint8Array([1]));
+    // Right extension, wrong content: refused when added (naming the file), not when creating the PDF.
+    t.files.put('/pics/fake.png', new Uint8Array([1, 2, 3]));
     const w = t.images();
-    await w.addFiles(['/pics/1.jpg', '/pics/2.jpg', '/pics/3.jpg', '/pics/notes.txt'].map((p) => t.files.ref(p)));
+    await w.addFiles(
+      ['/pics/1.jpg', '/pics/2.jpg', '/pics/3.jpg', '/pics/notes.txt', '/pics/fake.png'].map((p) => t.files.ref(p)),
+    );
     expect(w.items.map((i) => i.name)).toEqual(['1.jpg', '2.jpg', '3.jpg']);
-    expect(t.toastKeys()).toEqual(['images.notAnImage']);
+    expect(t.toastKeys()).toEqual(['images.notAnImage', 'images.notAnImage']);
+    expect(t.app.toasts.map((x) => x.message.params?.name)).toEqual(['notes.txt', 'fake.png']);
     w.move(w.items[2]!.id, 0);
     w.setOptions({ margin: 18, pageSize: 'A4', fit: 'fit' });
     const s = await w.create();
@@ -510,7 +830,9 @@ describe('E6 Images to PDF', () => {
       expect(objs[0]!.bounds.x).toBeGreaterThanOrEqual(17.9);
     }
     expect((await s!.doc.listObjects(0))[0]!.imageSize).toEqual({ width: 500, height: 500 });
-    expect((await s!.doc.getPageInfo(1)).size.width).toBeGreaterThan((await s!.doc.getPageInfo(1)).size.height);
+    expect((await s!.doc.getPageInfo(1)).size.width).toBeGreaterThan(
+      (await s!.doc.getPageInfo(1)).size.height,
+    );
     t.files.nextSave = ['/pics/album.pdf'];
     await t.app.save(s!);
     const bytes = t.files.get('/pics/album.pdf')!;
@@ -534,7 +856,11 @@ describe('E7 Split every N pages', () => {
     const w = t.split(s);
     await w.init();
     expect(w.folder!.path).toBe('/docs');
-    expect(w.plan.map((f) => [f.name, f.from, f.to, f.pages.length])).toEqual([['big_1.pdf', 1, 10, 10], ['big_2 (2).pdf', 11, 20, 10], ['big_3.pdf', 21, 25, 5]]);
+    expect(w.plan.map((f) => [f.name, f.from, f.to, f.pages.length])).toEqual([
+      ['big_1.pdf', 1, 10, 10],
+      ['big_2 (2).pdf', 11, 20, 10],
+      ['big_3.pdf', 21, 25, 5],
+    ]);
     expect(w.canRun).toBe(true);
     const res = await w.run();
     expect(res).toEqual({ written: ['big_1.pdf', 'big_2 (2).pdf', 'big_3.pdf'], skipped: [] });
@@ -586,7 +912,11 @@ describe('E7 Split every N pages', () => {
     t.files.nextFolder = ['/out'];
     await w.pickFolder();
     await w.setPolicy('ask');
-    expect(w.plan.map((f) => [f.name, f.conflict])).toEqual([['part_1.pdf', true], ['part_2.pdf', false], ['part_3.pdf', false]]);
+    expect(w.plan.map((f) => [f.name, f.conflict])).toEqual([
+      ['part_1.pdf', true],
+      ['part_2.pdf', false],
+      ['part_3.pdf', false],
+    ]);
     t.prompts.confirmAnswers = [false];
     expect(await w.run()).toEqual({ written: ['part_2.pdf', 'part_3.pdf'], skipped: ['part_1.pdf'] });
     expect(t.files.get('/out/part_1.pdf')!.length).toBe(1);
@@ -630,6 +960,30 @@ describe('other everyday flows', () => {
     await org.nudge(1);
     await settle();
     expect((await markers(s)).slice(0, 4)).toEqual([1, 2, 3, 4]);
+    // Dropping a page where it already is changes nothing: no history step, no unsaved-changes mark.
+    const steps = s.historyState;
+    org.click(3);
+    await org.drop(3, 3);
+    await org.drop(3, 4);
+    await settle();
+    expect(s.historyState).toEqual(steps);
+    expect((await markers(s)).slice(0, 5)).toEqual([1, 2, 3, 4, 5]);
+    org.click(1);
+    org.click(2, { shift: true });
+    // Delete removes the selection and leaves nothing selected: a second Delete is not a second removal.
+    org.click(0);
+    const countBefore = s.pageCount;
+    await org.delete();
+    await settle();
+    expect(s.pageCount).toBe(countBefore - 1);
+    expect(org.selected).toEqual([]);
+    await org.delete();
+    await settle();
+    expect(s.pageCount).toBe(countBefore - 1);
+    await s.undo();
+    await settle();
+    org.click(1);
+    org.click(2, { shift: true });
     // Hover mini action bar on a page that is not selected acts on that page only.
     await org.rotate(90, 7);
     expect((await s.doc.getPageInfo(7)).rotation).toBe(90);
@@ -645,7 +999,10 @@ describe('other everyday flows', () => {
     t.files.nextOpen = [['/docs/extra.pdf']];
     await org.insertFromFile(0, '2,4');
     await settle();
-    expect([(await s.doc.getPageInfo(0)).size, (await s.doc.getPageInfo(1)).size]).toEqual([{ width: 792, height: 612 }, { width: 300, height: 200 }]);
+    expect([(await s.doc.getPageInfo(0)).size, (await s.doc.getPageInfo(1)).size]).toEqual([
+      { width: 792, height: 612 },
+      { width: 300, height: 200 },
+    ]);
     expect(s.pageCount).toBe(30);
     // Extract to a new tab and remove from the source.
     org.click(0);
@@ -670,7 +1027,9 @@ describe('other everyday flows', () => {
     org.click(0);
     await org.delete();
     await settle();
-    expect(t.app.toasts.at(-1)).toMatchObject({ message: { key: 'toast.pagesDeleted', params: { count: 1 } } });
+    expect(t.app.toasts.at(-1)).toMatchObject({
+      message: { key: 'toast.pagesDeleted', params: { count: 1 } },
+    });
     await t.app.toasts.at(-1)!.action!.run();
     await settle();
     expect(s.pageCount).toBe(29);
@@ -739,7 +1098,15 @@ describe('other everyday flows', () => {
     await tools.pointerDown(0, { x: 300, y: 100 });
     await tools.commitTyping('   ');
     const list = await s.doc.listAnnotations(0);
-    expect(list.map((a) => a.type)).toEqual(['highlight', 'text', 'underline', 'square', 'line', 'polyline', 'freetext']);
+    expect(list.map((a) => a.type)).toEqual([
+      'highlight',
+      'text',
+      'underline',
+      'square',
+      'line',
+      'polyline',
+      'freetext',
+    ]);
     expect(list[0]!.color).toMatchObject({ r: 124, g: 222, b: 132 });
     expect(list[3]!.rect).toMatchObject({ width: 80, height: 80 });
     expect(list[4]).toMatchObject({ endEnding: 'openArrow' });
@@ -761,11 +1128,22 @@ describe('other everyday flows', () => {
     await tools.pointerDown(0, { x: 180, y: 300 }, {}, 'tr');
     await tools.pointerMove(0, { x: 220, y: 320 });
     await tools.pointerUp(0, { x: 220, y: 320 });
-    expect((await s.doc.listAnnotations(0)).at(-1)!.rect).toMatchObject({ x: 100, y: 220, width: 120, height: 100 });
+    expect((await s.doc.listAnnotations(0)).at(-1)!.rect).toMatchObject({
+      x: 100,
+      y: 220,
+      width: 120,
+      height: 100,
+    });
     await tools.copySelection();
     const other = await t.open('text', '/b.pdf');
     expect(await t.tools(other).paste(t.clipboard.text, 1)).toBe(1);
-    expect((await other.doc.listAnnotations(1))[0]).toMatchObject({ type: 'square', rect: { x: 112, y: 208 } });
+    expect((await other.doc.listAnnotations(1))[0]).toMatchObject({
+      type: 'square',
+      rect: { x: 112, y: 208 },
+    });
+    // Pasting the same copy again cascades instead of stacking exactly on the previous one.
+    expect(await t.tools(other).paste(t.clipboard.text, 1)).toBe(1);
+    expect((await other.doc.listAnnotations(1))[1]).toMatchObject({ rect: { x: 124, y: 196 } });
     expect(await t.tools(other).paste('plain text', 0)).toBe(0);
     expect(await t.tools(other).deleteSelection()).toBe(1);
     await t.app.save(s);

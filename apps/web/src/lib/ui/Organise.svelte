@@ -45,7 +45,7 @@
     menu = { x: e.clientX, y: e.clientY, page };
   }
   const items = $derived.by((): MenuItem[] => [
-    { icon: 'rotate-cw', label: t('ui.rotate'), shortcut: 'R', run: () => void org.rotate(90) },
+    { icon: 'rotate-cw', label: t('cmd.rotateCw'), shortcut: 'R', run: () => void org.rotate(90) },
     { icon: 'rotate-ccw', label: t('cmd.rotateCcw'), shortcut: 'Shift+R', run: () => void org.rotate(270) },
     { icon: 'trash-2', label: t('action.delete'), shortcut: 'Del', danger: true, run: () => void org.delete() },
     { icon: 'copy', label: t('cmd.duplicate'), run: () => void org.duplicate() },
@@ -88,13 +88,13 @@
   }
 </script>
 
-<div class="row" style="padding:8px 14px;background:var(--color-surface);border-bottom:1px solid var(--color-border);gap:10px">
+<div class="row" style="padding:8px 14px;background:var(--color-surface);border-bottom:1px solid var(--color-border);gap:10px;flex-wrap:wrap">
   <Icon name="layout-grid" /><label for="tsz" class="note" style="width:auto">{t('ui.thumbSize')}</label>
   <input id="tsz" type="range" min="90" max="320" value={size} oninput={(e) => org.setThumbSize(Number(e.currentTarget.value))} style="max-width:180px;flex:none" />
   <span class="grow"></span>
-  <button class="btn ghost sm" onclick={() => org.selectOdd()}>{t('cmd.selectOdd')}</button>
-  <button class="btn ghost sm" onclick={() => org.selectEven()}>{t('cmd.selectEven')}</button>
-  <button class="btn ghost sm" onclick={() => org.selectNone()}>{t('cmd.selectNone')}</button>
+  <button class="btn sm" style="flex:none" onclick={() => org.selectOdd()}>{t('cmd.selectOdd')}</button>
+  <button class="btn sm" style="flex:none" onclick={() => org.selectEven()}>{t('cmd.selectEven')}</button>
+  <button class="btn sm" style="flex:none" onclick={() => org.selectNone()}>{t('cmd.selectNone')}</button>
 </div>
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div id="orggrid" bind:this={grid} style="grid-template-columns:repeat(auto-fill,minmax({size + 18}px,1fr));position:relative" onpointerdown={bandStart} onpointermove={bandMove} onpointerup={() => (band = null)} ondragover={(e) => dragging !== null && e.preventDefault()} {ondrop}>

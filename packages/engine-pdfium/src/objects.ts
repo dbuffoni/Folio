@@ -238,7 +238,9 @@ export function replaceText(
       target = created;
       fontResult = { kind: 'substituted', from: cleanName, to: d.shared.fonts.displayName(family, variant) };
       d.commitPage(i);
-      if (visible(readBack(d, i, target)) !== visible(text)) warnings.push('missingGlyph');
+      // Text extraction maps a missing glyph back to its character, so the font itself is asked as well.
+      if (visible(readBack(d, i, target)) !== visible(text) || !d.shared.fonts.covers(family, variant, text))
+        warnings.push('missingGlyph');
     }
 
     if (style?.color)

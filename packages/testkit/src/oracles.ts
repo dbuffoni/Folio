@@ -69,7 +69,7 @@ export async function qpdfCheck(pdf: Uint8Array, password?: string): Promise<Che
 /** `pdfcpu validate` in relaxed mode. */
 export async function pdfcpuValidate(pdf: Uint8Array, password?: string): Promise<CheckResult> {
   return withTempPdf(pdf, async (path) => {
-    const r = await exec('pdfcpu', ['validate', ...(password ? ['-upw', password] : []), path]);
+    const r = await exec('pdfcpu', ['validate', ...(password ? ['--upw', password] : []), path]);
     const output = r.stdout + r.stderr;
     return { ok: r.code === 0 && /validation ok/.test(output), warnings: [], output };
   });

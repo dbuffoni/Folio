@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPageRanges } from '@folio/core';
   import type { DocumentSession } from '@folio/app';
   import { untrack } from 'svelte';
   import { t, tm } from '#lib/i18n/index.ts';
@@ -58,7 +59,7 @@
       {#if w.problem}<div class="callout" role="alert"><Icon name="triangle-alert" /><span>{tm(w.problem)}</span></div>{/if}
       <ul class="rlist" style="max-height:230px;overflow:auto">
         {#each plan.slice(0, 200) as f, i (i)}
-          <li><Icon name="file-text" /><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f.name}</b>{#if f.conflict}<span class="chip warn">{t('split.exists')}</span>{/if}<small>{f.from === f.to ? t('split.pageOne', { from: f.from }) : t('split.pagesRange', { from: f.from, to: f.to })}</small></li>
+          <li><Icon name="file-text" /><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f.name}</b>{#if f.conflict}<span class="chip warn">{t('split.exists')}</span>{/if}<small>{f.pages.length === 1 ? t('split.pageOne', { from: f.from }) : f.to - f.from + 1 === f.pages.length ? t('split.pagesRange', { from: f.from, to: f.to }) : t('split.pagesList', { list: formatPageRanges(f.pages), count: f.pages.length })}</small></li>
         {/each}
       </ul>
     </div>

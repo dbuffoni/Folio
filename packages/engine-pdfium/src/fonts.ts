@@ -1,4 +1,5 @@
 import type { StandardFontFamily } from '@folio/ports';
+import { cmapCoverage, winAnsiCovers } from './cmap.ts';
 import type { Pdfium, Ptr } from './mem.ts';
 
 export type FontVariant = 'regular' | 'bold' | 'italic' | 'boldItalic';
@@ -47,6 +48,19 @@ export class FontRegistry {
   /** Display name of what `load` will embed for the family. */
   displayName(family: StandardFontFamily, variant: FontVariant = 'regular'): string {
     return this.data[family]?.[variant] || this.data[family]?.regular ? BUNDLED_NAME[family] : STANDARD[family][variant];
+  }
+
+  private coverage = new Map<Uint8Array, (cp: number) => boolean>();
+  /** Whether `load(family, variant)` has a glyph for every visible character of `text`. */
+  covers(family: StandardFontFamily, variant: FontVariant, text: string): boolean {
+    const bytes = this.data[family]?.[variant] ?? this.data[family]?.regular;
+    let has = winAnsiCovers;
+    if (bytes) {
+      let c = this.coverage.get(bytes);
+      if (!c) this.coverage.set(bytes, (c = cmapCoverage(bytes)));
+      has = c;
+    }
+    return [...text].every((ch) => /\s/.test(ch) || has(ch.codePointAt(0)!));
   }
 
   load(doc: Ptr, family: StandardFontFamily, variant: FontVariant): Ptr {

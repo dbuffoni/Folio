@@ -377,6 +377,7 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   }
 
   async rotatePages(pages: PageIndex[], deg: 90 | 180 | 270): Promise<void> {
+    if (deg !== 90 && deg !== 180 && deg !== 270) throw new InvalidArgumentError('Rotation must be 90, 180 or 270 degrees');
     for (const p of new Set(pages)) {
       const page = this.page(p);
       this.m.FPDFPage_SetRotation(page, (this.m.FPDFPage_GetRotation(page) + deg / 90) % 4);

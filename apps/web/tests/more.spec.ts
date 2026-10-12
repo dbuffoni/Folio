@@ -63,7 +63,7 @@ test('annotate: text box, rectangle, comments list and flatten @FR-ANN-03 @FR-AN
 
   await tool(app, 'Flatten annotations…').click();
   const confirm = app.getByRole('dialog');
-  await confirm.getByRole('button', { name: 'Apply' }).click();
+  await confirm.getByRole('button', { name: 'Flatten annotations' }).click();
   await expect(confirm).toBeHidden();
   await expect(app.getByRole('complementary', { name: 'Sidebar' }).getByText('Reviewed by Ada')).toBeHidden();
   const flat = await save(app);

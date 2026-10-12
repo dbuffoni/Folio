@@ -36,7 +36,7 @@
     <label style="width:auto"><input type="radio" name="sfs" checked={sf.scope === 'all'} onchange={() => (sf.setScope('all'), void sf.analyse(false))} /> {t('smartfill.scope.all')}</label>
   </div>
   {#if sf.result}
-    <div class="callout info"><Icon name="shield-check" /><span>{t(`smartfill.source.${sf.result.source}`)} {#if sf.result.source === 'ai'}{t(ai.mode === 'mapping_only' ? 'smartfill.privacy.mapping' : 'smartfill.privacy.values')}{/if} <button class="link" onclick={() => ui.openDialog('settings')}>{t('smartfill.change')}</button></span></div>
+    <div class="callout info"><Icon name="shield-check" /><span>{t(sf.result.source === 'heuristic' && sf.result.fallbackReason && !['notConfigured', 'offline'].includes(sf.result.fallbackReason) ? 'smartfill.source.afterRequest' : `smartfill.source.${sf.result.source}`)} {#if sf.result.source === 'ai'}{t(ai.mode === 'mapping_only' ? 'smartfill.privacy.mapping' : 'smartfill.privacy.values')}{/if} <button class="link" onclick={() => ui.openDialog('settings')}>{t('smartfill.change')}</button></span></div>
   {/if}
 </div>
 {#if stage === 'analysing'}
@@ -61,8 +61,8 @@
         {:else}
           <input type="text" value={s.value} aria-label={s.label} placeholder={t('smartfill.noMatch')} onchange={(e) => sf.setValue(s.ref, e.currentTarget.value)} />
         {/if}
-        <div style="grid-column:2;display:flex;gap:6px;align-items:center">
-          <select style="height:24px;font-size:12px;flex:1;min-width:0" value={s.profileKey ?? ''} aria-label={t('smartfill.key')} onchange={(e) => sf.setKey(s.ref, e.currentTarget.value || null)}>
+        <div style="grid-column:2;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select style="height:24px;font-size:12px;flex:1 1 120px;min-width:0" value={s.profileKey ?? ''} aria-label={t('smartfill.key')} onchange={(e) => sf.setKey(s.ref, e.currentTarget.value || null)}>
             <option value="">{t('smartfill.noMatch')}</option>
             {#each sf.profile?.fields ?? [] as f (f.key)}<option value={f.key}>{f.label}</option>{/each}
           </select>

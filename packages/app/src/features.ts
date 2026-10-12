@@ -135,6 +135,10 @@ export class OrganiseModel extends ViewModel {
   async drop(dragged: PageIndex, before: number): Promise<void> {
     const pages = this.target(dragged);
     this.dropBefore = null;
+    // A contiguous block dropped on or right after itself keeps the order: nothing to do (and nothing to undo).
+    const sorted = [...pages].sort((a, b) => a - b);
+    const contiguous = sorted.every((p, i) => i === 0 || p === sorted[i - 1]! + 1);
+    if (contiguous && before >= sorted[0]! && before <= sorted[sorted.length - 1]! + 1) return this.emit();
     const moved = await this.app.guard(() =>
       this.session.run(this.pages.reorder(this.session.doc, pages, before)),
     );
@@ -159,11 +163,20 @@ export class OrganiseModel extends ViewModel {
   async delete(page?: PageIndex): Promise<void> {
     const pages = this.target(page);
     if (pages.length === 0) return;
+    const keep = this.selected;
     const ok = await this.app.guard(async () => {
       await this.session.run(this.pages.delete(this.session.doc, pages));
       return true;
     });
-    if (ok) this.app.toastUndo(msg('toast.pagesDeleted', { count: pages.length }));
+    if (ok) {
+      // Deleted pages leave the selection and the others follow their pages, so pressing Delete again
+      // does not remove whatever moved into the old positions.
+      const gone = new Set(pages);
+      const left = keep.filter((p) => !gone.has(p)).map((p) => p - pages.filter((d) => d < p).length);
+      if (left.length) this.setSelection(left, left[0]);
+      else this.selectNone();
+      this.app.toastUndo(msg('toast.pagesDeleted', { count: pages.length }));
+    }
   }
   async duplicate(page?: PageIndex): Promise<void> {
     const pages = this.target(page);
@@ -273,6 +286,7 @@ export class MergeWizard extends ViewModel {
   get canMerge(): boolean {
     return (
       !this.busy &&
+      !this.items.some((i) => i.info.problem === 'badRange') &&
       this.usable.length >= 1 &&
       this.totalPages > 0 &&
       (this.usable.length >= 2 || this.totalPages > 0)
@@ -287,6 +301,13 @@ export class MergeWizard extends ViewModel {
       const bytes = await this.app.guard(() => this.app.services.platform.files.read(ref));
       if (!bytes) continue;
       await this.addSource({ name: ref.name, bytes });
+    }
+  }
+  /** Adds every open tab with its current content, so unsaved edits and unsaved tabs are merged too. */
+  async addOpenDocuments(): Promise<void> {
+    for (const s of this.app.sessions) {
+      const bytes = await this.app.guard(() => s.doc.save());
+      if (bytes) await this.addSource({ name: s.name, bytes });
     }
   }
   async addSource(source: MergeSource): Promise<void> {
@@ -507,7 +528,7 @@ export class SplitWizard extends ViewModel {
           overwrite: (name) =>
             this.policy === 'overwrite'
               ? true
-              : this.app.prompts.confirm(msg('split.confirmOverwrite', { name }), { danger: true }),
+              : this.app.prompts.confirm(msg('split.confirmOverwrite', { name }), { danger: true, confirmLabel: msg('split.overwrite') }),
           onProgress: (done, total) => {
             this.progress = done / total;
             this.emit();
@@ -532,8 +553,13 @@ export class ImagesWizard extends ViewModel {
   items: Array<{ id: string; name: string; bytes: Uint8Array }> = [];
   options: ImagePageOptions = { ...DEFAULT_IMAGE_PAGE };
   busy = false;
+  progress = 0;
+  private abort?: AbortController;
   constructor(private readonly app: AppModel) {
     super();
+  }
+  cancel(): void {
+    this.abort?.abort();
   }
   async addFiles(refs?: FileRef[]): Promise<void> {
     const picked =
@@ -544,7 +570,16 @@ export class ImagesWizard extends ViewModel {
         continue;
       }
       const bytes = await this.app.guard(() => this.app.services.platform.files.read(ref));
-      if (bytes) this.items = [...this.items, { id: this.app.services.newId(), name: ref.name, bytes }];
+      if (!bytes) continue;
+      const readable = await this.app.services.platform.images.decode(bytes).then(
+        () => true,
+        () => false,
+      );
+      if (!readable) {
+        this.app.toast('warning', msg('images.notAnImage', { name: ref.name }));
+        continue;
+      }
+      this.items = [...this.items, { id: this.app.services.newId(), name: ref.name, bytes }];
     }
     this.emit();
   }
@@ -569,9 +604,19 @@ export class ImagesWizard extends ViewModel {
   async create(): Promise<DocumentSession | null> {
     if (this.items.length === 0 || this.busy) return null;
     this.busy = true;
+    this.progress = 0;
+    this.abort = new AbortController();
     this.emit();
     try {
-      const doc = await this.app.services.imagesToPdf.create(this.items, this.options);
+      const doc = await this.app.services.imagesToPdf.create(
+        this.items,
+        this.options,
+        this.abort.signal,
+        (done, total) => {
+          this.progress = done / total;
+          this.emit();
+        },
+      );
       return await this.app.adopt(doc, `${splitExt(this.items[0]!.name)[0]}.pdf`);
     } catch (e) {
       this.app.reportError(e);
@@ -771,7 +816,15 @@ export class SignModel extends ViewModel {
       kind: 'signature',
       size: { width: sig.width, height: sig.height },
       preview: sig.png,
-      make: (rect) => ({ annotation: this.app.services.stamps.signatureAnnotation(this.app.services.signatures, data, { x: 0, y: 0 }, { width: 0, height: 0 }, rect) }),
+      make: (rect) => ({
+        annotation: this.app.services.stamps.signatureAnnotation(
+          this.app.services.signatures,
+          data,
+          { x: 0, y: 0 },
+          { width: 0, height: 0 },
+          rect,
+        ),
+      }),
     });
     if (!this.app.settings.signatureNoteShown) {
       this.showNote = true;
@@ -904,11 +957,11 @@ export class FormModel extends ViewModel {
   }
   async reset(): Promise<void> {
     const cmd = this.app.services.forms.reset(this.fields);
-    if (cmd && (await this.app.prompts.confirm(msg('form.confirmReset'), { danger: true })))
+    if (cmd && (await this.app.prompts.confirm(msg('form.confirmReset'), { danger: true, confirmLabel: msg('form.reset') })))
       await this.app.guard(() => this.session.run(cmd));
   }
   async flatten(): Promise<void> {
-    if (await this.app.prompts.confirm(msg('form.confirmFlatten'), { danger: true }))
+    if (await this.app.prompts.confirm(msg('form.confirmFlatten'), { danger: true, confirmLabel: msg('cmd.flatten.form') }))
       await this.app.guard(() => this.session.run(this.app.services.forms.flatten()));
   }
   async exportJson(): Promise<boolean> {

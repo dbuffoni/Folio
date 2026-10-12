@@ -213,3 +213,23 @@ export function describePageSize(size: Size): { name?: PageSizeName; landscape: 
   }
   return { landscape };
 }
+
+/**
+ * Box for a typed text annotation: wide enough for the longest paragraph (up to 400 pt), tall enough for
+ * every wrapped line, keeps the top edge of the box the user drew and stays inside `page`.
+ * Character widths are over-estimated on purpose: clipped text is lost, spare room is not.
+ */
+export function fitTextBox(text: string, fontSize: number, anchor: Rect, page: Rect): Rect {
+  const charWidth = fontSize * 0.6;
+  const pad = 12;
+  const minWidth = Math.min(page.width, fontSize * 6 + pad);
+  const paragraphs = text.split('\n');
+  const longest = Math.max(...paragraphs.map((l) => l.length), 1);
+  const wanted = Math.max(anchor.width, Math.min(400, longest * charWidth + pad));
+  const width = Math.max(minWidth, Math.min(wanted, page.width));
+  const perLine = Math.max(1, Math.floor((width - pad) / charWidth));
+  const lines = paragraphs.reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
+  const height = Math.min(page.height, Math.max(anchor.height, lines * fontSize * 1.3 + 6));
+  const top = anchor.y + anchor.height;
+  return clampRect({ x: anchor.x, y: top - height, width, height }, page);
+}

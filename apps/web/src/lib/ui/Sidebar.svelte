@@ -138,7 +138,7 @@
     {:else}
       <div class="row" style="margin-bottom:8px">
         <input type="text" value={find.query} oninput={(e) => (find.toggle(true), void find.setQuery(e.currentTarget.value))} placeholder={t('ui.findPlaceholder')} aria-label={t('ui.find')} style="flex:1" />
-        <span class="note">{find.hits.length}</span>
+        {#if find.query !== ''}<span class="note" style="flex:none">{find.hits.length}</span>{/if}
       </div>
       {#if find.query === ''}
         <p class="note">{t('ui.typeToSearch')}</p>

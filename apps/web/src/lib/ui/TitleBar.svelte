@@ -13,6 +13,17 @@
   let dragId = $state<string | null>(null);
   let recents = $state<Awaited<ReturnType<typeof app.recentFiles>>>([]);
   const k = (s: string): string => formatChord(s, isMac);
+  let strip: HTMLElement | undefined = $state();
+  // With many documents open the active tab may be outside the strip: bring it into view.
+  $effect(() => {
+    void activeId;
+    void sessions.length;
+    const host = strip;
+    if (!host) return;
+    requestAnimationFrame(() =>
+      host.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }),
+    );
+  });
 
   async function openMenu(e: MouseEvent): Promise<void> {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -49,7 +60,7 @@
 <header id="titlebar">
   <button class="ib" onclick={openMenu} use:tip={t('ui.mainMenu')} aria-label={t('ui.mainMenu')} aria-haspopup="menu"><Icon name="menu" /></button>
   <button class="brand" onclick={() => app.showHome()} use:tip={t('ui.home')}><i class="logo">F</i><span>Folio</span></button>
-  <nav id="tabs" aria-label={t('ui.openDocuments')}>
+  <nav id="tabs" bind:this={strip} aria-label={t('ui.openDocuments')}>
     {#each sessions as s, i (s.id)}
       <!-- Document tabs are navigation buttons with a sibling close button: a control nested in a tab cannot be reached by assistive technology. -->
       <div

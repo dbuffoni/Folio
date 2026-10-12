@@ -37,11 +37,15 @@ export function fuzzyScore(query: string, text: string): number {
   let score = 0;
   let ti = 0;
   let streak = 0;
+  const wordStart = (i: number): boolean => i === 0 || /[\s\-_/]/.test(t[i - 1]!);
   for (const ch of q) {
-    const found = t.indexOf(ch, ti);
+    // Loose matches stay anchored: the first letter opens a word and later letters are at a word start or close
+    // to the previous one, so "rot" does not find "Document properties" but "ps" still finds "Open pages".
+    let found = t.indexOf(ch, ti);
+    while (found >= 0 && !(wordStart(found) || (ti > 0 && found - ti <= 3))) found = t.indexOf(ch, found + 1);
     if (found < 0) return 0;
     streak = found === ti ? streak + 1 : 0;
-    score += 10 + streak * 6 + (found === 0 || /[\s\-_/]/.test(t[found - 1]!) ? 12 : 0) - Math.min(8, found - ti);
+    score += 10 + streak * 6 + (wordStart(found) ? 12 : 0) - Math.min(8, found - ti);
     ti = found + 1;
   }
   return Math.max(1, score - t.length * 0.05);

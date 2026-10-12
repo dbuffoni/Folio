@@ -201,11 +201,16 @@ const level = (score: number): Confidence => (score >= 0.85 ? 'high' : score >= 
 
 // ---- transforms (FR-AIF-09) --------------------------------------------------------------------
 
+/** A real calendar date or null: 31/02/2026 must not quietly become 3 March. */
+function calendarDate(year: number, month: number, day: number): Date | null {
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day ? d : null;
+}
 function parseDate(v: string): Date | null {
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(v.trim());
-  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (m) return calendarDate(Number(m[1]), Number(m[2]), Number(m[3]));
   m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(v.trim());
-  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  if (m) return calendarDate(Number(m[3]), Number(m[2]), Number(m[1]));
   return null;
 }
 /** Applies a transform id to a stored value. Unknown or inapplicable transforms leave the value alone. */

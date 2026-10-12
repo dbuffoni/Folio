@@ -1,5 +1,5 @@
 import { Emitter, History, type Command, type HistoryState, type Invalidation } from '@folio/core';
-import type { Annotation, AnnotId, DocMeta, FileRef, FormField, ObjId, PageIndex, PageInfo, PdfDocument } from '@folio/ports';
+import type { Annotation, AnnotId, DocMeta, FileRef, FormField, ObjId, PageIndex, PageInfo, PdfDocument, Size } from '@folio/ports';
 import { NavigationService, RenderService, TextService, type TextRange } from '@folio/services';
 import type { Services } from './services.ts';
 import { fitZoom, type Layout, type PageTheme, type ViewState, type ZoomMode } from './viewer.ts';
@@ -199,8 +199,15 @@ export class DocumentSession {
   fit(viewport: { width: number; height: number }): void {
     const info = this.pageInfos[this.view.page];
     if (!info) return;
-    const rot = (info.rotation + this.view.rotation) % 360;
-    const shown = rot === 90 || rot === 270 ? { width: info.size.height, height: info.size.width } : info.size;
+    const shownSize = (p: PageInfo): Size => {
+      const rot = (p.rotation + this.view.rotation) % 360;
+      return rot === 90 || rot === 270 ? { width: p.size.height, height: p.size.width } : p.size;
+    };
+    // Fit width uses the widest page: every page fits and the zoom does not change while scrolling.
+    const shown =
+      this.view.zoomMode === 'fit-width'
+        ? { ...shownSize(info), width: Math.max(...this.pageInfos.map((p) => shownSize(p).width)) }
+        : shownSize(info);
     const zoom = fitZoom(shown, viewport, this.view.zoomMode, this.view.layout, this.view.zoom);
     if (Math.abs(zoom - this.view.zoom) > 0.0005) {
       this.view = { ...this.view, zoom };

@@ -91,14 +91,13 @@ export class AppModel {
     this.changed.emit();
   }
 
-  /** Start-up: settings, external-open and close hooks, recovery timer, leftover recovery snapshots. */
+  /** Start-up: settings, external-open and close hooks, recovery timer. Leftover snapshots: `offerRecovery`. */
   async start(): Promise<void> {
     await this.services.init();
     const { files, window } = this.services.platform;
     this.offExternal = files.onExternalOpen((refs) => void this.openRefs(refs));
     this.offClose = window.onCloseRequested(() => this.confirmQuit());
     this.scheduler.start(this.settings.recoveryIntervalSec);
-    await this.offerRecovery();
     this.emit();
   }
   async stop(): Promise<void> {
@@ -117,6 +116,12 @@ export class AppModel {
     message: Msg,
     extra: Partial<Pick<Toast, 'action' | 'detail' | 'progress' | 'cancel'>> = {},
   ): number {
+    // The same notice twice in a row (a batch of bad files, a repeated click) is shown once.
+    const same = JSON.stringify([kind, message]);
+    const dup = this.toasts.find(
+      (t) => !t.action && !t.cancel && t.progress === undefined && JSON.stringify([t.kind, t.message]) === same,
+    );
+    if (dup && !extra.action && !extra.cancel && extra.progress === undefined) return dup.id;
     const id = ++this.toastSeq;
     this.toasts = [...this.toasts, { id, kind, message, ...extra }];
     this.emit();
@@ -128,6 +133,11 @@ export class AppModel {
   }
   dismissToast(id: number): void {
     this.toasts = this.toasts.filter((t) => t.id !== id);
+    this.emit();
+  }
+  /** "Dismiss all": everything except work in progress. */
+  dismissAllToasts(): void {
+    this.toasts = this.toasts.filter((t) => t.progress !== undefined);
     this.emit();
   }
   /** Shows what happened, why, and what to do — never raw exception text (SPEC §7.5). */
@@ -407,7 +417,11 @@ export class AppModel {
 
   // ---- recovery (FR-APP-06) ------------------------------------------------------------------
 
-  private async offerRecovery(): Promise<void> {
+  /**
+   * Offers the snapshots a previous run left behind. Called by the shell once its dialogs can be shown:
+   * `start` must not wait for an answer, because the prompt cannot appear before the shell is ready.
+   */
+  async offerRecovery(): Promise<void> {
     const pending = await this.services.recovery.pending();
     if (pending.length === 0) return;
     const chosen = new Set(
@@ -521,14 +535,18 @@ export class AppModel {
       return false;
     }
     const ok = await this.guard(async () => {
+      const copies = Math.min(99, Math.max(1, Math.round(opts.copies ?? 1)));
       const whole = pages.length === session.pageCount && pages.every((p, i) => p === i);
-      const part = whole ? null : await this.services.engine.merge([{ doc: session.doc, pages }]);
+      // The print frame cannot set a number of copies, so the chosen pages are repeated in the document.
+      const part =
+        whole && copies === 1
+          ? null
+          : await this.services.engine.merge(
+              Array.from({ length: copies }, () => ({ doc: session.doc, pages })),
+            );
       try {
         const bytes = await (part ?? session.doc).save();
-        await this.services.platform.printing.print(bytes, {
-          copies: Math.max(1, Math.round(opts.copies ?? 1)),
-          scale: opts.scale ?? 'fit',
-        });
+        await this.services.platform.printing.print(bytes, { copies: 1, scale: opts.scale ?? 'fit' });
       } finally {
         part?.dispose();
       }
