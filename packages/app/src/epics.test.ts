@@ -576,6 +576,52 @@ describe('E4 Fill a form', () => {
   });
 });
 
+describe('Annotations can be placed from the keyboard @NFR-11', () => {
+  it('Enter places the armed tool at the centre of the page and the arrow keys move it', async () => {
+    const t = await createTestApp();
+    const s = await t.open('text', '/a.pdf');
+    const tools = t.tools(s);
+    const size = s.pageInfos[0]!.size;
+    tools.setTool('rect');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    const [shape] = await s.doc.listAnnotations(0);
+    expect(shape).toMatchObject({ type: 'square' });
+    expect(shape!.rect.x + shape!.rect.width / 2).toBeCloseTo(size.width / 2, 3);
+    expect(tools.tool).toBe('select');
+    expect(s.selection).toMatchObject({ kind: 'annotations', page: 0 });
+    await tools.nudgeSelection('ArrowRight', true);
+    expect((await s.doc.listAnnotations(0))[0]!.rect.x).toBeCloseTo(shape!.rect.x + 10, 3);
+
+    tools.setTool('arrow');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    tools.setTool('note');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    tools.setTool('textbox');
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    expect(tools.typing).toMatchObject({ kind: 'textbox', page: 0 });
+    await tools.commitTyping('From the keyboard');
+    expect((await s.doc.listAnnotations(0)).map((a) => a.type)).toEqual(['square', 'line', 'text', 'freetext']);
+
+    // Select has nothing to place; a markup tool needs a text selection.
+    tools.setTool('select');
+    expect(await tools.placeWithKeyboard(0)).toBe(false);
+    tools.setTool('highlight');
+    expect(await tools.placeWithKeyboard(0)).toBe(false);
+
+    // A signature or stamp waiting for a position is dropped at the centre.
+    const prepared = await t.services.objects.prepare(samplePng(80, 40));
+    tools.beginPlacement({
+      kind: 'image',
+      size: { width: 160, height: 80 },
+      make: (rect) => ({ image: { image: prepared.image, rect } }),
+    });
+    expect(await tools.placeWithKeyboard(0)).toBe(true);
+    const images = await t.services.objects.imagesOn(s.doc, 0);
+    expect(images.length).toBe(1);
+    expect(images[0]!.bounds.x + images[0]!.bounds.width / 2).toBeCloseTo(size.width / 2, 3);
+  });
+});
+
 describe('Typed text boxes keep everything that was typed @FR-ANN-03', () => {
   it('sizes the box to the wrapped text and keeps it on the page', async () => {
     const t = await createTestApp();

@@ -102,6 +102,10 @@
         e.preventDefault();
         requestAnimationFrame(() => scroller?.querySelector<HTMLElement>('.fld')?.focus());
       }
+    } else if (e.key === 'Enter' && !e.repeat && m.tools.tool !== 'select' && !m.tools.typing) {
+      // Keyboard path for every click-to-place tool: place it at the centre of the page, then use the arrows.
+      e.preventDefault();
+      void m.tools.placeWithKeyboard(session.view.page);
     } else if (e.key === 'Enter' && m.tools.ghost === null && session.selection.kind === 'annotations') {
       session.select({ kind: 'none' });
     }

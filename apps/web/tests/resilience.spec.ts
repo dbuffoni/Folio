@@ -447,3 +447,24 @@ test('characters no font has are announced next to the edited line @FR-EDT-02', 
   await expect(notice).toBeVisible();
   await expect(notice).toBeInViewport();
 });
+
+test('a note can be placed and moved without the mouse @NFR-11 @FR-ANN-02', async ({ app }) => {
+  await openPdf(app, 'text.pdf');
+  await mode(app, 'Annotate');
+  await tool(app, 'Note').focus();
+  await app.keyboard.press('Enter');
+  await app.locator('#canvas').focus();
+  await app.keyboard.press('Enter');
+  await expect(undo(app)).toBeEnabled();
+  // x of the note's /Rect in the saved file (QDF puts every number on its own line)
+  const noteX = (dump: string): number => {
+    const note = dump.slice(dump.lastIndexOf('/Rect', dump.indexOf('/Subtype /Text')));
+    return Number(/\/Rect \[\s*([\d.]+)/.exec(note)![1]);
+  };
+  const placed = noteX(qdf(await save(app)));
+  await app.locator('#canvas').focus();
+  await app.keyboard.press('Shift+ArrowRight');
+  const moved = noteX(qdf(await save(app)));
+  expect(placed).toBe(306);
+  expect(moved).toBeCloseTo(placed + 10, 0);
+});

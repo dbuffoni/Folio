@@ -292,6 +292,63 @@ export class ToolController {
     this.done();
   }
 
+  // ---- keyboard placement (NFR-11) -------------------------------------------------------------
+
+  /**
+   * Enter with a tool armed: does what a click, or a drag of default size, would do at the centre of
+   * the page. The new item is selected, so the arrow keys move it and Shift+arrows move it faster.
+   * Returns false when the armed tool has nothing to place (Select, or markup without a text selection).
+   */
+  async placeWithKeyboard(page: PageIndex): Promise<boolean> {
+    if (this.typing || this.inlineEdit) return false;
+    const size = this.pageSize(page);
+    const c: Point = { x: size.width / 2, y: size.height / 2 };
+    switch (this.tool) {
+      case 'place':
+        await this.pointerMove(page, c);
+        await this.pointerDown(page, c);
+        return true;
+      case 'rect':
+      case 'ellipse':
+      case 'whiteout':
+        await this.finishDraft({
+          tool: this.tool,
+          page,
+          start: { x: c.x - 60, y: c.y - 40 },
+          current: { x: c.x + 60, y: c.y + 40 },
+        });
+        return true;
+      case 'line':
+      case 'arrow':
+        await this.finishDraft({
+          tool: this.tool,
+          page,
+          start: { x: c.x - 60, y: c.y },
+          current: { x: c.x + 60, y: c.y },
+        });
+        return true;
+      case 'note':
+      case 'textbox':
+      case 'add-text':
+      case 'cover-type':
+      case 'check':
+      case 'cross':
+        await this.pointerDown(page, c);
+        return true;
+      case 'highlight':
+      case 'underline':
+      case 'strikeout':
+      case 'squiggly': {
+        const ok = await this.applyMarkup(this.tool);
+        if (ok && !this.sticky) this.tool = 'select';
+        this.emit();
+        return ok;
+      }
+      default:
+        return false;
+    }
+  }
+
   // ---- pointer events --------------------------------------------------------------------------
 
   async pointerDown(page: PageIndex, p: Point, mods: Modifiers = {}, handle?: Handle): Promise<void> {
