@@ -10,7 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PDFCPU_VERSION: 0.11.0
+  # 0.11.x rejects the choice fields of our generated forms ("corrupt choice field") and lists none;
+  # the form oracle needs the version the tests are developed against.
+  PDFCPU_VERSION: 0.16.2
 
 jobs:
   # Everything that needs no browser and no Tauri (SPEC §15 headless-first rule).

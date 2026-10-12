@@ -9,7 +9,7 @@ Reference platform: Ubuntu 22.04 or newer, x86_64.
 | Node.js | 22.13 or newer | everything in TypeScript (`node:sqlite` is used by tests) |
 | pnpm | 10 (pinned in `package.json`) | workspace |
 | Rust | stable, with clippy and rustfmt | desktop shell |
-| qpdf, poppler-utils, mupdf-tools, pdfcpu | any recent | test oracles |
+| qpdf, poppler-utils, mupdf-tools, pdfcpu | any recent; pdfcpu 0.16.2 or newer (0.11 cannot read our choice fields) | test oracles |
 
 ```bash
 sudo apt install qpdf poppler-utils mupdf-tools
