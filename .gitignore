@@ -16,3 +16,18 @@ playwright-report/
 apps/desktop/src-tauri/gen/
 *.AppImage
 .env
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+
+# Logs and local environment
+*.log
+.env.*
+!.env.example
+
+# Playwright
+blob-report/
+apps/web/playwright/.cache/
