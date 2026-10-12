@@ -1,0 +1,4 @@
+{
+  "comment": "Third-party sample files are fetched on demand and never committed (SPEC §15). Add entries as { name, url, sha256, licence }.",
+  "fetched": []
+}

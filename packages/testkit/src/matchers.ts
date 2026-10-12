@@ -15,14 +15,12 @@ async function reopen<T>(pdf: Uint8Array, fn: (doc: PdfDocument) => Promise<T>, 
   }
 }
 
-/** poppler prints this for an AcroForm that only carries default resources; it is harmless. */
-const HARMLESS = [/Can't get Fields array/];
 
 expect.extend({
   async toBeValidPdf(received: Uint8Array, opts: { password?: string } = {}) {
     const q = await qpdfCheck(received, opts.password);
     const c = await pdfcpuValidate(received, opts.password);
-    const warnings = q.warnings.filter((w) => !HARMLESS.some((h) => h.test(w)));
+    const warnings = q.warnings;
     const pass = q.ok && warnings.length === 0 && c.ok;
     return {
       pass,

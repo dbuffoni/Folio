@@ -24,6 +24,14 @@ case "$phase" in
     step "Rust: unit tests" bash -c 'cd apps/desktop/src-tauri && cargo test'
     step "web adapters and worker type-check (svelte-check)" pnpm -s --filter @folio/web check ;;
 esac
+case "$phase" in
+  P8|P9)
+    step "interop and golden images (qpdf, pdfcpu, poppler, MuPDF)" npx vitest run --project interop
+    step "performance budgets" npx vitest run --project perf
+    step "web e2e: epics, screens, axe, no-network (Chromium, Firefox, WebKit)" pnpm -s test:e2e
+    step "bundle size budget (NFR-10)" npx tsx tools/bundle-size.ts
+    step "licences of shipped components" npx tsx tools/licenses.ts --check ;;
+esac
 if [ "$skip_appimage" != "--skip-appimage" ]; then
   if ls apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage >/dev/null 2>&1 && [ "${FOLIO_REBUILD_APPIMAGE:-0}" != "1" ]; then
     echo "INFO  using the existing AppImage (set FOLIO_REBUILD_APPIMAGE=1 to rebuild)"

@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PDFCPU_VERSION: 0.11.0
+
+jobs:
+  # Everything that needs no browser and no Tauri (SPEC §15 headless-first rule).
+  headless:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: PDF oracles
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qpdf poppler-utils mupdf-tools
+          curl -sSL "https://github.com/pdfcpu/pdfcpu/releases/download/v${PDFCPU_VERSION}/pdfcpu_${PDFCPU_VERSION}_Linux_x86_64.tar.xz" | sudo tar -xJ --strip-components=1 -C /usr/local/bin --wildcards '*/pdfcpu'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm coverage
+      - run: pnpm test:interop
+      - run: pnpm bench
+      - run: pnpm trace
+      - run: pnpm licenses --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-and-diffs
+          path: |
+            coverage
+            tests/golden/baselines/__diff__
+          if-no-files-found: ignore
+
+  # Web build driven in three browsers: epics, screens, accessibility, no-network.
+  e2e:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @folio/web exec playwright install --with-deps chromium firefox webkit
+      # Visual baselines are rendered with the fonts of the reference machine; they are compared
+      # in the release checklist, not on shared runners.
+      - run: pnpm test:e2e --grep-invert "screens in the"
+      - run: pnpm exec tsx tools/bundle-size.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: apps/web/test-results
+
+  # Release build of the desktop app and its smoke test under Xvfb.
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev patchelf file xvfb dbus-x11 gnome-keyring webkit2gtk-driver qpdf
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @folio/desktop check
+      - run: pnpm appimage
+      - run: cargo install tauri-driver --locked
+      - run: pnpm appimage:smoke
+      - name: Checksums
+        run: cd apps/desktop/src-tauri/target/release/bundle/appimage && sha256sum *.AppImage > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: folio-appimage
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/appimage/SHA256SUMS
+
+  # Compile-and-test only, to keep the door open for Windows and macOS (SPEC §14).
+  portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Headless suites with oracles (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install qpdf poppler mupdf pdfcpu
+          pnpm test
+          pnpm test:conformance
+      # The PDF oracles are not packaged for Windows runners: run the suites that need none.
+      - name: Pure-logic suites (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm vitest run packages/core packages/db packages/ai
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
