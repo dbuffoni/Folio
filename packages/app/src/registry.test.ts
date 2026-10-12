@@ -1,7 +1,7 @@
 // Every default command executed through the registry: menus, the palette and shortcuts all call
 // `run`, so a command whose closure was never executed is a command nobody has seen work (FR-APP-09).
 import { describe, expect, it } from 'vitest';
-import { createTestApp, settle } from './testing.ts';
+import { createTestApp, settle, waitFor } from './testing.ts';
 
 describe('registry hygiene @FR-APP-09', () => {
   it('has unique ids, translated titles and no two commands on one shortcut', async () => {
@@ -58,6 +58,7 @@ describe('file commands @FR-APP-01 @FR-APP-04 @FR-APP-07', () => {
     await t.put('/in/a.pdf', 'text');
     t.files.nextOpen = [['/in/a.pdf']];
     await t.registry.run('file.open', t.ctx());
+    await waitFor(() => t.app.active !== null); // the command starts the open without awaiting it
     await settle();
     const s = t.app.active!;
     expect(s.name).toBe('a.pdf');

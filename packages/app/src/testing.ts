@@ -165,5 +165,13 @@ export async function markers(s: DocumentSession): Promise<number[]> {
   for (let i = 0; i < s.pageCount; i++) out.push(Number(/Page (\d+) of/.exec((await s.doc.getTextLayer(i)).text)?.[1] ?? 0));
   return out;
 }
+/** Waits until `condition` holds (polling), for work a command starts without awaiting it. */
+export async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > end) throw new Error('waitFor: condition not met in time');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 /** Lets queued microtasks and async invalidations settle. */
 export const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 15));
