@@ -28,7 +28,7 @@ jobs:
       - run: pnpm appimage:smoke
       - name: Software bill of materials
         run: |
-          pnpm licenses
+          pnpm run licenses
           pnpm dlx @cyclonedx/cdxgen@11 -o sbom.cdx.json --no-install-deps .
       - name: Checksums
         run: |

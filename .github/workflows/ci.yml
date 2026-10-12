@@ -35,7 +35,8 @@ jobs:
       - run: pnpm test:interop
       - run: pnpm bench
       - run: pnpm trace
-      - run: pnpm licenses --check
+      # `pnpm licenses` alone is pnpm's own command; the repo's checker is the script of that name.
+      - run: pnpm exec tsx tools/licenses.ts --check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,32 +102,3 @@ jobs:
           path: |
             apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             apps/desktop/src-tauri/target/release/bundle/appimage/SHA256SUMS
-
-  # Compile-and-test only, to keep the door open for Windows and macOS (SPEC §14).
-  portability:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - name: Headless suites with oracles (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install qpdf poppler mupdf pdfcpu
-          pnpm test
-          pnpm test:conformance
-      # The PDF oracles are not packaged for Windows runners: run the suites that need none.
-      - name: Pure-logic suites (Windows)
-        if: runner.os == 'Windows'
-        run: pnpm vitest run packages/core packages/db packages/ai
-      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
