@@ -107,7 +107,7 @@
 {/snippet}
 {#snippet menuBtn(icon: string, label: string, items: () => MenuItem[], shortcut?: string, on = false)}
   <button class="tool" class:on onclick={(e) => open(e, items())} use:tip={[label, shortcut]} aria-label={label} aria-haspopup="menu">
-    <Icon name={icon} /><span class="lbl">{label}</span><span class="caret"><Icon name="chevron-down" /></span>
+    <Icon name={icon} /><span class="lbl">{label}</span><span class="chev"><Icon name="chevron-down" /></span>
   </button>
 {/snippet}
 

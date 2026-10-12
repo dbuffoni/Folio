@@ -314,6 +314,7 @@ export class AppModel {
   /** Ctrl+S. Unsaved-new documents go through Save As. Returns false when cancelled or failed. */
   async save(session = this.active): Promise<boolean> {
     if (!session) return false;
+    await session.settled();
     if (!session.ref) return this.saveAs(session);
     let incremental = false;
     if (session.meta.hasSignatures) {
@@ -372,6 +373,7 @@ export class AppModel {
   async closeTab(id: string): Promise<boolean> {
     const session = this.sessions.find((s) => s.id === id);
     if (!session) return true;
+    await session.settled();
     if (session.dirty) {
       const answer = await this.prompts.confirmClose(session.name);
       if (answer === 'cancel') return false;

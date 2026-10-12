@@ -119,7 +119,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .tool{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 9px;border-radius:var(--radius-md);border:0;background:none;color:var(--color-fg-2);cursor:pointer;white-space:nowrap;flex:none}
 .tool:hover{background:var(--color-surface-2);color:var(--color-fg)}
 .tool.on{background:var(--color-accent-soft);color:var(--color-accent-text)}
-.tool .caret{display:inline-flex;margin-left:-3px}.tool .caret svg{width:12px;height:12px;stroke:currentColor}
+.tool .chev{display:inline-flex;margin-left:-3px}.tool .chev svg{width:12px;height:12px;stroke:currentColor}
 .tool.accent{background:var(--color-accent);color:var(--color-accent-fg);font-weight:500;margin-left:4px}
 .tool.accent:hover{filter:brightness(1.07);background:var(--color-accent);color:var(--color-accent-fg)}
 .swatch{width:18px;height:18px;border-radius:50%;border:2px solid var(--color-surface);box-shadow:0 0 0 1px var(--color-border);cursor:pointer;flex:none;padding:0}

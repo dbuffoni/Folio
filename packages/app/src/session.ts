@@ -142,6 +142,10 @@ export class DocumentSession {
   async run<R>(command: Command<R>): Promise<R> {
     return this.history.execute(command);
   }
+  /** Waits for running commands, so that a save or a close guard sees their result. */
+  settled(): Promise<void> {
+    return this.history.idle();
+  }
   undo(): Promise<boolean> {
     return this.history.undo();
   }

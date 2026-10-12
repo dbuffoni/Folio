@@ -190,3 +190,26 @@ describe('text layer helpers @FR-VIEW-04 @FR-EDT-01', () => {
     expect(searchTextLayer(layer, { text: 'due\r\nTotal' })[0]!.rects.length).toBe(2);
   });
 });
+
+describe('History.idle', () => {
+  it('resolves after commands queued in the meantime have finished @FR-APP-04', async () => {
+    const { History } = await import('./history.ts');
+    let state = 0;
+    const doc = { snapshot: async () => new Uint8Array([state]), restore: async (b: Uint8Array) => void (state = b[0]!) };
+    const history = new History({ doc: doc as never, engine: {} as never });
+    const slow = (n: number) => ({
+      label: { key: 'test' },
+      kind: 'content' as const,
+      undo: 'checkpoint' as const,
+      apply: async () => {
+        await new Promise((r) => setTimeout(r, 15));
+        state = n;
+      },
+    });
+    void history.execute(slow(1));
+    void history.execute(slow(2));
+    await history.idle();
+    expect(state).toBe(2);
+    expect(history.state.canUndo).toBe(true);
+  });
+});

@@ -30,11 +30,11 @@ Implemented but not verified where it matters
 - **CI has never run.** `.github/workflows/ci.yml` and `release.yml` were written without a GitHub
   runner to try them on; expect to fix details on the first push. The distro matrix (Fedora, Arch,
   older glibc), AppImage signing and the SBOM step are untested.
-- **Screens without a browser test.** The e2e suite covers the seven epics, the five modes, the main
-  dialogs and accessibility scans. Not driven in a browser: stamp editor, export-as-images run,
-  properties save, history list, drag-and-drop reordering (keyboard and buttons are tested),
-  two-page layout, printing, clipboard paste, recovery prompt, Smart Fill with a real AI key,
-  profile import/export. Their view-models are tested headlessly.
+- **Screens without a browser test.** The e2e suite (33 scenarios on three browsers) covers the
+  seven epics, every mode and tool group, the main dialogs and accessibility scans. Not driven in a
+  browser: custom stamp editor, drag-and-drop reordering (keyboard and buttons are tested), printing,
+  clipboard paste, the recovery prompt, Smart Fill with a real AI key, profile import/export, image
+  resize handles. Their view-models are tested headlessly.
 - **Desktop-only paths.** Native file dialogs, the keyring, drag-and-drop from the file manager and
   the single-instance hand-off are covered by Rust unit tests and the smoke test's IPC checks, not
   by a UI flow (WebDriver cannot operate native dialogs).

@@ -323,6 +323,15 @@ export class History {
     await this.checkpoints.clear();
   }
 
+  /** Resolves once every command, undo and redo requested so far has finished. */
+  async idle(): Promise<void> {
+    let seen: Promise<unknown>;
+    do {
+      seen = this.queue;
+      await seen;
+    } while (seen !== this.queue);
+  }
+
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task, task);
     this.queue = run.catch(() => undefined);
