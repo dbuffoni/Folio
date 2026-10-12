@@ -190,7 +190,6 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .page .rule{height:1px;background:#d6d9df}
 .page .ff{background:rgba(37,99,235,.09);border:1px solid rgba(37,99,235,.4);border-radius:2px;font-size:11px;line-height:22px;padding:0 6px;color:#1b1f27;overflow:hidden;white-space:nowrap}
 .page .ff .g{color:#1b1f27}
-.page select.ff{background-color:#e9effd}
 .page .ff.ghost .g{color:rgba(37,99,235,.55);font-style:italic}
 .page .cb{width:14px;height:14px;padding:0;text-align:center;line-height:12px;font-size:11px}
 .page.hlf .ff{box-shadow:0 0 0 2px rgba(255,170,0,.55);background:rgba(255,200,0,.22)}
@@ -440,9 +439,16 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .fld{box-sizing:border-box;border:1px solid transparent;background:transparent;border-radius:2px;padding:0 2px;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:#111;min-width:0;height:auto;margin:0}
   .fld.hl{background:rgba(37,99,235,.09);border-color:rgba(37,99,235,.4)}
   .fld:focus{outline:2px solid var(--color-accent);background:#fff;z-index:3}
+  /* The engine paints the stored value; the field's own text shows only while it is being edited. */
+  input.fld:not(:focus):not([type=checkbox]):not([type=radio]),textarea.fld:not(:focus){color:transparent}
+  input.fld:not(:focus)::placeholder,textarea.fld:not(:focus)::placeholder{color:transparent}
   .fld.ro{pointer-events:none}
   input.fld[type=checkbox],input.fld[type=radio]{padding:0;accent-color:#111}
   select.fld{padding:0}
+  /* Choice widgets draw their own options: cover the engine's rendering instead of doubling it. */
+  select.fld,select.fld.hl{background:#fff}
+  select.fld.hl{background:#e9effd}
+  .fld{color-scheme:light}
   textarea.fld{resize:none;line-height:1.25}
   .sugg{z-index:8;background:var(--color-surface);border:1px solid var(--color-border);border-radius:8px;box-shadow:var(--shadow-float);padding:3px;min-width:160px}
   .sugg button{display:block;width:100%;text-align:left;border:0;background:none;padding:4px 8px;border-radius:5px;cursor:pointer;color:var(--color-fg);font:12px var(--font-ui);white-space:nowrap}
@@ -490,6 +496,6 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .progress{height:4px;border-radius:2px;background:var(--color-surface-2);overflow:hidden}
   .progress i{display:block;height:100%;background:var(--color-accent);transition:width .15s}
   .menuwrap{position:fixed;inset:0;z-index:89}
-  .seg.inline{align-self:flex-start}
+  .seg.seg-inline{display:inline-flex;align-self:flex-start}
   .reduce-motion *{animation:none!important;transition:none!important}
 }

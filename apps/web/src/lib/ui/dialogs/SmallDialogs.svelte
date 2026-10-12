@@ -69,8 +69,8 @@
     </div>
     {#if sizeKind === 'custom'}
       <div class="g2">
-        <div class="field"><label for="ibcw">{t('dialog.insert.width')} (mm)</label><input id="ibcw" type="number" min="26" max="5000" bind:value={cw} /></div>
-        <div class="field"><label for="ibch">{t('dialog.insert.height')} (mm)</label><input id="ibch" type="number" min="26" max="5000" bind:value={ch} /></div>
+        <div class="field"><label for="ibcw">{t('dialog.insert.widthMm')}</label><input id="ibcw" type="number" min="26" max="5000" bind:value={cw} /></div>
+        <div class="field"><label for="ibch">{t('dialog.insert.heightMm')}</label><input id="ibch" type="number" min="26" max="5000" bind:value={ch} /></div>
       </div>
     {:else if sizeKind !== 'neighbour'}
       <div class="field"><label for="ibo">{t('dialog.insert.orientation')}</label><select id="ibo" value={landscape ? 'l' : 'p'} onchange={(e) => (landscape = e.currentTarget.value === 'l')}><option value="p">{t('dialog.insert.portrait')}</option><option value="l">{t('dialog.insert.landscape')}</option></select></div>

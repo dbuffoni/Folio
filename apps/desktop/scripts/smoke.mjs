@@ -68,7 +68,8 @@ try {
   let state;
   for (let i = 0; i < 100; i++) {
     state = await wd('POST', `/session/${sid}/execute/sync`, { script: 'return window.__folioSmoke || null', args: [] });
-    if (state && (state.ready || state.error)) break;
+    // The launch file opens shortly after the UI is ready.
+    if (state && (state.error || (state.ready && (state.opened?.length || i > 60)))) break;
     await sleep(200);
   }
   check('app starts and reports ready', !!state?.ready, state?.error ?? '');
@@ -96,6 +97,32 @@ try {
   check('backup of the original was kept', existsSync(`${pdf}.bak`) && readFileSync(`${pdf}.bak`).equals(original));
   const qpdf = spawnSync('qpdf', ['--check', pdf], { encoding: 'utf8' });
   check('saved file is a valid PDF (qpdf --check)', qpdf.status === 0, qpdf.stderr?.trim().split('\n')[0] ?? '');
+  // One real workflow through the screens: rotate the page in Organise and save over the file.
+  if (state?.pages !== undefined) {
+    const flow = await exec(
+      `const done = arguments[arguments.length - 1];
+       const find = (sel, text) => [...document.querySelectorAll(sel)].find((e) => !text || e.textContent.trim() === text || e.getAttribute('aria-label') === text);
+       const until = async (what, fn) => {
+         for (let i = 0; i < 150; i++) { const v = fn(); if (v) return v; await new Promise((r) => setTimeout(r, 100)); }
+         throw new Error('timed out waiting for ' + what);
+       };
+       (async () => {
+         await until('the page to render', () => document.querySelector('.pv canvas'));
+         (await until('the Organise tab', () => find('[role=tab]', 'Organise'))).click();
+         (await until('the page grid', () => document.querySelector('.ocard .op'))).click();
+         (await until('the rotate tool', () => { const b = find('button.tool', 'Rotate pages right'); return b && !b.disabled && b; })).click();
+         await until('the change to register', () => document.querySelector('#tabs .dot'));
+         find('button.btn.primary', 'Save').click();
+         await until('the save to finish', () => !document.querySelector('#tabs .dot'));
+         return { saved: true };
+       })().then(done, (e) => done({ error: String((e && e.message) || e) }));`,
+    );
+    check('rotate and save through the UI', flow?.saved === true, flow?.error ?? '');
+    const qdf = spawnSync('qpdf', ['--qdf', '--object-streams=disable', pdf, '-'], { encoding: 'latin1', maxBuffer: 64 << 20 });
+    check('the saved file carries the rotation', /\/Rotate 90/.test(qdf.stdout ?? ''));
+    const recheck = spawnSync('qpdf', ['--check', pdf], { encoding: 'utf8' });
+    check('the file saved by the UI is a valid PDF', recheck.status === 0, recheck.stderr?.trim().split('\n')[0] ?? '');
+  }
   await wd('DELETE', `/session/${sid}`).catch(() => undefined);
   check('app exits cleanly', true);
   code = checks.every((c) => c.ok) ? 0 : 1;

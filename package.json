@@ -24,7 +24,7 @@
     "fixtures:fetch": "tsx tools/fixtures-fetch.ts",
     "bench": "tsx tools/bench.ts",
     "cli": "tsx apps/cli/src/main.ts",
-    "lint": "eslint . && depcruise packages apps/cli apps/web/src --config .dependency-cruiser.cjs && tsx tools/sync-migrations.ts --check",
+    "lint": "eslint . && depcruise packages apps/cli apps/web/src --config .dependency-cruiser.cjs && tsx tools/sync-migrations.ts --check && tsx tools/i18n-lint.ts",
     "format": "prettier --write .",
     "check": "tsc -p tsconfig.json && pnpm --filter @folio/web check",
     "licenses": "tsx tools/licenses.ts",

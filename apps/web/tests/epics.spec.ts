@@ -2,7 +2,7 @@
 // service level first (packages/app/src/epics.test.ts); here only the binding of the screens counts.
 import { tabs, choose, downloads, expect, firstPage, menu, mode, openPdf, pageCount, qdf, qpdfCheck, save, test, textOf, tool } from './helpers.ts';
 
-test('E1 merge two open files in a chosen order @FR-MRG-01 @FR-MRG-03', async ({ app }) => {
+test('E1 merge two open files in a chosen order @FR-MRG-01 @FR-MRG-02', async ({ app }) => {
   await openPdf(app, 'text.pdf', 'invoice.pdf');
   await menu(app, 'Merge files…');
   const dialog = app.getByRole('dialog', { name: 'Merge files' });
@@ -142,7 +142,7 @@ test('E5 Smart Fill without a key maps a flat form on the device @FR-AIF-07 @FR-
   expect(outbound).toEqual([]);
 });
 
-test('E6 three photos become a three-page PDF @FR-IMG-01 @FR-IMG-02', async ({ app }) => {
+test('E6 three photos become a three-page PDF @FR-MRG-03 @FR-OPT-03', async ({ app }) => {
   await app.getByRole('button', { name: /^Images to PDF/ }).click();
   const dialog = app.getByRole('dialog', { name: 'Images to PDF' });
   await choose(app, () => dialog.getByRole('button', { name: 'Add images…' }).click(), 'photo-1.jpg', 'photo-2.jpg', 'photo-3.jpg');
@@ -159,7 +159,7 @@ test('E6 three photos become a three-page PDF @FR-IMG-01 @FR-IMG-02', async ({ a
   qpdfCheck(pdf);
 });
 
-test('E7 split 25 pages every 10 @FR-SPL-02 @FR-SPL-05', async ({ app }) => {
+test('E7 split 25 pages every 10 @FR-MRG-04 @FR-MRG-05 @FR-MRG-06', async ({ app }) => {
   await openPdf(app, 'text-25.pdf');
   await menu(app, 'Split document…');
   const dialog = app.getByRole('dialog', { name: 'Split document' });

@@ -138,8 +138,17 @@ export async function start(): Promise<void> {
     ui.startCoach(app.settings.onboardingDone);
     state.ready = true;
     bump();
+    if (desktop) {
+      // Read by the AppImage smoke test over WebDriver (SPEC §16.8).
+      const report = (): void => {
+        (window as { __folioSmoke?: unknown }).__folioSmoke = { ready: true, opened: rawApp.sessions.map((s) => s.name), pages: rawApp.active?.pageCount };
+      };
+      rawApp.changed.on(report);
+      report();
+    }
   } catch (e) {
     state.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    if (desktop) (window as { __folioSmoke?: unknown }).__folioSmoke = { ready: false, error: state.error };
     console.error(e);
   }
 }

@@ -163,7 +163,7 @@
     <div class="setpane">
       {#if pane === 'appearance'}
         <div class="field"><span class="lab">{t('settings.theme')}</span>
-          <div class="seg inline" role="radiogroup" aria-label={t('settings.theme')}>
+          <div class="seg seg-inline" role="radiogroup" aria-label={t('settings.theme')}>
             {#each [['light', 'sun'], ['dark', 'moon'], ['system', 'monitor']] as [id, icon] (id)}
               <button role="radio" class:on={s.theme === id} aria-checked={s.theme === id} onclick={() => set('theme', id as 'light')}><Icon name={icon!} />{t(`settings.theme.${id}`)}</button>
             {/each}

@@ -70,7 +70,7 @@ test('annotate: highlight selected text and add a note @FR-ANN-01 @FR-ANN-02', a
   textOf(out);
 });
 
-test('command palette and keyboard reach every task @FR-APP-04 @NFR-09', async ({ app }) => {
+test('command palette and keyboard reach every task @FR-APP-09 @NFR-11', async ({ app }) => {
   await openPdf(app, 'text.pdf');
   await app.keyboard.press('Control+k');
   const palette = app.getByRole('dialog', { name: /command/i }).or(app.locator('.palette')).first();
@@ -83,7 +83,7 @@ test('command palette and keyboard reach every task @FR-APP-04 @NFR-09', async (
   await expect(app.getByRole('tablist', { name: 'Mode' }).getByRole('tab', { name: 'Organise' })).toHaveAttribute('aria-selected', 'true');
 });
 
-test('a password-protected file asks for its password @FR-FILE-04', async ({ app }) => {
+test('a password-protected file asks for its password @FR-APP-12', async ({ app }) => {
   await choose(app, () => app.keyboard.press('Control+o'), 'encrypted.pdf');
   const prompt = app.getByRole('dialog');
   await prompt.getByRole('textbox').fill('wrong');
@@ -94,13 +94,13 @@ test('a password-protected file asks for its password @FR-FILE-04', async ({ app
   await expect(app.locator('.pv canvas').first()).toBeVisible();
 });
 
-test('a broken file is reported, not opened @FR-FILE-05', async ({ app }) => {
+test('a broken file is reported, not opened @FR-APP-13', async ({ app }) => {
   await choose(app, () => app.keyboard.press('Control+o'), 'garbage.pdf');
   await expect(app.getByRole('alert').or(app.getByRole('status')).filter({ hasText: /garbage\.pdf|not a PDF|damaged|could not/i }).first()).toBeVisible();
   await expect(tabs(app).locator('.tabb')).toHaveCount(0);
 });
 
-test('closing a changed document asks first @FR-FILE-08', async ({ app }) => {
+test('closing a changed document asks first @FR-APP-07', async ({ app }) => {
   await openPdf(app, 'text.pdf');
   await mode(app, 'Organise');
   const grid = app.locator('#canvaswrap');
@@ -124,7 +124,7 @@ test('theme switch and settings persist across a reload @FR-APP-10', async ({ ap
   expect(await app.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
 });
 
-test.describe('accessibility @NFR-08', () => {
+test.describe('accessibility @NFR-11', () => {
   // Findings are collected over all screens and reported together.
   let found: string[] = [];
   const scan = async (page: Page, what: string): Promise<void> => {
