@@ -18,6 +18,7 @@ jobs:
   # Everything that needs no browser and no Tauri (SPEC §15 headless-first rule).
   headless:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -51,6 +52,7 @@ jobs:
   # Web build driven in three browsers: epics, screens, accessibility, no-network.
   e2e:
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -74,6 +76,7 @@ jobs:
   # Release build of the desktop app and its smoke test under Xvfb.
   appimage:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -84,9 +87,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
       - name: System libraries
         run: |
           sudo apt-get update
