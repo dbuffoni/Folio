@@ -19,7 +19,7 @@
   import { t, tm } from '#lib/i18n/index.ts';
   import { dep, app, models, services, track } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
-  import { colorToHex, hexToColor, paint, png } from './raster.ts';
+  import { colorToHex, hexToColor, paintSoon, pooledCanvas, png } from './raster.ts';
   import { tip } from './tip.ts';
   import { untrack } from 'svelte';
 
@@ -28,11 +28,14 @@
     page,
     box,
     visible,
+    scrolling = false,
   }: {
     session: DocumentSession;
     page: number;
     box: { x: number; y: number; width: number; height: number };
     visible: boolean;
+    /** The canvas is being scrolled: renders wait a little longer so pages flying past are skipped. */
+    scrolling?: boolean;
   } = $props();
   const m = $derived(models(session));
   const tools = $derived(m.tools);
@@ -60,6 +63,9 @@
 
   // ---- bitmap ---------------------------------------------------------------------------------
   let canvas: HTMLCanvasElement | undefined = $state();
+  $effect(() => {
+    if (canvas) canvas.style.filter = themeFilter(theme);
+  });
   let renderTick = $state(0);
   $effect(() =>
     untrack(() =>
@@ -83,13 +89,13 @@
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const scale = cappedScale(pageInfo.size, z * dpr);
       const priority = page === session.view.page ? 'visible' : 'near';
-      // A short delay coalesces renders while zooming with the wheel.
+      // A short delay coalesces renders while zooming with the wheel; a longer one while scrolling.
       return setTimeout(() => {
         session.renderer
-          .render({ page, scale, rotation, priority, signal: ac.signal })
-          .then((img) => !ac.signal.aborted && paint(target, img))
+          .render({ page, scale, rotation, priority, bitmap: true, signal: ac.signal })
+          .then((img) => !ac.signal.aborted && paintSoon(target, img, () => ac.signal.aborted))
           .catch((e) => (e as { code?: string }).code !== 'cancelled' && app.reportError(e));
-      }, 40);
+      }, scrolling ? 90 : 40);
     });
     return () => (clearTimeout(timer), ac.abort());
   });
@@ -103,7 +109,6 @@
   let lines = $state<EditableLine[]>([]);
   $effect(() => {
     void renderTick;
-    void v;
     if (!visible) return;
     untrack(() => void session.annotations(page).then((a) => (annotations = a)));
   });
@@ -321,8 +326,8 @@
   data-page={page}
   role="group"
   aria-label="{t('ui.page')} {page + 1}"
+  use:pooledCanvas={(c) => (canvas = c)}
 >
-  <canvas bind:this={canvas} style="filter:{themeFilter(theme)}"></canvas>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="ov"

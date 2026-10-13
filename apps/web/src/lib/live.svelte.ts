@@ -10,6 +10,13 @@ export const track = (): number => state.v;
 export const bump = (): void => {
   state.v++;
 };
+// The page under the viewport changes on every scroll step; it has its own counter so the whole UI
+// does not re-evaluate. Read through `raw(session)`: a live proxy would register `state.v` as well.
+const pageState = $state({ v: 0 });
+export const trackPage = (): number => pageState.v;
+export const bumpPage = (): void => {
+  pageState.v++;
+};
 
 const proxies = new WeakMap<object, object>();
 const bridges = new WeakMap<object, object>();

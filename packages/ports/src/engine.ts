@@ -43,6 +43,17 @@ export interface RasterImage {
   width: number;
   height: number;
   data: Uint8ClampedArray;
+  /**
+   * Set instead of pixel data (`data` is then empty) when `RenderOptions.bitmap` was honoured: a
+   * decoded image the UI thread can draw without copying pixels (an `ImageBitmap` in browsers).
+   */
+  bitmap?: RasterBitmap;
+}
+/** The part of an `ImageBitmap` the ports need; keeps DOM types out of the interfaces. */
+export interface RasterBitmap {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
 }
 
 export interface RenderOptions {
@@ -56,6 +67,11 @@ export interface RenderOptions {
   forms?: boolean;
   /** Page background; defaults to opaque white. */
   background?: Color;
+  /**
+   * Ask for a decoded bitmap (`RasterImage.bitmap`) instead of pixel data. Honoured only where the
+   * engine runs behind a worker boundary with `createImageBitmap`; otherwise pixels are returned.
+   */
+  bitmap?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------

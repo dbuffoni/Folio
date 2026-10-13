@@ -4,7 +4,58 @@ import type { RasterImage } from '@folio/ports';
 export function paint(canvas: HTMLCanvasElement, img: RasterImage): void {
   if (canvas.width !== img.width) canvas.width = img.width;
   if (canvas.height !== img.height) canvas.height = img.height;
-  canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+  const ctx = canvas.getContext('2d')!;
+  if (img.bitmap) {
+    try {
+      ctx.drawImage(img.bitmap as unknown as ImageBitmap, 0, 0);
+    } catch {
+      // The cache closed this bitmap after the request was answered; the next render replaces it.
+    }
+    return;
+  }
+  ctx.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, img.width, img.height), 0, 0);
+}
+
+const POOL_LIMIT = 12;
+const pool: HTMLCanvasElement[] = [];
+/**
+ * Svelte action: gives the page box a recycled canvas as its first child and hands it back when the
+ * page unmounts. Re-using canvases of the same size avoids reallocating their backing stores while
+ * pages come and go during a scroll.
+ */
+export function pooledCanvas(node: HTMLElement, onCanvas: (canvas: HTMLCanvasElement) => void) {
+  const canvas = pool.pop() ?? document.createElement('canvas');
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  node.prepend(canvas);
+  onCanvas(canvas);
+  return {
+    destroy() {
+      canvas.remove();
+      canvas.style.filter = '';
+      if (pool.length < POOL_LIMIT) pool.push(canvas);
+      else {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    },
+  };
+}
+const pending = new Map<HTMLCanvasElement, { img: RasterImage; stale: () => boolean }>();
+let frame = 0;
+function flush(): void {
+  frame = 0;
+  for (const [canvas, job] of pending) {
+    pending.delete(canvas);
+    if (job.stale()) continue;
+    paint(canvas, job.img);
+    break;
+  }
+  if (pending.size) frame = requestAnimationFrame(flush);
+}
+/** Like `paint`, but at most one canvas per animation frame so bitmaps arriving together do not stall scrolling. */
+export function paintSoon(canvas: HTMLCanvasElement, img: RasterImage, stale: () => boolean = () => false): void {
+  pending.set(canvas, { img, stale });
+  if (!frame) frame = requestAnimationFrame(flush);
 }
 export function pngUrl(bytes: Uint8Array): string {
   return URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));

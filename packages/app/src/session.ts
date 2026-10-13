@@ -39,6 +39,8 @@ export class DocumentSession {
   readonly nav: NavigationService;
   /** Fires after any state change the UI may show. */
   readonly changed = new Emitter<void>();
+  /** Fires when the current page changes, including while scrolling (which does not fire `changed`). */
+  readonly pageChanged = new Emitter<void>();
   /** Fires when page content must be redrawn. */
   readonly invalidated = new Emitter<Invalidation>();
 
@@ -193,7 +195,19 @@ export class DocumentSession {
     const next = Math.min(Math.max(0, page), Math.max(0, this.pageCount - 1));
     if (next === this.view.page) return;
     this.view = { ...this.view, page: next };
+    this.pageChanged.emit();
     this.changed.emit();
+  }
+  /**
+   * The page now under the viewport, reported by scrolling. Only the page indicator needs to know, so
+   * the full `changed` refresh is skipped, except in fit-page where the zoom follows the page.
+   */
+  reportPage(page: PageIndex): void {
+    const next = Math.min(Math.max(0, page), Math.max(0, this.pageCount - 1));
+    if (next === this.view.page) return;
+    this.view = { ...this.view, page: next };
+    this.pageChanged.emit();
+    if (this.view.zoomMode === 'fit-page') this.changed.emit();
   }
   /** Recomputes the effective zoom of fit modes for the current page and viewport. */
   fit(viewport: { width: number; height: number }): void {

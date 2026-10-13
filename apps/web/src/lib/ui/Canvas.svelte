@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { layoutPages, scrollTopFor, visibleRange, wheelZoom, type DocumentSession } from '@folio/app';
+  import { layoutPages, renderWindow, sameSet, scrollTopFor, wheelZoom, type DocumentSession, type RenderWindow } from '@folio/app';
   import { t, tm } from '#lib/i18n/index.ts';
-  import { dep, models, run, track } from '#lib/state.svelte.ts';
+  import { untrack } from 'svelte';
+  import { dep, models, raw, run, track } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import PageView from './PageView.svelte';
 
@@ -14,7 +15,9 @@
   const snapshot = $derived(dep(v, m.tools.tool) === 'snapshot');
   let scroller: HTMLDivElement | undefined = $state();
   let viewport = $state({ width: 800, height: 600 });
-  let scrollTop = $state(0);
+  // Scrolling stays out of the reactive graph: the position is a plain variable and the window below
+  // changes only when a page enters or leaves it.
+  let scrollTop = 0;
 
   // Single-page layout shows only the current page; the others lay out every page.
   const pages = $derived.by(() => {
@@ -24,7 +27,33 @@
   });
   const layout = $derived(layoutPages(pages, view.zoom, view.layout === 'single' ? 'continuous' : view.layout, view.rotation));
   const boxes = $derived(layout.boxes.map((b) => ({ ...b, index: pages[b.index]!.index })));
-  const range = $derived(visibleRange(boxes, scrollTop, viewport.height));
+  // Pages in the viewport render at once; the margin around it waits until scrolling stops, so a
+  // fast scroll does not queue full-resolution renders of pages that are about to leave.
+  let win = $state.raw<RenderWindow>({ inView: new Set(), near: new Set(), mounted: new Set(), current: 0 });
+  let scrolling = $state(false);
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let frame = 0;
+  const renders = (i: number): boolean => view.layout === 'single' || win.inView.has(i) || (!scrolling && win.near.has(i));
+  let reported = -1;
+  function update(): void {
+    frame = 0;
+    if (scroller) scrollTop = scroller.scrollTop;
+    const next = renderWindow(boxes, scrollTop, viewport.height, win.mounted);
+    if (!sameSet(next.mounted, win.mounted) || !sameSet(next.inView, win.inView) || !sameSet(next.near, win.near)) win = next;
+    if (view.layout === 'single') return;
+    // Scrolling reports the current page; a page change from elsewhere scrolls to it.
+    if (next.current !== raw(session).view.page) {
+      reported = next.current;
+      session.reportPage(next.current);
+    }
+  }
+  $effect(() => {
+    void boxes;
+    void viewport;
+    void view.layout;
+    untrack(update);
+  });
+  $effect(() => () => (clearTimeout(idleTimer), frame && cancelAnimationFrame(frame)));
 
   $effect(() => {
     if (!scroller) return;
@@ -43,17 +72,13 @@
     void sv;
     session.fit(viewport);
   });
-  // Scrolling reports the current page; a page change from elsewhere scrolls to it.
-  let reported = -1;
   function onscroll(): void {
     if (!scroller) return; // a late scroll event while the canvas is being replaced
     scrollTop = scroller.scrollTop;
-    if (view.layout === 'single') return;
-    const current = visibleRange(boxes, scrollTop, viewport.height).current;
-    if (current !== session.view.page) {
-      reported = current;
-      session.goToPage(current);
-    }
+    scrolling = true;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => (scrolling = false), 120);
+    if (!frame) frame = requestAnimationFrame(update);
   }
   $effect(() => {
     const page = view.page;
@@ -129,8 +154,8 @@
   {/if}
   <div class="pages" style="width:{Math.max(layout.width, viewport.width)}px;height:{layout.height}px">
     {#each boxes as b (`${sv}-${b.index}`)}
-      {#if range.mounted.includes(b.index) || view.layout === 'single'}
-        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={true} />
+      {#if win.mounted.has(b.index) || view.layout === 'single'}
+        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} />
       {/if}
     {/each}
   </div>
