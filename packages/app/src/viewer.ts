@@ -112,6 +112,28 @@ export function visibleRange(boxes: PageBox[], scrollTop: number, viewportHeight
   }
   return { visible, mounted, current };
 }
+export interface RenderWindow {
+  /** Pages intersecting the viewport. */
+  inView: ReadonlySet<PageIndex>;
+  /** Pages within one viewport height of it. */
+  near: ReadonlySet<PageIndex>;
+  /** Pages that keep a mounted canvas. */
+  mounted: ReadonlySet<PageIndex>;
+  current: PageIndex;
+}
+/**
+ * What to mount and render for a scroll position. Pages are mounted when they come within one
+ * viewport of the view and kept until they are three away, so scrolling back and forth does not
+ * create and destroy page views.
+ */
+export function renderWindow(boxes: PageBox[], scrollTop: number, viewportHeight: number, previous: ReadonlySet<PageIndex> = new Set()): RenderWindow {
+  const base = visibleRange(boxes, scrollTop, viewportHeight, 1);
+  const keep = new Set(visibleRange(boxes, scrollTop, viewportHeight, 3).mounted);
+  const mounted = new Set(base.mounted);
+  for (const i of previous) if (keep.has(i)) mounted.add(i);
+  return { inView: new Set(base.visible), near: new Set(base.mounted), mounted, current: base.current };
+}
+export const sameSet = (a: ReadonlySet<number>, b: ReadonlySet<number>): boolean => a.size === b.size && [...a].every((x) => b.has(x));
 export function scrollTopFor(boxes: PageBox[], page: PageIndex): number {
   const b = boxes.find((x) => x.index === page);
   return b ? Math.max(0, b.y - CANVAS_PADDING / 2) : 0;

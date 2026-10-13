@@ -19,7 +19,7 @@
   import { t, tm } from '#lib/i18n/index.ts';
   import { dep, app, models, services, track } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
-  import { colorToHex, hexToColor, paintSoon, png } from './raster.ts';
+  import { colorToHex, hexToColor, paintSoon, pooledCanvas, png } from './raster.ts';
   import { tip } from './tip.ts';
   import { untrack } from 'svelte';
 
@@ -63,6 +63,9 @@
 
   // ---- bitmap ---------------------------------------------------------------------------------
   let canvas: HTMLCanvasElement | undefined = $state();
+  $effect(() => {
+    if (canvas) canvas.style.filter = themeFilter(theme);
+  });
   let renderTick = $state(0);
   $effect(() =>
     untrack(() =>
@@ -89,7 +92,7 @@
       // A short delay coalesces renders while zooming with the wheel; a longer one while scrolling.
       return setTimeout(() => {
         session.renderer
-          .render({ page, scale, rotation, priority, signal: ac.signal })
+          .render({ page, scale, rotation, priority, bitmap: true, signal: ac.signal })
           .then((img) => !ac.signal.aborted && paintSoon(target, img, () => ac.signal.aborted))
           .catch((e) => (e as { code?: string }).code !== 'cancelled' && app.reportError(e));
       }, scrolling ? 90 : 40);
@@ -323,8 +326,8 @@
   data-page={page}
   role="group"
   aria-label="{t('ui.page')} {page + 1}"
+  use:pooledCanvas={(c) => (canvas = c)}
 >
-  <canvas bind:this={canvas} style="filter:{themeFilter(theme)}"></canvas>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="ov"

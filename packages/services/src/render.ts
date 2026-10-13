@@ -1,6 +1,9 @@
 import { CancelledError, rotatedSize } from '@folio/core';
 import type { PageIndex, PdfDocument, RasterImage, Rotation } from '@folio/ports';
 
+/** Bytes a cached raster holds: its pixels, or the decoded bitmap that replaces them. */
+const sizeOf = (img: RasterImage): number => (img.bitmap ? img.width * img.height * 4 : img.data.byteLength);
+
 export type RenderPriority = 'visible' | 'near' | 'thumbnail';
 const ORDER: Record<RenderPriority, number> = { visible: 0, near: 1, thumbnail: 2 };
 
@@ -22,6 +25,8 @@ export interface RenderRequest {
   /** Tile in device pixels; whole page when omitted. */
   rect?: { x: number; y: number; width: number; height: number };
   priority?: RenderPriority;
+  /** Ask for a decoded bitmap (cheap to draw) instead of pixels; see `RenderOptions.bitmap`. */
+  bitmap?: boolean;
   signal?: AbortSignal;
 }
 
@@ -53,7 +58,7 @@ export class RenderService {
 
   private keyOf(r: RenderRequest): string {
     const t = r.rect ? `${r.rect.x},${r.rect.y},${r.rect.width},${r.rect.height}` : 'full';
-    return `${r.page}@${r.scale.toFixed(4)}r${r.rotation ?? 0}:${t}`;
+    return `${r.page}@${r.scale.toFixed(4)}r${r.rotation ?? 0}:${t}${r.bitmap ? ':b' : ''}`;
   }
 
   /** Cached bitmap for exactly this request, if any (used for instant repaint). */
@@ -80,7 +85,7 @@ export class RenderService {
         seq: this.seq++,
         resolve,
         reject,
-        run: () => this.doc.render(r.page, { scale: r.scale, rotation: r.rotation, rect: r.rect }, r.signal),
+        run: () => this.doc.render(r.page, { scale: r.scale, rotation: r.rotation, rect: r.rect, bitmap: r.bitmap }, r.signal),
       });
     });
     if (!r.signal) {
@@ -105,20 +110,23 @@ export class RenderService {
       const page = Number(key.slice(0, key.indexOf('@')));
       if (!pages || pages.includes(page)) {
         this.cache.delete(key);
-        this.bytes -= img.data.byteLength;
+        this.bytes -= sizeOf(img);
+        img.bitmap?.close();
       }
     }
   }
 
   private store(key: string, img: RasterImage): void {
     const budget = this.opts.cacheBytes ?? 300 * 1024 * 1024;
-    if (img.data.byteLength > budget) return;
+    if (sizeOf(img) > budget) return;
     this.cache.set(key, img);
-    this.bytes += img.data.byteLength;
+    this.bytes += sizeOf(img);
     while (this.bytes > budget) {
       const oldest = this.cache.keys().next().value!;
-      this.bytes -= this.cache.get(oldest)!.data.byteLength;
+      const old = this.cache.get(oldest)!;
+      this.bytes -= sizeOf(old);
       this.cache.delete(oldest);
+      old.bitmap?.close();
     }
   }
 

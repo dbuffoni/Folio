@@ -1,7 +1,7 @@
 // Typed RPC between the UI thread and the engine worker (SPEC §8.7). Transport-agnostic: anything
 // with postMessage/onmessage works (Worker, MessagePort), which is how it is tested in plain Node.
 import { CancelledError, FolioError, isFolioError, type ErrorCode } from '@folio/core';
-import type { PdfDocument, PdfEngine, SearchHit, SearchQuery } from '@folio/ports';
+import type { PdfDocument, PdfEngine, RasterBitmap, RasterImage, RenderOptions, SearchHit, SearchQuery } from '@folio/ports';
 
 export interface RpcPort {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -31,9 +31,39 @@ const SIGNAL = '__signal';
 const isDocRef = (v: unknown): v is DocRef =>
   typeof v === 'object' && v !== null && typeof (v as DocRef).__doc === 'string';
 
+interface BitmapGlobals {
+  createImageBitmap?: (image: unknown, options?: Record<string, unknown>) => Promise<RasterBitmap>;
+  ImageBitmap?: new () => RasterBitmap;
+  ImageData?: new (data: Uint8ClampedArray, width: number, height: number) => unknown;
+}
+const env = globalThis as unknown as BitmapGlobals;
+const isBitmap = (v: unknown): boolean => typeof env.ImageBitmap === 'function' && v instanceof env.ImageBitmap;
+
+/**
+ * Turns a rendered raster into an `ImageBitmap` inside the worker, so the UI thread receives a
+ * transferred object instead of copying and uploading megabytes of pixels. Environments without
+ * `createImageBitmap` (Node) keep the raw pixels.
+ */
+async function withBitmap(value: unknown, options: unknown): Promise<unknown> {
+  if (!(options as RenderOptions | undefined)?.bitmap) return value;
+  const img = value as RasterImage | null;
+  if (!img || !(img.data instanceof Uint8ClampedArray) || !env.createImageBitmap || !env.ImageData) return value;
+  try {
+    const bitmap = await env.createImageBitmap(new env.ImageData(img.data, img.width, img.height), {
+      premultiplyAlpha: 'none',
+      colorSpaceConversion: 'none',
+    });
+    return { width: img.width, height: img.height, data: new Uint8ClampedArray(0), bitmap } satisfies RasterImage;
+  } catch {
+    return value;
+  }
+}
+
 /** Buffers worth transferring instead of copying. */
 function transferables(value: unknown, out: Transferable[] = []): Transferable[] {
-  if (value instanceof Uint8Array || value instanceof Uint8ClampedArray) {
+  if (isBitmap(value)) {
+    out.push(value as Transferable);
+  } else if (value instanceof Uint8Array || value instanceof Uint8ClampedArray) {
     if (
       value.byteOffset === 0 &&
       value.byteLength === value.buffer.byteLength &&
@@ -119,6 +149,7 @@ export function serveEngine(engine: PdfEngine | Promise<PdfEngine>, port: RpcPor
           value = hits;
         } else {
           value = await value;
+          if (msg.method === 'render') value = await withBitmap(value, args[1]);
         }
         if (
           value &&

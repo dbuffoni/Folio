@@ -5,7 +5,7 @@ import { RESERVED, chordOfEvent, formatChord, parseChord, sameChord } from './ke
 import { HOME_TILES, describeError } from './app.ts';
 import { MODE_TOOLS } from './tools.ts';
 import { createTestApp, markers, settle } from './testing.ts';
-import { fitZoom, layoutPages, navigate, parsePageJump, scrollTopFor, stepZoom, themeFilter, themeInvertsImages, visibleRange, wheelZoom } from './viewer.ts';
+import { fitZoom, layoutPages, navigate, parsePageJump, renderWindow, sameSet, scrollTopFor, stepZoom, themeFilter, themeInvertsImages, visibleRange, wheelZoom } from './viewer.ts';
 import { PasswordRequiredError, UnsupportedFeatureError } from '@folio/core';
 
 const key = (k: string, mods: Partial<{ ctrl: boolean; shift: boolean; alt: boolean; meta: boolean }> = {}) => ({ key: k, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt });
@@ -426,6 +426,24 @@ describe('viewer', () => {
     changed = 0;
     s.reportPage(1);
     expect({ changed, paged }).toEqual({ changed: 1, paged: 3 });
+  });
+  it('mounts pages within a viewport of the view and keeps them until three away @FR-VIEW-01', () => {
+    const sizes = Array.from({ length: 12 }, () => ({ size: { width: 600, height: 800 }, rotation: 0 as const }));
+    const { boxes } = layoutPages(sizes, 1, 'continuous');
+    const top = renderWindow(boxes, 0, 800);
+    expect([...top.inView]).toEqual([0]);
+    expect([...top.near]).toEqual([0, 1]);
+    // Scrolling down a few pages: earlier pages stay mounted until they are far away.
+    const mid = renderWindow(boxes, 6 * 812, 800, top.mounted);
+    expect(mid.inView.has(6)).toBe(true);
+    expect(mid.mounted.has(0)).toBe(false);
+    expect(mid.mounted.has(7)).toBe(true);
+    // Scrolling back up a little keeps the pages below, which are still within three viewports.
+    const back = renderWindow(boxes, 5 * 812, 800, mid.mounted);
+    expect(back.mounted.has(7)).toBe(true);
+    expect(sameSet(new Set([1, 2]), new Set([2, 1]))).toBe(true);
+    expect(sameSet(new Set([1]), new Set([1, 2]))).toBe(false);
+    expect(renderWindow(boxes, 0, 800, new Set([0, 1, 2, 3, 4, 5])).mounted.has(5)).toBe(false);
   });
   it('fits the zoom to the viewport and switches layouts @FR-VIEW-01', async () => {
     const t = await createTestApp();
