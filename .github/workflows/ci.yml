@@ -145,7 +145,7 @@ jobs:
           path: ${{ matrix.path }}
 
   # Unit and conformance suites on Windows and macOS: they must not depend on the host OS.
-  # The oracle-based interop suite is informative for now (tool packaging differs per OS).
+  # The interop suite is informative for now (pdfcpu packaging differs per OS).
   tests-cross-platform:
     strategy:
       fail-fast: false
@@ -164,18 +164,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm test:conformance
-      - name: PDF oracles (best effort)
-        continue-on-error: true
+      # The unit suites validate their output with qpdf, so the oracles come first.
+      - name: PDF oracles
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
             brew install qpdf poppler mupdf-tools
-            asset="Darwin_arm64.tar.xz"
           else
             choco install -y qpdf poppler mupdf
-            asset="Windows_x86_64.zip"
           fi
+          qpdf --version
+      - run: pnpm test
+      - run: pnpm test:conformance
+      - name: pdfcpu (best effort)
+        continue-on-error: true
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then asset="Darwin_arm64.tar.xz"; else asset="Windows_x86_64.zip"; fi
           mkdir -p "$HOME/.local/bin" /tmp/pdfcpu
           curl -sSL -o "/tmp/pdfcpu/a" "https://github.com/pdfcpu/pdfcpu/releases/download/v${PDFCPU_VERSION}/pdfcpu_${PDFCPU_VERSION}_${asset}"
           if [ "$RUNNER_OS" = macOS ]; then tar -xJf /tmp/pdfcpu/a -C /tmp/pdfcpu; else unzip -q /tmp/pdfcpu/a -d /tmp/pdfcpu; fi
