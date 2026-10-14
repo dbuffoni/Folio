@@ -16,40 +16,20 @@ interface Result {
   stdout: string;
   stderr: string;
 }
-async function exec(
-  cmd: string,
-  args: string[],
-  opts: { binary?: boolean } = {},
-): Promise<Result & { raw?: Buffer }> {
+async function exec(cmd: string, args: string[], opts: { binary?: boolean } = {}): Promise<Result & { raw?: Buffer }> {
   try {
-    const r = await run(cmd, args, {
-      env,
-      maxBuffer: 256 * 1024 * 1024,
-      encoding: opts.binary ? 'buffer' : 'utf8',
-    });
+    const r = await run(cmd, args, { env, maxBuffer: 256 * 1024 * 1024, encoding: opts.binary ? 'buffer' : 'utf8' });
     // Tools on Windows end lines with CRLF; the parsers below split on \n.
-    return {
-      code: 0,
-      stdout: opts.binary ? '' : (r.stdout as string).replace(/\r\n/g, '\n'),
-      stderr: String(r.stderr),
-      raw: opts.binary ? (r.stdout as unknown as Buffer) : undefined,
-    };
+    return { code: 0, stdout: opts.binary ? '' : (r.stdout as string).replace(/\r\n/g, '\n'), stderr: String(r.stderr), raw: opts.binary ? (r.stdout as unknown as Buffer) : undefined };
   } catch (e) {
     const err = e as { code?: number | string; stdout?: unknown; stderr?: unknown };
     if (err.code === 'ENOENT') throw new Error(`Oracle tool "${cmd}" is not installed`);
-    return {
-      code: typeof err.code === 'number' ? err.code : 1,
-      stdout: String(err.stdout ?? ''),
-      stderr: String(err.stderr ?? ''),
-    };
+    return { code: typeof err.code === 'number' ? err.code : 1, stdout: String(err.stdout ?? ''), stderr: String(err.stderr ?? '') };
   }
 }
 
 /** Runs `fn` with the bytes written to a temp file; cleans up afterwards. */
-export async function withTempPdf<T>(
-  pdf: Uint8Array,
-  fn: (path: string, dir: string) => Promise<T>,
-): Promise<T> {
+export async function withTempPdf<T>(pdf: Uint8Array, fn: (path: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'folio-oracle-'));
   try {
     const path = join(dir, 'in.pdf');
@@ -61,16 +41,10 @@ export async function withTempPdf<T>(
 }
 
 const toolCache = new Map<string, boolean>();
-export async function hasTool(
-  name: 'qpdf' | 'pdfcpu' | 'mutool' | 'pdftoppm' | 'pdftotext' | 'pdffonts' | 'pdfinfo',
-): Promise<boolean> {
+export async function hasTool(name: 'qpdf' | 'pdfcpu' | 'mutool' | 'pdftoppm' | 'pdftotext' | 'pdffonts' | 'pdfinfo'): Promise<boolean> {
   if (!toolCache.has(name)) {
     try {
-      await run(
-        name,
-        [name === 'pdfcpu' ? 'version' : name === 'mutool' ? '-v' : name === 'qpdf' ? '--version' : '-v'],
-        { env },
-      );
+      await run(name, [name === 'pdfcpu' ? 'version' : name === 'mutool' ? '-v' : name === 'qpdf' ? '--version' : '-v'], { env });
       toolCache.set(name, true);
     } catch (e) {
       toolCache.set(name, (e as { code?: unknown }).code !== 'ENOENT');
@@ -102,17 +76,9 @@ export async function pdfcpuValidate(pdf: Uint8Array, password?: string): Promis
   });
 }
 /** Text of the document (or one 1-based page) as extracted by poppler. */
-export async function pdftotext(
-  pdf: Uint8Array,
-  opts: { page?: number; layout?: boolean; password?: string } = {},
-): Promise<string> {
+export async function pdftotext(pdf: Uint8Array, opts: { page?: number; layout?: boolean; password?: string } = {}): Promise<string> {
   return withTempPdf(pdf, async (path) => {
-    const args = [
-      '-enc',
-      'UTF-8',
-      ...(opts.layout ? ['-layout'] : []),
-      ...(opts.password ? ['-upw', opts.password] : []),
-    ];
+    const args = ['-enc', 'UTF-8', ...(opts.layout ? ['-layout'] : []), ...(opts.password ? ['-upw', opts.password] : [])];
     if (opts.page) args.push('-f', String(opts.page), '-l', String(opts.page));
     const r = await exec('pdftotext', [...args, path, '-']);
     if (r.code !== 0) throw new Error(`pdftotext failed: ${r.stderr}`);
@@ -121,11 +87,7 @@ export async function pdftotext(
 }
 export function decodePng(bytes: Uint8Array): RasterImage {
   const png = PNG.sync.read(Buffer.from(bytes));
-  return {
-    width: png.width,
-    height: png.height,
-    data: new Uint8ClampedArray(png.data.buffer, png.data.byteOffset, png.data.length),
-  };
+  return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data.buffer, png.data.byteOffset, png.data.length) };
 }
 export function encodePng(img: RasterImage): Uint8Array {
   const png = new PNG({ width: img.width, height: img.height });
@@ -135,17 +97,7 @@ export function encodePng(img: RasterImage): Uint8Array {
 /** Renders one 1-based page with poppler at `dpi`. */
 export async function pdftoppm(pdf: Uint8Array, page: number, dpi = 72): Promise<RasterImage> {
   return withTempPdf(pdf, async (path, dir) => {
-    const r = await exec('pdftoppm', [
-      '-r',
-      String(dpi),
-      '-png',
-      '-f',
-      String(page),
-      '-l',
-      String(page),
-      path,
-      join(dir, 'out'),
-    ]);
+    const r = await exec('pdftoppm', ['-r', String(dpi), '-png', '-f', String(page), '-l', String(page), path, join(dir, 'out')]);
     if (r.code !== 0) throw new Error(`pdftoppm failed: ${r.stderr}`);
     const file = (await readdir(dir)).find((f) => f.startsWith('out') && f.endsWith('.png'));
     if (!file) throw new Error('pdftoppm produced no image');
@@ -213,9 +165,7 @@ export async function pdffonts(pdf: Uint8Array): Promise<FontRow[]> {
       .filter((l) => l.trim())
       .map((l) => {
         const m = /^(\S+)\s+(.+?)\s{2,}(\S.*?)\s+(yes|no)\s+(yes|no)\s+(yes|no)\s+\d+\s+\d+\s*$/.exec(l);
-        return m
-          ? { name: m[1]!, type: m[2]!.trim(), embedded: m[4] === 'yes', subset: m[5] === 'yes' }
-          : { name: l.trim(), type: '', embedded: false, subset: false };
+        return m ? { name: m[1]!, type: m[2]!.trim(), embedded: m[4] === 'yes', subset: m[5] === 'yes' } : { name: l.trim(), type: '', embedded: false, subset: false };
       });
   });
 }
@@ -253,33 +203,16 @@ export async function pdfcpuFormFields(pdf: Uint8Array): Promise<FieldRow[]> {
       }
       if (!/\d/.test(cells[cols.indexOf('Id')] ?? '')) continue;
       const type = cells[0]!.replace(/^\d+\s+/, '').replace(/^[*\s]+/, '');
-      rows.push({
-        type,
-        name: cells[cols.indexOf('Name')]!,
-        value: (cells[cols.indexOf('Value')] ?? '').replace(/\\n/g, '\n'),
-      });
+      rows.push({ type, name: cells[cols.indexOf('Name')]!, value: (cells[cols.indexOf('Value')] ?? '').replace(/\\n/g, '\n') });
     }
     return rows;
   });
 }
 /** Encrypts with AES-256 (fixtures only — Folio itself never writes encrypted files in Release 1). */
-export async function qpdfEncrypt(
-  pdf: Uint8Array,
-  userPassword: string,
-  ownerPassword = userPassword,
-): Promise<Uint8Array> {
+export async function qpdfEncrypt(pdf: Uint8Array, userPassword: string, ownerPassword = userPassword): Promise<Uint8Array> {
   return withTempPdf(pdf, async (path, dir) => {
     const out = join(dir, 'enc.pdf');
-    const r = await exec('qpdf', [
-      '--static-id',
-      '--encrypt',
-      userPassword,
-      ownerPassword,
-      '256',
-      '--',
-      path,
-      out,
-    ]);
+    const r = await exec('qpdf', ['--static-id', '--encrypt', userPassword, ownerPassword, '256', '--', path, out]);
     if (r.code !== 0 && r.code !== 3) throw new Error(`qpdf --encrypt failed: ${r.stderr}`);
     return new Uint8Array(await readFile(out));
   });
