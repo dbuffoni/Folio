@@ -2,14 +2,14 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import { PNG } from 'pngjs';
 import type { RasterImage } from '@folio/ports';
 
 const run = promisify(execFile);
-const HOME_BIN = `${process.env.HOME ?? ''}/.local/bin`;
-const env = { ...process.env, PATH: `${process.env.PATH ?? ''}:${HOME_BIN}` };
+const HOME_BIN = join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.local', 'bin');
+const env = { ...process.env, PATH: `${process.env.PATH ?? ''}${delimiter}${HOME_BIN}` };
 
 interface Result {
   code: number;
