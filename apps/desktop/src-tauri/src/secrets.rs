@@ -1,4 +1,4 @@
-//! Secret storage (SPEC §11.1, §12.4): the OS keychain through the Secret Service on Linux.
+//! Secret storage (SPEC §11.1, §12.4): the OS keychain (Secret Service on Linux, Credential Manager on Windows, Keychain on macOS).
 //! When no keyring daemon is reachable, secrets live in memory for the session only and the UI says so.
 
 use std::collections::HashMap;

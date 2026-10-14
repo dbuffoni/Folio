@@ -8,7 +8,7 @@
 | **Date** | 2026-10-11 |
 | **Requested by** | Daniele |
 | **Baseline stack** | Tauri 2 · SvelteKit + TypeScript · Tailwind CSS · Rust (only where required) · SQLite · AppImage |
-| **Target platforms** | Release 1: Linux (AppImage) and a pure web build. Windows and macOS: architecture stays compatible, builds deferred to Release 2 |
+| **Target platforms** | Release 1: Linux (AppImage) and a pure web build. Windows and macOS: architecture stays compatible; unsigned installers are built by CI (signing and notarisation deferred to Release 2) |
 | **Licence** | GPL-3.0-or-later |
 | **Development approach** | Built with Claude Code, **services first**: all PDF services and test libraries are implemented and headlessly tested before the UI, which is built last (§16). Release artefact: **AppImage** |
 | **Release 1 UI language** | English only (strings externalised, other languages can be added later) |

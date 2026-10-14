@@ -19,7 +19,25 @@ use crate::scope::Scope;
 
 /// Files handed over by the OS before the frontend was ready (CLI arguments, "Open with").
 #[derive(Default)]
-struct PendingOpen(Mutex<Vec<files::FileRef>>);
+struct PendingOpen(Mutex<Vec<files::FileRef>>, std::sync::atomic::AtomicBool);
+
+/// `file:///C:/x.pdf` → `C:/x.pdf` on Windows, `file:///x.pdf` → `/x.pdf` elsewhere.
+fn path_from_uri(arg: &str) -> &str {
+    let Some(rest) = arg.strip_prefix("file://") else { return arg };
+    let bytes = rest.as_bytes();
+    let drive = bytes.len() >= 4 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':';
+    if drive {
+        &rest[1..]
+    } else {
+        rest
+    }
+}
+
+/// Existing files among the URLs the OS hands over (macOS "Open with" and Finder double-clicks).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn paths_from_urls(urls: &[url::Url]) -> Vec<PathBuf> {
+    urls.iter().filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_file()).collect()
+}
 
 /// Paths among launch arguments that look like documents; flags are ignored.
 pub fn paths_from_args(args: &[String], cwd: Option<&str>) -> Vec<PathBuf> {
@@ -27,7 +45,7 @@ pub fn paths_from_args(args: &[String], cwd: Option<&str>) -> Vec<PathBuf> {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .map(|a| {
-            let p = PathBuf::from(a.strip_prefix("file://").unwrap_or(a));
+            let p = PathBuf::from(path_from_uri(a));
             match (p.is_absolute(), cwd) {
                 (false, Some(dir)) => PathBuf::from(dir).join(p),
                 _ => p,
@@ -74,6 +92,8 @@ fn app_info(app: AppHandle) -> AppInfo {
 
 #[tauri::command]
 fn take_pending_open_paths(pending: State<'_, PendingOpen>) -> Vec<files::FileRef> {
+    // From here on the frontend is listening, so later files are emitted instead of queued.
+    pending.1.store(true, std::sync::atomic::Ordering::SeqCst);
     std::mem::take(&mut *pending.0.lock().unwrap())
 }
 
@@ -122,7 +142,7 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
             let refs = accept_paths(app.handle(), paths_from_args(&args, cwd.as_deref()));
-            app.manage(PendingOpen(Mutex::new(refs)));
+            app.manage(PendingOpen(Mutex::new(refs), Default::default()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -167,8 +187,27 @@ pub fn run() {
             storage::storage_remove,
             storage::storage_list,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Folio");
+        .build(tauri::generate_context!())
+        .expect("error while building Folio")
+        .run(|app, event| {
+            // macOS delivers "Open with" and Finder double-clicks as an event, not as arguments.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let refs = accept_paths(app, paths_from_urls(&urls));
+                if refs.is_empty() {
+                    return;
+                }
+                // Before the frontend asked for its pending files they are queued; afterwards, emitted.
+                let pending = app.state::<PendingOpen>();
+                if pending.1.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = app.emit("folio://open", refs);
+                } else {
+                    pending.0.lock().unwrap().extend(refs);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 #[cfg(test)]
@@ -191,5 +230,25 @@ mod tests {
         let got = paths_from_args(&args, Some(&dir.path().to_string_lossy()));
         assert_eq!(got, vec![a.clone(), a.clone(), a]);
         assert!(paths_from_args(&["folio".to_string()], None).is_empty());
+    }
+
+    #[test]
+    fn open_urls_keep_only_existing_local_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.pdf");
+        std::fs::write(&a, b"x").unwrap();
+        let urls = vec![
+            url::Url::from_file_path(&a).unwrap(),
+            url::Url::from_file_path(dir.path().join("missing.pdf")).unwrap(),
+            url::Url::parse("https://example.com/a.pdf").unwrap(),
+        ];
+        assert_eq!(paths_from_urls(&urls), vec![a]);
+    }
+
+    #[test]
+    fn file_uris_lose_their_scheme_and_windows_drive_slash() {
+        assert_eq!(path_from_uri("file:///home/a.pdf"), "/home/a.pdf");
+        assert_eq!(path_from_uri("file:///C:/Users/a.pdf"), "C:/Users/a.pdf");
+        assert_eq!(path_from_uri("C:\\a.pdf"), "C:\\a.pdf");
     }
 }

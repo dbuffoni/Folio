@@ -38,7 +38,36 @@ pnpm appimage           # builds the web UI, then the Tauri bundle
 The AppImage is written to `apps/desktop/src-tauri/target/release/bundle/appimage/`.
 `pnpm tauri dev` starts the shell against the development server.
 
-### Smoke test
+### Windows (NSIS installer)
+
+Needs Windows 10 or newer, Rust (MSVC toolchain), Node and pnpm. WebView2 is downloaded by the
+installer when missing.
+
+```bash
+pnpm --filter @folio/desktop bundle:windows
+```
+
+The installer is written to `apps/desktop/src-tauri/target/release/bundle/nsis/`. It is not
+signed: Windows SmartScreen shows "unknown publisher" and the user has to choose "Run anyway".
+
+### macOS (universal DMG)
+
+Needs macOS 12 or newer, Xcode command line tools and both Rust targets:
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+pnpm --filter @folio/desktop bundle:macos
+```
+
+The disk image is written to
+`apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/`. The app is only
+ad-hoc signed and not notarised: after copying it to Applications, right-click it and choose
+Open once (or run `xattr -dr com.apple.quarantine /Applications/Folio.app`).
+
+Windows and macOS builds have no automated smoke test yet; CI compiles, runs the Rust tests and
+bundles them (`desktop-cross-platform` job).
+
+### Smoke test (Linux)
 
 ```bash
 sudo apt install xvfb dbus-x11 gnome-keyring webkit2gtk-driver
