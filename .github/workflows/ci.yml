@@ -173,16 +173,20 @@ jobs:
             choco install -y qpdf poppler mupdf
           fi
           qpdf --version
-      - run: pnpm test
-      - run: pnpm test:conformance
-      - name: pdfcpu (best effort)
-        continue-on-error: true
+      - name: pdfcpu
         run: |
           if [ "$RUNNER_OS" = macOS ]; then asset="Darwin_arm64.tar.xz"; else asset="Windows_x86_64.zip"; fi
-          mkdir -p "$HOME/.local/bin" /tmp/pdfcpu
-          curl -sSL -o "/tmp/pdfcpu/a" "https://github.com/pdfcpu/pdfcpu/releases/download/v${PDFCPU_VERSION}/pdfcpu_${PDFCPU_VERSION}_${asset}"
-          if [ "$RUNNER_OS" = macOS ]; then tar -xJf /tmp/pdfcpu/a -C /tmp/pdfcpu; else unzip -q /tmp/pdfcpu/a -d /tmp/pdfcpu; fi
-          cp "$(find /tmp/pdfcpu -name 'pdfcpu*' -type f ! -name a -perm -u+x | head -1)" "$HOME/.local/bin/"
+          dir="$RUNNER_TEMP/pdfcpu"
+          mkdir -p "$dir"
+          curl -sSL -o "$dir/archive" "https://github.com/pdfcpu/pdfcpu/releases/download/v${PDFCPU_VERSION}/pdfcpu_${PDFCPU_VERSION}_${asset}"
+          if [ "$RUNNER_OS" = macOS ]; then tar -xJf "$dir/archive" -C "$dir"; else 7z x -y "-o$dir" "$dir/archive" >/dev/null; fi
+          bin="$(dirname "$(find "$dir" -type f \( -name pdfcpu -o -name pdfcpu.exe \) | head -1)")"
+          chmod +x "$bin"/pdfcpu* 2>/dev/null || true
+          if [ "$RUNNER_OS" = Windows ]; then bin="$(cygpath -w "$bin")"; fi
+          echo "$bin" >> "$GITHUB_PATH"
+      - run: pdfcpu version
+      - run: pnpm test
+      - run: pnpm test:conformance
       - name: Interop suite (informative)
         continue-on-error: true
         run: pnpm test:interop
