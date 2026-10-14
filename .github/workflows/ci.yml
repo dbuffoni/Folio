@@ -144,8 +144,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
 
-  # Unit and conformance suites on Windows and macOS: they must not depend on the host OS.
-  # The interop suite is informative for now (pdfcpu packaging differs per OS).
+  # Unit, conformance and interop suites on Windows and macOS: they must not depend on the host OS.
   tests-cross-platform:
     strategy:
       fail-fast: false
@@ -187,6 +186,4 @@ jobs:
       - run: pdfcpu version
       - run: pnpm test
       - run: pnpm test:conformance
-      - name: Interop suite (informative)
-        continue-on-error: true
-        run: pnpm test:interop
+      - run: pnpm test:interop
