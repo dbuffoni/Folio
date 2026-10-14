@@ -8,7 +8,9 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "appimage": "tauri build --bundles appimage",
-    "check": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo test"
+    "check": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo test",
+    "bundle:windows": "tauri build --bundles nsis",
+    "bundle:macos": "tauri build --bundles dmg --target universal-apple-darwin"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
