@@ -33,6 +33,12 @@ fn path_from_uri(arg: &str) -> &str {
     }
 }
 
+/// Existing files among the URLs the OS hands over (macOS "Open with" and Finder double-clicks).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn paths_from_urls(urls: &[url::Url]) -> Vec<PathBuf> {
+    urls.iter().filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_file()).collect()
+}
+
 /// Paths among launch arguments that look like documents; flags are ignored.
 pub fn paths_from_args(args: &[String], cwd: Option<&str>) -> Vec<PathBuf> {
     args.iter()
@@ -183,23 +189,24 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Folio")
-        .run(|_app, _event| {
+        .run(|app, event| {
             // macOS delivers "Open with" and Finder double-clicks as an event, not as arguments.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = _event {
-                let paths: Vec<PathBuf> = urls.iter().filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_file()).collect();
-                let refs = accept_paths(_app, paths);
+            if let tauri::RunEvent::Opened { urls } = event {
+                let refs = accept_paths(app, paths_from_urls(&urls));
                 if refs.is_empty() {
                     return;
                 }
                 // Before the frontend asked for its pending files they are queued; afterwards, emitted.
-                let pending = _app.state::<PendingOpen>();
+                let pending = app.state::<PendingOpen>();
                 if pending.1.load(std::sync::atomic::Ordering::SeqCst) {
-                    let _ = _app.emit("folio://open", refs);
+                    let _ = app.emit("folio://open", refs);
                 } else {
                     pending.0.lock().unwrap().extend(refs);
                 }
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
         });
 }
 
@@ -223,6 +230,19 @@ mod tests {
         let got = paths_from_args(&args, Some(&dir.path().to_string_lossy()));
         assert_eq!(got, vec![a.clone(), a.clone(), a]);
         assert!(paths_from_args(&["folio".to_string()], None).is_empty());
+    }
+
+    #[test]
+    fn open_urls_keep_only_existing_local_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.pdf");
+        std::fs::write(&a, b"x").unwrap();
+        let urls = vec![
+            url::Url::from_file_path(&a).unwrap(),
+            url::Url::from_file_path(dir.path().join("missing.pdf")).unwrap(),
+            url::Url::parse("https://example.com/a.pdf").unwrap(),
+        ];
+        assert_eq!(paths_from_urls(&urls), vec![a]);
     }
 
     #[test]
