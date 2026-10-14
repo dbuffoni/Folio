@@ -143,3 +143,47 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
+
+  # Unit, conformance and interop suites on Windows and macOS: they must not depend on the host OS.
+  tests-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The unit suites validate their output with qpdf, so the oracles come first.
+      - name: PDF oracles
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install qpdf poppler mupdf-tools
+          else
+            choco install -y qpdf poppler mupdf
+          fi
+          qpdf --version
+      - name: pdfcpu
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then asset="Darwin_arm64.tar.xz"; else asset="Windows_x86_64.zip"; fi
+          dir="$RUNNER_TEMP/pdfcpu"
+          mkdir -p "$dir"
+          curl -sSL -o "$dir/archive" "https://github.com/pdfcpu/pdfcpu/releases/download/v${PDFCPU_VERSION}/pdfcpu_${PDFCPU_VERSION}_${asset}"
+          if [ "$RUNNER_OS" = macOS ]; then tar -xJf "$dir/archive" -C "$dir"; else 7z x -y "-o$dir" "$dir/archive" >/dev/null; fi
+          bin="$(dirname "$(find "$dir" -type f \( -name pdfcpu -o -name pdfcpu.exe \) | head -1)")"
+          chmod +x "$bin"/pdfcpu* 2>/dev/null || true
+          if [ "$RUNNER_OS" = Windows ]; then bin="$(cygpath -w "$bin")"; fi
+          echo "$bin" >> "$GITHUB_PATH"
+      - run: pdfcpu version
+      - run: pnpm test
+      - run: pnpm test:conformance
+      - run: pnpm test:interop

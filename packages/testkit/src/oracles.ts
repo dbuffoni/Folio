@@ -2,14 +2,14 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import { PNG } from 'pngjs';
 import type { RasterImage } from '@folio/ports';
 
 const run = promisify(execFile);
-const HOME_BIN = `${process.env.HOME ?? ''}/.local/bin`;
-const env = { ...process.env, PATH: `${process.env.PATH ?? ''}:${HOME_BIN}` };
+const HOME_BIN = join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.local', 'bin');
+const env = { ...process.env, PATH: `${process.env.PATH ?? ''}${delimiter}${HOME_BIN}` };
 
 interface Result {
   code: number;
@@ -19,7 +19,8 @@ interface Result {
 async function exec(cmd: string, args: string[], opts: { binary?: boolean } = {}): Promise<Result & { raw?: Buffer }> {
   try {
     const r = await run(cmd, args, { env, maxBuffer: 256 * 1024 * 1024, encoding: opts.binary ? 'buffer' : 'utf8' });
-    return { code: 0, stdout: opts.binary ? '' : (r.stdout as string), stderr: String(r.stderr), raw: opts.binary ? (r.stdout as unknown as Buffer) : undefined };
+    // Tools on Windows end lines with CRLF; the parsers below split on \n.
+    return { code: 0, stdout: opts.binary ? '' : (r.stdout as string).replace(/\r\n/g, '\n'), stderr: String(r.stderr), raw: opts.binary ? (r.stdout as unknown as Buffer) : undefined };
   } catch (e) {
     const err = e as { code?: number | string; stdout?: unknown; stderr?: unknown };
     if (err.code === 'ENOENT') throw new Error(`Oracle tool "${cmd}" is not installed`);
@@ -77,7 +78,7 @@ export async function pdfcpuValidate(pdf: Uint8Array, password?: string): Promis
 /** Text of the document (or one 1-based page) as extracted by poppler. */
 export async function pdftotext(pdf: Uint8Array, opts: { page?: number; layout?: boolean; password?: string } = {}): Promise<string> {
   return withTempPdf(pdf, async (path) => {
-    const args = [...(opts.layout ? ['-layout'] : []), ...(opts.password ? ['-upw', opts.password] : [])];
+    const args = ['-enc', 'UTF-8', ...(opts.layout ? ['-layout'] : []), ...(opts.password ? ['-upw', opts.password] : [])];
     if (opts.page) args.push('-f', String(opts.page), '-l', String(opts.page));
     const r = await exec('pdftotext', [...args, path, '-']);
     if (r.code !== 0) throw new Error(`pdftotext failed: ${r.stderr}`);
