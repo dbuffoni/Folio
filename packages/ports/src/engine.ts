@@ -348,6 +348,52 @@ export interface FormField {
 }
 export type FieldValue = string | boolean | string[];
 
+/** A form field to create (FR-FRM-08, FR-FRM-11). Rectangles are in PDF user space. */
+export interface FieldSpec {
+  type: FormFieldType;
+  /** Fully qualified name; a dot creates a hierarchy. Radio widgets with the same name join one group. */
+  name: string;
+  page: PageIndex;
+  rect: Rect;
+  tooltip?: string;
+  /** Initial text, selected option, or "Yes"/"Off" style value for check boxes. */
+  value?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  multiline?: boolean;
+  password?: boolean;
+  comb?: boolean;
+  maxLength?: number;
+  /** Choices of dropdowns and list boxes. */
+  options?: { label: string; value: string }[];
+  /** Export value of this check box / radio button; defaults to "Yes" and to the group's option number. */
+  exportValue?: string;
+  /** Button caption. */
+  caption?: string;
+  /** Font size in points; 0 or absent = automatic. */
+  fontSize?: number;
+  font?: StandardFontFamily;
+  align?: 'left' | 'center' | 'right';
+  textColor?: Color;
+  backgroundColor?: Color;
+  borderColor?: Color;
+  borderWidth?: number;
+}
+/** Properties that can be changed on an existing field (FR-FRM-16). */
+export interface FieldPatch {
+  tooltip?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  /** text ↔ multiline. */
+  multiline?: boolean;
+  maxLength?: number | null;
+  /** Choice fields; dropdown ↔ list box is `listbox`. */
+  options?: { label: string; value: string }[];
+  listbox?: boolean;
+  fontSize?: number;
+  align?: 'left' | 'center' | 'right';
+}
+
 // ---------------------------------------------------------------------------------------------
 // Page content objects
 // ---------------------------------------------------------------------------------------------
@@ -490,6 +536,18 @@ export interface PdfDocument {
   /** Renames a field (used to resolve collisions when merging). */
   renameField(id: FieldId, name: string): Promise<FieldId>;
   flattenForm(): Promise<void>;
+  /**
+   * Creates fields in one step (FR-FRM-08). Names must be unused, except radio buttons of one group.
+   * Appearance streams are generated so other viewers show them. @returns the ids, in order.
+   * @throws InvalidArgumentError (bad or taken name, bad rectangle), UnsupportedFeatureError (XFA, encrypted)
+   */
+  createFields(specs: FieldSpec[]): Promise<FieldId[]>;
+  /** Changes properties of an existing field (FR-FRM-16); returns its (unchanged) id. */
+  updateField(id: FieldId, patch: FieldPatch): Promise<FieldId>;
+  /** Moves/resizes one widget; the appearance is regenerated. */
+  setWidgetRect(id: FieldId, widget: number, rect: Rect): Promise<void>;
+  /** Removes a field with all its widgets, or just one widget (`widget` given); the last widget removes the field. */
+  removeField(id: FieldId, widget?: number): Promise<void>;
 
   // page content objects
   listObjects(i: PageIndex): Promise<PageObject[]>;

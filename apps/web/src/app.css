@@ -450,6 +450,17 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   input.fld:not(:focus):not([type=checkbox]):not([type=radio]),textarea.fld:not(:focus){color:transparent}
   input.fld:not(:focus)::placeholder,textarea.fld:not(:focus)::placeholder{color:transparent}
   .fld.ro{pointer-events:none}
+  .afld{position:absolute;box-sizing:border-box;border:1.5px solid var(--color-accent);background:rgba(37,99,235,.10);border-radius:2px;cursor:move;z-index:4;touch-action:none}
+  .afld:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+  .afld.sel{background:rgba(37,99,235,.18);box-shadow:0 0 0 1px #fff}
+  .afld .atag,.aprop .atag{position:absolute;left:-1px;top:-17px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 10px/16px system-ui,sans-serif;padding:0 5px;border-radius:3px 3px 0 0;background:var(--color-accent);color:#fff;pointer-events:none}
+  .afld .ah{position:absolute;width:9px;height:9px;background:#fff;border:1.5px solid var(--color-accent);border-radius:2px}
+  .ah.nw{left:-5px;top:-5px;cursor:nwse-resize}.ah.n{left:calc(50% - 5px);top:-5px;cursor:ns-resize}.ah.ne{right:-5px;top:-5px;cursor:nesw-resize}
+  .ah.e{right:-5px;top:calc(50% - 5px);cursor:ew-resize}.ah.se{right:-5px;bottom:-5px;cursor:nwse-resize}.ah.s{left:calc(50% - 5px);bottom:-5px;cursor:ns-resize}
+  .ah.sw{left:-5px;bottom:-5px;cursor:nesw-resize}.ah.w{left:-5px;top:calc(50% - 5px);cursor:ew-resize}
+  .aprop{position:absolute;box-sizing:border-box;border:2px dashed #16a34a;background:rgba(22,163,74,.12);padding:0;z-index:4;cursor:pointer}
+  .aprop.off{border-color:#9ca3af;background:rgba(156,163,175,.12)}
+  .aprop .atag{background:#16a34a}.aprop.off .atag{background:#6b7280}
   input.fld[type=checkbox],input.fld[type=radio]{padding:0;accent-color:#111}
   select.fld{padding:0}
   /* Choice widgets draw their own options: cover the engine's rendering instead of doubling it. */

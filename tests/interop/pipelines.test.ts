@@ -196,3 +196,57 @@ describe('Reduce file size with independent tools @FR-OPT-01 @FR-OPT-09 @FR-OPT-
     expect(await qpdfQdf(out)).toContain('Photos at 300 dpi');
   });
 });
+
+describe('Created and edited form fields with independent tools @FR-FRM-08 @FR-FRM-16 @FR-AIF-14', () => {
+  it('fields of every type pass qpdf and pdfcpu, are listed by pdfcpu and filled values show in poppler @FR-FRM-08', async () => {
+    const { doc } = await opened('text');
+    const { qpdfCheck, pdfcpuValidate } = await import('@folio/testkit');
+    const r = (x: number, y: number, w = 150, h = 22) => ({ x, y, width: w, height: h });
+    await doc.createFields([
+      { type: 'text', name: 'person.name', page: 0, rect: r(72, 600), tooltip: 'Full name', required: true },
+      { type: 'text', name: 'notes', page: 0, rect: r(72, 540, 200, 50), multiline: true },
+      { type: 'checkbox', name: 'agree', page: 0, rect: r(72, 500, 16, 16) },
+      { type: 'radio', name: 'size', page: 0, rect: r(72, 460, 16, 16), exportValue: 'S' },
+      { type: 'radio', name: 'size', page: 0, rect: r(110, 460, 16, 16), exportValue: 'L' },
+      { type: 'dropdown', name: 'country', page: 0, rect: r(72, 420), options: [{ label: 'Italy', value: 'IT' }, { label: 'France', value: 'FR' }] },
+      { type: 'signature', name: 'sign', page: 1, rect: r(72, 600, 200, 50) },
+    ]);
+    await doc.setFieldValue('person.name', 'Ada Lovelace');
+    await doc.setFieldValue('country', 'France');
+    const bytes = await doc.save();
+    expect((await qpdfCheck(bytes)).ok).toBe(true);
+    expect((await qpdfCheck(bytes)).warnings).toEqual([]);
+    expect((await pdfcpuValidate(bytes)).ok).toBe(true);
+    const rows = await pdfcpuFormFields(bytes);
+    expect(rows.map((x) => x.name).sort()).toEqual(['agree', 'country', 'notes', 'person.name', 'sign', 'size']);
+    expect(rows.find((x) => x.name === 'person.name')!.value).toBe('Ada Lovelace');
+    expect(await pdftotext(bytes, { page: 1 })).toContain('Ada Lovelace');
+    // Edit then delete: still clean.
+    await doc.updateField('person.name', { multiline: true });
+    await doc.setWidgetRect('person.name', 0, { x: 90, y: 610, width: 200, height: 40 });
+    await doc.removeField('size', 1);
+    await doc.removeField('agree');
+    const edited = await doc.save();
+    expect((await qpdfCheck(edited)).ok).toBe(true);
+    expect((await pdfcpuValidate(edited)).ok).toBe(true);
+    expect((await pdfcpuFormFields(edited)).map((x) => x.name).sort()).toEqual(['country', 'notes', 'person.name', 'sign', 'size']);
+  });
+
+  it('a scanned form filled by Smart Fill flattens to text the other tools read, and keeps no fields @FR-AIF-14', async () => {
+    const { engine } = await opened('text');
+    const { scannedFormDoc, PERSON, pdftoppm, inkRatio } = await import('@folio/testkit');
+    const { pdfcpuFormFields: fieldsOf } = await import('@folio/testkit');
+    const { pdf } = await scannedFormDoc();
+    const doc = await engine.open(pdf);
+    const before = await pdftoppm(await doc.save(), 1, 72);
+    await doc.createFields([{ type: 'text', name: 'FirstName', page: 0, rect: { x: 150, y: 700, width: 300, height: 24 }, value: PERSON.firstName }]);
+    expect((await fieldsOf(await doc.save())).length).toBe(1);
+    await doc.flattenForm();
+    const flat = await doc.save();
+    expect(await fieldsOf(flat)).toEqual([]);
+    expect(await pdftotext(flat)).toContain(PERSON.firstName);
+    // The scan itself is untouched under the text: only the written value adds ink.
+    const after = await pdftoppm(flat, 1, 72);
+    expect(inkRatio(after)).toBeGreaterThanOrEqual(inkRatio(before));
+  });
+});

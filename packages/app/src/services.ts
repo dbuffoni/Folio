@@ -7,6 +7,8 @@ import {
   CompressService,
   DocumentService,
   ExportService,
+  FormAuthoringService,
+  FieldDetectionService,
   FormService,
   ImageToPdfService,
   MergeService,
@@ -54,6 +56,8 @@ export class Services {
   readonly signatures: SignatureService;
   readonly stamps: StampService;
   readonly forms: FormService;
+  readonly authoring: FormAuthoringService;
+  readonly detection: FieldDetectionService;
   readonly textEdit: TextEditService;
   readonly objects: ObjectEditService;
   readonly outline: OutlineService;
@@ -86,6 +90,7 @@ export class Services {
     this.signatures = new SignatureService({ engine, images: platform.images, font: opts.loadFont });
     this.stamps = new StampService({ now: () => clock.now(), locale: () => platform.app.locale });
     this.forms = new FormService({ newId });
+    this.authoring = new FormAuthoringService();
     this.textEdit = new TextEditService();
     this.objects = new ObjectEditService(platform.images);
     this.outline = new OutlineService();
@@ -96,7 +101,8 @@ export class Services {
       this.openAi = new OpenAiProvider({ http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model, structured: aiCapabilities(this.settings.ai).structured }) });
       this.ai = this.openAi;
     }
-    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images });
+    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });
+    this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images });
   }
 
   get platform(): Platform {

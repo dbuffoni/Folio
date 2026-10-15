@@ -178,11 +178,13 @@
   const typing = $derived(dep(v, tools.typing && tools.typing.page === page ? tools.typing : null));
   const notice = $derived(dep(v, tools.notice && tools.notice.result.page === page ? tools.notice : null));
   const smart = $derived(dep(v, m.smart));
+  const author = $derived(dep(v, m.author));
+  const authoring = $derived(mode === 'fill' && author.active);
   const located = $derived(
     smart.located ? smart.suggestions.find((s) => s.ref === smart.located && s.page === page) : undefined,
   );
   const fields = $derived(
-    dep(v, mode === 'fill' || mode === 'view'
+    dep(v, (mode === 'fill' && !authoring) || mode === 'view'
       ? m.form.stops.filter((s) => s.field.widgets[s.widget]!.page === page)
       : []),
   );
@@ -211,8 +213,65 @@
     mod: e.ctrlKey || e.metaKey,
   });
   let down = $state(false);
+  // ---- Edit form: draw, select, move and resize fields (FR-FRM-08, FR-FRM-16) ------------------
+  type FieldDrag = { id: string; widget: number; handle: string; start: { x: number; y: number }; orig: Rect; cur: Rect };
+  let fieldDrag = $state<FieldDrag | null>(null);
+  let authorDraft = $state<{ a: { x: number; y: number }; b: { x: number; y: number } } | null>(null);
+  function authorDown(e: PointerEvent): void {
+    e.preventDefault();
+    overlay!.setPointerCapture(e.pointerId);
+    const target = e.target as HTMLElement;
+    const field = target.closest<HTMLElement>('[data-field]');
+    const p = point(e);
+    if (field) {
+      const id = field.dataset.field!;
+      const widget = Number(field.dataset.widget);
+      author.select({ id, widget });
+      const f = author.fields.find((x) => x.id === id);
+      const rect = f?.widgets[widget]?.rect;
+      if (rect) fieldDrag = { id, widget, handle: target.dataset.h ?? 'move', start: p, orig: rect, cur: rect };
+      return;
+    }
+    if (author.tool === 'select') return void author.select(null);
+    authorDraft = { a: p, b: p };
+  }
+  function authorMove(e: PointerEvent): void {
+    const p = point(e);
+    if (fieldDrag) {
+      const dx = p.x - fieldDrag.start.x;
+      const dy = p.y - fieldDrag.start.y;
+      const o = fieldDrag.orig;
+      let { x, y, width, height } = o;
+      const h = fieldDrag.handle;
+      if (h === 'move') {
+        x += dx;
+        y += dy;
+      } else {
+        // Handles are named by their side on screen: n is the top (larger y in page space).
+        if (h.includes('w')) (x += dx), (width -= dx);
+        if (h.includes('e')) width += dx;
+        if (h.includes('s')) (y += dy), (height -= dy);
+        if (h.includes('n')) height += dy;
+      }
+      fieldDrag = { ...fieldDrag, cur: { x, y, width: Math.max(6, width), height: Math.max(6, height) } };
+    } else if (authorDraft) authorDraft = { ...authorDraft, b: p };
+  }
+  async function authorUp(e: PointerEvent): Promise<void> {
+    const p = point(e);
+    if (fieldDrag) {
+      const d = fieldDrag;
+      fieldDrag = null;
+      const moved = Math.abs(d.cur.x - d.orig.x) + Math.abs(d.cur.y - d.orig.y) + Math.abs(d.cur.width - d.orig.width) + Math.abs(d.cur.height - d.orig.height) > 0.5;
+      if (moved) await author.setRect(d.cur);
+    } else if (authorDraft) {
+      const d = authorDraft;
+      authorDraft = null;
+      await author.createAt(page, d.a, p.x === d.a.x && p.y === d.a.y ? null : p);
+    }
+  }
   async function onpointerdown(e: PointerEvent): Promise<void> {
     if (e.button !== 0) return;
+    if (authoring && upright) return authorDown(e);
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, select, button, .fl, .sugg')) return;
     // An open editor is committed by clicking elsewhere, before the click means anything else.
@@ -235,10 +294,12 @@
     else await tools.pointerDown(page, point(e), mods(e), handle);
   }
   function onpointermove(e: PointerEvent): void {
+    if (authoring && (fieldDrag || authorDraft)) return authorMove(e);
     if (!down && !tools.ghost && tool !== 'edit-text' && !tools.draft) return;
     void tools.pointerMove(page, point(e), mods(e));
   }
   function onpointerup(e: PointerEvent): void {
+    if (authoring && (fieldDrag || authorDraft)) return void authorUp(e);
     if (!down) return;
     down = false;
     void tools.pointerUp(page, point(e), mods(e));
@@ -565,6 +626,33 @@
       ></div>
     {/each}
 
+    {#if authoring && upright}
+      {#each author.fields as f (f.id)}
+        {#each f.widgets as w, wi (wi)}
+          {#if w.page === page}
+            {@const sel = author.selected?.id === f.id && author.selected.widget === wi}
+            {@const live = fieldDrag && fieldDrag.id === f.id && fieldDrag.widget === wi ? fieldDrag.cur : w.rect}
+            <div class="afld" class:sel data-field={f.id} data-widget={wi} style={css(live)} role="button" tabindex="0" title={f.label ?? f.name}
+              aria-label={`${f.name}${f.type === 'radio' ? ` (${w.exportValue})` : ''}`}
+              onkeydown={(e) => {
+                if (e.key === 'Delete' || e.key === 'Backspace') (e.preventDefault(), void author.remove());
+                else if (e.key.startsWith('Arrow')) (e.preventDefault(), void author.nudge(e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0, e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0, e.shiftKey));
+              }}>
+              <span class="atag">{f.name}</span>
+              {#if sel}
+                {#each ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as h (h)}<b class="ah {h}" data-h={h}></b>{/each}
+              {/if}
+            </div>
+          {/if}
+        {/each}
+      {/each}
+      {#each author.proposals.filter((p) => p.page === page) as p (p.id)}
+        <button class="aprop" class:off={!p.accepted} style={css(p.rect)} aria-pressed={p.accepted}
+          aria-label={`${p.label ?? p.type}`} onpointerdown={(e) => e.stopPropagation()}
+          onclick={() => author.toggleProposal(p.id, !p.accepted)}><span class="atag">{p.label ?? p.type}</span></button>
+      {/each}
+      {#if authorDraft}<div class="draft" style={css(rectFromPoints(authorDraft.a, authorDraft.b))}></div>{/if}
+    {/if}
     {#if draft}
       {#if draft.tool === 'line' || draft.tool === 'arrow' || draft.tool === 'polyline'}
         {@const pts = [...(draft.points ?? [draft.start]), draft.current].map((p) => applyToPoint(toView, p))}

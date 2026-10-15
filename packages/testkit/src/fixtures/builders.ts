@@ -519,6 +519,49 @@ export async function photosDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+export interface ScannedFormArea {
+  /** PDF user space of the unrotated page. */
+  rect: { x: number; y: number; width: number; height: number };
+  kind: 'text' | 'checkbox';
+  /** What the printed label next to it says (not drawn: a scan has no text). */
+  label: string;
+}
+/**
+ * A scanned paper form: one full-page image with five ruled boxes and two check squares drawn on it,
+ * no text and no fields. `rotate` sets the page's /Rotate; the image itself is not turned, so the areas
+ * stay in unrotated user space and a viewer shows them rotated.
+ */
+export async function scannedFormDoc(opts: { rotate?: 0 | 90 | 180 | 270 } = {}): Promise<{ pdf: Uint8Array; areas: ScannedFormArea[] }> {
+  const W = 612;
+  const H = 792;
+  const areas: ScannedFormArea[] = [
+    { rect: { x: 150, y: 700, width: 300, height: 24 }, kind: 'text', label: 'First name' },
+    { rect: { x: 150, y: 660, width: 300, height: 24 }, kind: 'text', label: 'Last name' },
+    { rect: { x: 150, y: 620, width: 140, height: 24 }, kind: 'text', label: 'Date of birth' },
+    { rect: { x: 150, y: 580, width: 300, height: 24 }, kind: 'text', label: 'Email' },
+    { rect: { x: 150, y: 540, width: 300, height: 24 }, kind: 'text', label: 'Tax code' },
+    { rect: { x: 150, y: 500, width: 14, height: 14 }, kind: 'checkbox', label: 'Newsletter' },
+    { rect: { x: 300, y: 500, width: 14, height: 14 }, kind: 'checkbox', label: 'Privacy' },
+  ];
+  const png = new PNG({ width: W, height: H });
+  png.data.fill(255);
+  const dot = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    png.data.set([20, 20, 20, 255], (y * W + x) * 4);
+  };
+  for (const { rect: r } of areas) {
+    const top = Math.round(H - r.y - r.height);
+    const left = Math.round(r.x);
+    for (let x = 0; x <= r.width; x++) for (const y of [0, Math.round(r.height)]) dot(left + x, top + y);
+    for (let y = 0; y <= r.height; y++) for (const x of [0, Math.round(r.width)]) dot(left + x, top + y);
+  }
+  const doc = await newDoc('Scanned form');
+  const page = doc.addPage([W, H]);
+  page.drawImage(await doc.embedPng(PNG.sync.write(png)), { x: 0, y: 0, width: W, height: H });
+  if (opts.rotate) page.setRotation(degrees(opts.rotate));
+  return { pdf: await finish(doc), areas };
+}
+
 /** PNG with a transparent background and a dark handwritten-like stroke (signature import tests). */
 export function signaturePng(width = 200, height = 80, background: [number, number, number, number] = [255, 255, 255, 255]): Uint8Array {
   const png = new PNG({ width, height });

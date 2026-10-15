@@ -3,6 +3,7 @@ import {
   CompositeCommand,
   InvalidArgumentError,
   NetworkError,
+  bboxToUserRect,
   formatDate,
   isFolioError,
   toHex,
@@ -13,6 +14,7 @@ import type {
   AiProvider,
   CryptoService,
   FieldMapping,
+  FieldSpec,
   FieldValue,
   FormAnalysisRequest,
   FormCandidate,
@@ -29,8 +31,8 @@ import type {
 import type { AnnotationService } from './annotation.ts';
 import { label } from './commands.ts';
 import { detectAreas, isFillable, type DetectedArea, type FormService } from './form.ts';
+import { FormAuthoringService } from './form-author.ts';
 import type { StampService } from './stamp.ts';
-import { BUILTIN_STAMPS } from './stamp.ts';
 
 // ---- data the service works with (kept structural so it does not depend on the db package) ------
 
@@ -109,7 +111,17 @@ export interface AnalysisResult {
   fingerprint: string;
   /** Why the AI was not used although it was requested (shown as a notice). */
   fallbackReason?:
-    'offline' | 'unauthorized' | 'rateLimited' | 'malformed' | 'server' | 'blocked' | 'notConfigured' | 'insecure' | 'unsupported';
+    | 'offline'
+    | 'unauthorized'
+    | 'rateLimited'
+    | 'malformed'
+    | 'server'
+    | 'blocked'
+    | 'notConfigured'
+    | 'insecure'
+    | 'unsupported'
+    /** A scanned form and no vision-capable AI: draw the fields by hand and fill them (FR-AIF-14). */
+    | 'scanNeedsAi';
 }
 export interface Preflight {
   mode: 'mapping_only' | 'with_values';
@@ -126,6 +138,8 @@ export interface Preflight {
   estimatedTokens: number;
   /** Where the request goes; a server on this computer is named "local server" (FR-AIF-12). */
   destination?: { host: string; local: boolean };
+  /** The image is sent for this run only because the form has no fields (FR-AIF-14). */
+  imageForThisRun?: boolean;
 }
 
 // ---- fuzzy matching (FR-AIF-07) ----------------------------------------------------------------
@@ -280,7 +294,7 @@ function typeOfCandidate(field: FormField): SmartFieldType {
 const humanize = (name: string): string => tokens(name.split('.').pop() ?? name).join(' ');
 
 /** Nearest label to the left of or above a rectangle (same rule family as the area detector). */
-function labelNear(rect: Rect, layer: TextLayer): string | undefined {
+export function labelNear(rect: Rect, layer: TextLayer): string | undefined {
   let best: { text: string; d: number } | undefined;
   for (const line of layer.lines) {
     const text = line.text.replace(/[:\s]+$/g, '').trim();
@@ -316,8 +330,13 @@ export class SmartFillService {
       ai?: AiProvider;
       runs?: RunLog;
       images?: ImageCodec;
+      /** Names and creates the fields of detected areas (FR-AIF-14). */
+      authoring?: FormAuthoringService;
     },
   ) {}
+  private get authoring(): FormAuthoringService {
+    return this.deps.authoring ?? new FormAuthoringService();
+  }
 
   /** Step 1: candidates of the target pages. AcroForm fields win; pages without any get detected areas. */
   async collect(
@@ -379,6 +398,38 @@ export class SmartFillService {
     return toHex(await this.deps.crypto.sha256(utf8.encode(shape))).slice(0, 40);
   }
 
+  /**
+   * Fingerprint of a form with no fields and no text (a scan): a 8×8 average hash of the downscaled
+   * page image plus the page size, so every scan of the same sheet maps to the same remembered mapping.
+   */
+  async scanFingerprint(doc: PdfDocument, pages: PageIndex[]): Promise<string> {
+    const parts: string[] = [];
+    for (const p of pages) {
+      const info = await doc.getPageInfo(p);
+      const img = await doc.render(p, { scale: 16 / Math.max(info.size.width, info.size.height) });
+      const cells: number[] = [];
+      for (let cy = 0; cy < 8; cy++)
+        for (let cx = 0; cx < 8; cx++) {
+          const x0 = Math.floor((cx * img.width) / 8);
+          const x1 = Math.max(x0 + 1, Math.floor(((cx + 1) * img.width) / 8));
+          const y0 = Math.floor((cy * img.height) / 8);
+          const y1 = Math.max(y0 + 1, Math.floor(((cy + 1) * img.height) / 8));
+          let sum = 0;
+          let n = 0;
+          for (let y = y0; y < y1 && y < img.height; y++)
+            for (let x = x0; x < x1 && x < img.width; x++) {
+              const o = (y * img.width + x) * 4;
+              sum += img.data[o]! * 0.3 + img.data[o + 1]! * 0.59 + img.data[o + 2]! * 0.11;
+              n++;
+            }
+          cells.push(n ? sum / n : 255);
+        }
+      const mean = cells.reduce((a, b) => a + b, 0) / cells.length;
+      parts.push(`${Math.round(info.size.width)}x${Math.round(info.size.height)}r${info.rotation}:${cells.map((c) => (c < mean ? '1' : '0')).join('')}`);
+    }
+    return toHex(await this.deps.crypto.sha256(utf8.encode(`scan\n${parts.join('\n')}`))).slice(0, 40);
+  }
+
   /** FR-AIF-07: local matching of labels to profile keys, labels and aliases. */
   heuristic(candidates: SmartCandidate[], profile: SmartProfile): FieldMapping[] {
     return candidates.map((c) => {
@@ -422,8 +473,10 @@ export class SmartFillService {
     profile: SmartProfile,
     mode: 'mapping_only' | 'with_values',
     maxPages = 3,
+    /** The pages being analysed; without candidates (a scan) they cannot be read from the candidates. */
+    target?: PageIndex[],
   ): FormAnalysisRequest {
-    const pages = [...new Set(candidates.map((c) => c.page))].slice(0, maxPages);
+    const pages = [...new Set(target ?? candidates.map((c) => c.page))].slice(0, maxPages);
     const profileKeys: ProfileKeyInfo[] = profile.fields.map((f) => ({
       key: f.key,
       label: f.label,
@@ -547,6 +600,8 @@ export class SmartFillService {
       useAi: boolean;
       mode: 'mapping_only' | 'with_values';
       includeImage?: boolean;
+      /** False when the model cannot read images: forms with no fields then stay with the local path. */
+      canSeeImages?: boolean;
       maxPages?: number;
       reanalyze?: boolean;
       signal?: AbortSignal;
@@ -554,8 +609,13 @@ export class SmartFillService {
   ): Promise<AnalysisResult> {
     if (pages.length === 0) throw new InvalidArgumentError('Choose at least one page');
     const { candidates, layers } = await this.collect(doc, pages);
-    const fingerprint = await this.fingerprint(candidates);
-    if (candidates.length === 0) return { suggestions: [], source: 'heuristic', fingerprint };
+    const scanned = candidates.length === 0 && pages.some((p) => layers.get(p)?.isScanned);
+    const fingerprint = candidates.length === 0 ? await this.scanFingerprint(doc, pages) : await this.fingerprint(candidates);
+    // A form with no fields and nothing local detection can find (a scan): only the vision model can
+    // detect the fields, and it must be able to see the page (FR-AIF-14).
+    const canSee = !!opts.useAi && opts.canSeeImages !== false && !!this.deps.ai && !!this.deps.images && (await this.deps.ai.isConfigured());
+    if (candidates.length === 0 && !canSee)
+      return { suggestions: [], source: 'heuristic', fingerprint, ...(scanned ? { fallbackReason: 'scanNeedsAi' as const } : {}) };
 
     if (!opts.reanalyze) {
       const stored = await this.deps.mappings.find(fingerprint, profile.id);
@@ -588,9 +648,15 @@ export class SmartFillService {
         fallbackReason = 'notConfigured';
       } else {
         const sizes = new Map<PageIndex, { width: number; height: number }>();
-        for (const p of pages) sizes.set(p, (await doc.getPageInfo(p)).size);
-        const req = this.buildRequest(candidates, layers, sizes, profile, opts.mode, opts.maxPages);
-        if (opts.includeImage && this.deps.images) req.images = await this.pageImages(doc, req, candidates);
+        const infos = new Map<PageIndex, Awaited<ReturnType<PdfDocument['getPageInfo']>>>();
+        for (const p of pages) {
+          const info = await doc.getPageInfo(p);
+          infos.set(p, info);
+          sizes.set(p, info.size);
+        }
+        const req = this.buildRequest(candidates, layers, sizes, profile, opts.mode, opts.maxPages, pages);
+        // With no candidate the model has nothing but the image to go on, so it is always sent.
+        if ((opts.includeImage || candidates.length === 0) && this.deps.images) req.images = await this.pageImages(doc, req, candidates);
         try {
           const out = await ai.analyzeForm(req, opts.signal ?? new AbortController().signal);
           await this.deps.runs?.record({
@@ -605,14 +671,10 @@ export class SmartFillService {
           const mappings = [...out.fields];
           // Regions the model found in the image that local detection missed become extra candidates.
           out.newAreas.forEach((a, k) => {
-            const size = sizes.get(a.page);
-            if (!size) return;
-            const rect = {
-              x: a.bbox[0] * size.width,
-              y: (1 - a.bbox[3]) * size.height,
-              width: (a.bbox[2] - a.bbox[0]) * size.width,
-              height: (a.bbox[3] - a.bbox[1]) * size.height,
-            };
+            const info = infos.get(a.page);
+            if (!info) return;
+            // The box is a fraction of the image as shown: page rotation and crop box are applied here.
+            const rect = bboxToUserRect(a.bbox, info);
             const ref = `p${a.page + 1}-n${k + 1}`;
             const kind = a.fieldType === 'checkbox' ? 'checkbox' : 'text';
             all.push({
@@ -750,45 +812,70 @@ export class SmartFillService {
   }
 
   /**
-   * FR-AIF-06: one undoable step. AcroForm fields get values; detected areas get text boxes or check
-   * marks placed inside the detected rectangle.
+   * What Apply creates: a real form field for every accepted detected area (a flat vector form or a scan),
+   * named from its label and unique among `taken` (FR-AIF-14). Pure: the same input gives the same names,
+   * so the remembered mapping can be stored under them.
    */
-  apply(
-    suggestions: Suggestion[],
-    pageSizes: Map<PageIndex, { width: number; height: number }>,
-  ): Command | null {
+  plan(suggestions: Suggestion[], taken: ReadonlySet<string> = new Set()): { specs: FieldSpec[]; nameByRef: Map<string, string> } {
+    const used = new Set(taken);
+    const specs: FieldSpec[] = [];
+    const nameByRef = new Map<string, string>();
+    for (const s of suggestions) {
+      const area = s.candidate.area;
+      if (!s.accepted || s.value === '' || s.candidate.field || !area) continue;
+      const checkbox = area.kind === 'checkbox' || s.fieldType === 'checkbox';
+      if (checkbox && !truthy(s.value)) continue;
+      const tool = checkbox ? 'checkbox' : s.fieldType === 'multiline' ? 'multiline' : 'text';
+      const name = this.authoring.autoName(tool, s.label || area.label, used);
+      used.add(name);
+      nameByRef.set(s.ref, name);
+      specs.push(
+        this.authoring.spec(tool, name, s.page, area.rect, {
+          value: checkbox ? 'Yes' : s.value,
+          tooltip: s.label || undefined,
+          ...(checkbox ? { exportValue: 'Yes' } : {}),
+          ...(area.kind === 'comb' && area.cells ? { comb: true, maxLength: area.cells } : {}),
+          fontSize: 0,
+        }),
+      );
+    }
+    return { specs, nameByRef };
+  }
+
+  /**
+   * FR-AIF-06, FR-AIF-14: one undoable step. AcroForm fields get values; detected areas become real
+   * fields (created and filled together), so there is one way to create fields and one way to fill them.
+   */
+  apply(suggestions: Suggestion[], _pageSizes?: Map<PageIndex, { width: number; height: number }>, opts: { taken?: ReadonlySet<string>; flatten?: boolean } = {}): Command | null {
     const accepted = suggestions.filter((s) => s.accepted && s.value !== '');
     const commands: Command[] = [];
     const fills: Array<{ field: FormField; value: FieldValue }> = [];
     for (const s of accepted) {
       const field = s.candidate.field;
-      if (field) {
-        const value: FieldValue =
-          field.type === 'checkbox' ? truthy(s.value) : field.type === 'listbox' ? [s.value] : s.value;
-        fills.push({ field, value });
-        continue;
-      }
-      const area = s.candidate.area;
-      if (!area) continue;
-      if (area.kind === 'checkbox') {
-        if (!truthy(s.value)) continue;
-        const page = pageSizes.get(s.page) ?? { width: 612, height: 792 };
-        const check = BUILTIN_STAMPS.find((b) => b.mark === 'check')!;
-        commands.push(
-          this.deps.annotations.add(
-            s.page,
-            this.deps.stamps.annotation(check, { x: 0, y: 0 }, page, area.rect),
-          ),
-        );
-      } else {
-        commands.push(this.deps.annotations.add(s.page, this.deps.forms.fromArea(area, s.value)));
-      }
+      if (!field) continue;
+      const value: FieldValue = field.type === 'checkbox' ? truthy(s.value) : field.type === 'listbox' ? [s.value] : s.value;
+      fills.push({ field, value });
     }
     const fill = this.deps.forms.fillMany(fills);
-    if (fill) commands.unshift(fill);
-    return commands.length
-      ? new CompositeCommand(label('cmd.smartFill', { count: accepted.length }), commands)
-      : null;
+    if (fill) commands.push(fill);
+    const { specs } = this.plan(suggestions, opts.taken);
+    if (specs.length) commands.push(this.authoring.create(specs, 'cmd.smartFill.create'));
+    if (opts.flatten && commands.length) commands.push(this.deps.forms.flatten());
+    return commands.length ? new CompositeCommand(label('cmd.smartFill', { count: accepted.length }), commands) : null;
+  }
+
+  /**
+   * After Apply created fields: stores the mapping under the fingerprint of the form as it now is, keyed by
+   * the new field names, so reopening the same document uses it with no request (FR-AIF-08).
+   */
+  async rememberCreated(doc: PdfDocument, pages: PageIndex[], nameByRef: Map<string, string>, suggestions: Suggestion[], profile: SmartProfile): Promise<void> {
+    if (nameByRef.size === 0) return;
+    const { candidates } = await this.collect(doc, pages);
+    if (candidates.length === 0) return;
+    const mapping = suggestions
+      .filter((s) => s.accepted && s.profileKey && nameByRef.has(s.ref))
+      .map((s) => ({ fieldRef: nameByRef.get(s.ref)!, profileKey: s.profileKey!, transform: s.transform, choiceValue: s.choiceValue ?? null }));
+    if (mapping.length) await this.deps.mappings.save(await this.fingerprint(candidates), profile.id, mapping, 'manual');
   }
 
   /** FR-AIF-08: remember what the user accepted so the same form fills instantly next time. */

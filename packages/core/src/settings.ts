@@ -21,6 +21,8 @@ export const settingsSchema = z.object({
   dateFormat: z.enum(DATE_FORMATS).default('iso'),
   highlightFields: z.boolean().default(true),
   flattenStampsOnSave: z.boolean().default(false),
+  /** Smart Fill closes the filled form (flattens it) after applying (FR-AIF-14). */
+  smartFillFlatten: z.boolean().default(false),
   encryptSignatures: z.boolean().default(false),
   reduceMotion: z.boolean().default(false),
   sidebar: z.object({ open: z.boolean().default(true), width: z.number().min(160).max(480).default(208), tab: z.enum(['thumbnails', 'outline', 'annotations', 'attachments', 'search']).default('thumbnails') }).default({}),

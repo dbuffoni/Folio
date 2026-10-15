@@ -18,3 +18,5 @@ export * from './object-edit.ts';
 export * from './smartfill.ts';
 export * from './outline.ts';
 export * from './compress.ts';
+export * from './form-author.ts';
+export * from './field-detection.ts';

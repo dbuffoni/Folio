@@ -12,7 +12,7 @@ import {
   type Msg,
 } from '@folio/core';
 import type { StoredSignature } from '@folio/db';
-import type { Color, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point } from '@folio/ports';
+import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
   COMPRESS_PRESETS,
@@ -40,6 +40,11 @@ import {
   tabOrder,
   toggle,
   type AnalysisResult,
+  type FieldProposal,
+  type FieldTool,
+  FIELD_TOOLS,
+  labelNear,
+  type DetectionNotice,
   type MoveIntent,
   type OutlinePath,
   type ConflictPolicy,
@@ -903,6 +908,209 @@ export class SignModel extends ViewModel {
   }
 }
 
+// ---- Form authoring: Edit form mode (FR-FRM-08, FR-FRM-11, FR-FRM-16, FR-FRM-17) -----------------
+
+export class FormAuthoringModel extends ViewModel {
+  /** "Edit form" is on: highlights always shown, inputs not interactive, drawing and selection enabled. */
+  active = false;
+  tool: FieldTool | 'select' = 'select';
+  selected: { id: string; widget: number } | null = null;
+  proposals: FieldProposal[] = [];
+  notice: DetectionNotice | null = null;
+  detecting = false;
+  private warned = false;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+    session.invalidated.on((inv) => {
+      if (inv.kind === 'form' || inv.kind === 'all' || inv.kind === 'structure') {
+        if (this.selected && !this.fields.some((f) => f.id === this.selected!.id)) this.selected = null;
+        this.emit();
+      }
+    });
+  }
+  private get service() {
+    return this.app.services.authoring;
+  }
+  /** Last list of fields; kept here so the model has no await in getters. */
+  cached: FormField[] = [];
+  get fields(): FormField[] {
+    return this.cached;
+  }
+  async refresh(): Promise<void> {
+    this.cached = await this.session.fields();
+    this.emit();
+  }
+  get field(): FormField | null {
+    return this.selected ? (this.cached.find((f) => f.id === this.selected!.id) ?? null) : null;
+  }
+  get blocked(): 'xfa' | 'encrypted' | null {
+    return this.service.blocked(this.session.meta);
+  }
+  get compatible() {
+    return this.field ? this.service.compatible(this.field) : [];
+  }
+
+  /** Edit form / Fill form. XFA and encrypted documents are not authored (FR-FRM-09). */
+  async toggle(): Promise<boolean> {
+    if (this.active) {
+      this.active = false;
+      this.tool = 'select';
+      this.selected = null;
+      this.proposals = [];
+      this.emit();
+      return true;
+    }
+    const block = this.blocked;
+    if (block) {
+      this.app.toast('warning', msg(`form.author.blocked.${block}`));
+      return false;
+    }
+    if (this.session.meta.hasSignatures && !this.warned) {
+      if (!(await this.app.prompts.confirm(msg('form.author.confirmSigned'), { confirmLabel: msg('action.continue') }))) return false;
+      this.warned = true;
+    }
+    this.active = true;
+    await this.refresh();
+    return true;
+  }
+  setTool(tool: FieldTool | 'select'): void {
+    this.tool = FIELD_TOOLS.includes(tool as FieldTool) || tool === 'select' ? tool : 'select';
+    this.emit();
+  }
+  select(sel: { id: string; widget: number } | null): void {
+    this.selected = sel;
+    this.emit();
+  }
+  private async run(cmd: ReturnType<typeof this.service.create>): Promise<boolean> {
+    const ok = await this.app.guard(async () => {
+      await this.session.run(cmd);
+      await this.refresh();
+      return true;
+    });
+    return !!ok;
+  }
+  private taken(): Set<string> {
+    return new Set(this.cached.map((f) => f.name));
+  }
+
+  /** A click or drag on a page with a tool: creates the field with an automatic name (FR-FRM-08). */
+  async createAt(page: PageIndex, a: Point, b: Point | null): Promise<boolean> {
+    if (this.tool === 'select') return false;
+    const info = this.session.pageInfos[page];
+    if (!info) return false;
+    const rect = this.service.rectFor(this.tool, a, b, info.cropBox);
+    const layer = await this.session.text.layer(page);
+    const name = this.service.autoName(this.tool, labelNear(rect, layer), this.taken());
+    // A radio button drawn next to an existing group joins it when the user names it the same later; a
+    // new one starts its own group with its own name.
+    const spec = this.service.spec(this.tool, name, page, rect);
+    const ok = await this.run(this.service.create([spec]));
+    if (ok) {
+      this.selected = { id: name, widget: 0 };
+      this.tool = 'select';
+    }
+    this.emit();
+    return ok;
+  }
+  async update(patch: FieldPatch): Promise<boolean> {
+    const f = this.field;
+    return f ? this.run(this.service.update(f, patch)) : false;
+  }
+  async rename(name: string): Promise<boolean> {
+    const f = this.field;
+    if (!f) return false;
+    const ok = await this.app.guard(async () => {
+      await this.session.run(this.service.rename(f, name, this.taken()));
+      await this.refresh();
+      return true;
+    });
+    if (ok) this.selected = { id: f.name.includes('.') ? `${f.name.slice(0, f.name.lastIndexOf('.') + 1)}${name.trim()}` : name.trim(), widget: this.selected!.widget };
+    this.emit();
+    return !!ok;
+  }
+  async setRect(rect: Rect): Promise<boolean> {
+    const f = this.field;
+    return f && this.selected ? this.run(this.service.move(f, this.selected.widget, rect)) : false;
+  }
+  /** Arrow keys nudge by 1 pt, with Shift by 10 pt. */
+  async nudge(dx: number, dy: number, shift: boolean): Promise<boolean> {
+    const f = this.field;
+    if (!f || !this.selected) return false;
+    const w = f.widgets[this.selected.widget]!;
+    const info = this.session.pageInfos[w.page];
+    if (!info) return false;
+    return this.setRect(this.service.nudge(w.rect, dx, dy, shift, info.cropBox));
+  }
+  async remove(): Promise<boolean> {
+    const f = this.field;
+    if (!f || !this.selected) return false;
+    const widget = f.type === 'radio' && f.widgets.length > 1 ? this.selected.widget : undefined;
+    const ok = await this.run(this.service.remove(f, widget));
+    if (ok) this.selected = null;
+    this.emit();
+    return ok;
+  }
+
+  // ---- Detect fields (FR-FRM-15) -------------------------------------------------------------
+
+  /** Proposes fields for pages: local on vector pages, the vision model on scans or when `forceAi`. */
+  async detect(pages: PageIndex[], forceAi = false): Promise<number> {
+    this.detecting = true;
+    this.notice = null;
+    this.emit();
+    const settings = this.app.settings.ai;
+    const gates = aiGates(settings);
+    const res = await this.app.guard(async () => {
+      await this.refresh();
+      return this.app.services.detection.detect(this.session.doc, pages, {
+        useAi: settings.enabled && gates.vision && (await this.app.services.ai.isConfigured()),
+        forceAi,
+      });
+    });
+    this.detecting = false;
+    if (res) {
+      this.proposals = res.proposals;
+      this.notice = res.notice ?? (res.proposals.length === 0 && forceAi && !gates.vision ? 'visionOff' : null);
+    }
+    this.emit();
+    return res?.proposals.length ?? 0;
+  }
+  toggleProposal(id: string, accepted: boolean): void {
+    this.proposals = this.proposals.map((p) => (p.id === id ? { ...p, accepted } : p));
+    this.emit();
+  }
+  acceptAll(accepted = true): void {
+    this.proposals = this.proposals.map((p) => ({ ...p, accepted }));
+    this.emit();
+  }
+  /** Turns the accepted proposals into real fields, named from their labels, in one undoable step. */
+  async createProposals(): Promise<number> {
+    const taken = this.taken();
+    const specs = [];
+    for (const p of this.proposals.filter((x) => x.accepted)) {
+      const tool: FieldTool = p.type === 'checkbox' ? 'checkbox' : p.multiline ? 'multiline' : 'text';
+      const name = this.service.autoName(tool, p.label, taken);
+      taken.add(name);
+      specs.push(this.service.spec(tool, name, p.page, p.rect, { tooltip: p.label, ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
+    }
+    if (specs.length === 0) return 0;
+    const ok = await this.run(this.service.create(specs, 'cmd.createFields'));
+    if (!ok) return 0;
+    this.proposals = [];
+    this.emit();
+    return specs.length;
+  }
+  cancelProposals(): void {
+    this.proposals = [];
+    this.notice = null;
+    this.emit();
+  }
+}
+
 // ---- Reduce file size (FR-OPT-01) --------------------------------------------------------------
 
 export type CompressStage = 'idle' | 'analysing' | 'ready' | 'running' | 'done';
@@ -1309,6 +1517,8 @@ export class SmartFillModel extends ViewModel {
   suggestions: Suggestion[] = [];
   /** Suggestion whose box is highlighted on the page ("Locate"). */
   located: string | null = null;
+  /** Explains an empty result (a scan with no AI, FR-AIF-14). */
+  noticeKey: string | null = null;
   private abort?: AbortController;
 
   constructor(
@@ -1360,29 +1570,31 @@ export class SmartFillModel extends ViewModel {
     }
     const ai = await this.aiAvailable();
     const settings = this.app.settings.ai;
-    if (ai && !settings.preflightAcknowledged.includes(settings.mode)) {
+    if (ai) {
       const sf = this.app.services.smartFill;
       const pages = this.pages();
       const { candidates, layers } = await sf.collect(this.session.doc, pages);
-      const sizes = new Map(
-        pages.map((p) => [p, this.session.pageInfos[p]?.size ?? { width: 612, height: 792 }] as const),
-      );
-      const req = sf.buildRequest(
-        candidates,
-        layers,
-        sizes,
-        this.profile,
-        settings.mode,
-        settings.maxPagesPerRun,
-      );
-      this.preflight = {
-        ...sf.preflight(req, this.profile),
-        includesImage: this.includeImage,
-        destination: { host: endpointHost(settings.baseUrl), local: isLoopbackUrl(settings.baseUrl) },
-      };
-      this.stage = 'preflight';
-      this.emit();
-      return;
+      // No fields at all (a scan): the page image is the only input, so it is sent for this run even if
+      // the setting is off, after the pre-flight says so. A model without vision cannot do it.
+      const noFields = candidates.length === 0;
+      const scanned = noFields && pages.some((p) => layers.get(p)?.isScanned);
+      if (noFields && !aiGates(settings).vision) {
+        if (scanned) this.app.toast('warning', msg('ai.gate.noVision'));
+        return this.analyse(false);
+      }
+      if (noFields || !settings.preflightAcknowledged.includes(settings.mode)) {
+        const sizes = new Map(pages.map((p) => [p, this.session.pageInfos[p]?.size ?? { width: 612, height: 792 }] as const));
+        const req = sf.buildRequest(candidates, layers, sizes, this.profile, settings.mode, settings.maxPagesPerRun, pages);
+        this.preflight = {
+          ...sf.preflight(req, this.profile),
+          includesImage: this.includeImage || noFields,
+          imageForThisRun: noFields && !this.includeImage,
+          destination: { host: endpointHost(settings.baseUrl), local: isLoopbackUrl(settings.baseUrl) },
+        };
+        this.stage = 'preflight';
+        this.emit();
+        return;
+      }
     }
     await this.analyse(false);
   }
@@ -1417,6 +1629,7 @@ export class SmartFillModel extends ViewModel {
         useAi: await this.aiAvailable(),
         mode: settings.mode,
         includeImage: this.includeImage,
+        canSeeImages: aiGates(settings).vision,
         maxPages: settings.maxPagesPerRun,
         reanalyze,
         signal: this.abort!.signal,
@@ -1431,6 +1644,7 @@ export class SmartFillModel extends ViewModel {
     this.stage = result.suggestions.length ? 'review' : 'empty';
     if (result.fallbackReason && result.fallbackReason !== 'notConfigured')
       this.app.toast('warning', msg(`smartfill.fallback.${result.fallbackReason}`));
+    this.noticeKey = result.fallbackReason === 'scanNeedsAi' ? 'smartfill.fallback.scanNeedsAi' : null;
     this.emit();
   }
   /** Review panel edits. */
@@ -1469,17 +1683,28 @@ export class SmartFillModel extends ViewModel {
     const created = this.profile?.fields.find((f) => f.label === labelText);
     if (created) this.setKey(ref, created.key);
   }
+  /** Option "Flatten on save": the filled form is closed, fields and all (remembered). */
+  get flatten(): boolean {
+    return this.app.settings.smartFillFlatten;
+  }
+  setFlatten(on: boolean): Promise<void> {
+    return this.app.setSetting('smartFillFlatten', on);
+  }
   /** "Apply selected" / "Apply all high-confidence": one undo step, and the mapping is remembered. */
   async apply(onlyHigh = false): Promise<number> {
     if (!this.result || !this.profile) return 0;
-    const list = onlyHigh ? this.app.services.smartFill.acceptHigh(this.suggestions) : this.suggestions;
-    const sizes = new Map(this.session.pageInfos.map((p, i) => [i, p.size] as const));
-    const cmd = this.app.services.smartFill.apply(list, sizes);
+    const svc = this.app.services.smartFill;
+    const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    const taken = new Set((await this.session.fields()).map((f) => f.name));
+    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten });
     if (!cmd) return 0;
+    const plan = svc.plan(list, taken);
     const count = list.filter((s) => s.accepted && s.value !== '').length;
+    const pages = [...new Set(list.filter((s) => plan.nameByRef.has(s.ref)).map((s) => s.page))];
     const ok = await this.app.guard(async () => {
       await this.session.run(cmd);
-      await this.app.services.smartFill.remember(this.result!, list, this.profile!);
+      await svc.remember(this.result!, list, this.profile!);
+      if (!this.flatten) await svc.rememberCreated(this.session.doc, pages, plan.nameByRef, list, this.profile!);
       return true;
     });
     if (!ok) return 0;

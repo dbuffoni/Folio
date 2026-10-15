@@ -64,6 +64,12 @@ import ArrowDown from '@lucide/svelte/icons/arrow-down';
 import Indent from '@lucide/svelte/icons/indent';
 import Outdent from '@lucide/svelte/icons/outdent';
 import FileDown from '@lucide/svelte/icons/file-down';
+import PencilRuler from '@lucide/svelte/icons/pencil-ruler';
+import SquareCheck from '@lucide/svelte/icons/square-check';
+import CircleDot from '@lucide/svelte/icons/circle-dot';
+import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
+import List from '@lucide/svelte/icons/list';
+import RectangleHorizontal from '@lucide/svelte/icons/rectangle-horizontal';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import Lock from '@lucide/svelte/icons/lock';
 import LockOpen from '@lucide/svelte/icons/lock-open';
@@ -197,6 +203,12 @@ export const ICONS: Record<string, Component<{ size?: number | string; class?: s
   'indent': Indent,
   'outdent': Outdent,
   'file-down': FileDown,
+  'pencil-ruler': PencilRuler,
+  'square-check': SquareCheck,
+  'circle-dot': CircleDot,
+  'chevrons-up-down': ChevronsUpDown,
+  'list': List,
+  'rectangle-horizontal': RectangleHorizontal,
   'list-tree': ListTree,
   'lock': Lock,
   'lock-open': LockOpen,

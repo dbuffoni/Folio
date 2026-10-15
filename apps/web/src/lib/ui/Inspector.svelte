@@ -5,6 +5,7 @@
   import { t } from '#lib/i18n/index.ts';
   import { dep, app, models, run, services, track, trackPage, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
+  import FieldAuthorPanel from './FieldAuthorPanel.svelte';
   import SmartFillPanel from './SmartFillPanel.svelte';
   import { colorToHex, hexToColor, rgb } from './raster.ts';
 
@@ -14,6 +15,7 @@
   const mode = $derived(dep(v, session.mode));
   const sel = $derived(dep(v, session.selection));
   const smartOn = $derived(dep(v, m.smart.stage !== 'idle'));
+  const authoring = $derived(dep(v, mode === 'fill' && m.author.active));
   let annot = $state<Annotation | null>(null);
   let image = $state<PageObject | null>(null);
   $effect(() => {
@@ -111,7 +113,9 @@
 {/snippet}
 
 <aside id="inspector" aria-label={t('ui.inspector')}>
-  {#if mode === 'fill' && smartOn}
+  {#if mode === 'fill' && authoring}
+    <FieldAuthorPanel {session} />
+  {:else if mode === 'fill' && smartOn}
     <SmartFillPanel {session} />
   {:else if mode === 'organise'}
     {@render head(t('home.tile.organise'), 'layout-grid')}

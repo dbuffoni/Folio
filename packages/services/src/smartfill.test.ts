@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AiError, History, NetworkError } from '@folio/core';
 import { FakeAiProvider } from '@folio/ai';
 import { DataCipher, FormMappingRepo, PROFILE_TEMPLATES, AiRunsRepo, ProfileRepo, migrate } from '@folio/db';
-import type { FreeTextAnnotation, PdfDocument } from '@folio/ports';
+import type { PdfDocument } from '@folio/ports';
 import { FORMS_CORPUS, FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, NodeImageCodec, PERSON, corpusForm, fixture, flatFormDoc, injectionForm, pdfcpuFormFields, sharedEngine } from '@folio/testkit';
 import { AnnotationService } from './annotation.ts';
 import { FormService } from './form.ts';
@@ -150,18 +150,20 @@ describe('SmartFillService', () => {
     expect(s['Send me the newsletter']).toMatchObject({ profileKey: null, accepted: false });
     const cmd = svc.apply(res.suggestions, sizes)!;
     await history.execute(cmd);
-    const placed = await doc.listAnnotations(0);
-    expect(placed.map((a) => a.type)).toEqual(['freetext', 'freetext', 'freetext', 'freetext']);
-    // Text boxes sit inside the detected areas, within 3 pt (epic E5).
-    for (const [k, a] of placed.entries()) {
+    // Detected areas become real fields, created and filled in one step (FR-AIF-14).
+    expect(await doc.listAnnotations(0)).toEqual([]);
+    const created = await doc.listFormFields();
+    expect(created.map((f) => f.value)).toEqual(['Marta', 'ESEMPIO', '23/04/1988', PERSON.taxId]);
+    expect(created.map((f) => f.name)).toEqual(['FirstName', 'LastName', 'DateOfBirth', 'TaxCode']);
+    // Fields sit inside the detected areas, within 3 pt (epic E5).
+    for (const [k, f] of created.entries()) {
       const truth = areas[[0, 1, 2, 4][k]!]!.rect;
-      expect(Math.abs(a.rect.x - truth.x)).toBeLessThanOrEqual(3);
-      expect(Math.abs(a.rect.y - truth.y)).toBeLessThanOrEqual(3);
+      expect(Math.abs(f.widgets[0]!.rect.x - truth.x)).toBeLessThanOrEqual(3);
+      expect(Math.abs(f.widgets[0]!.rect.y - truth.y)).toBeLessThanOrEqual(3);
     }
-    expect((placed[0] as FreeTextAnnotation).contents).toBe('Marta');
     await expect(await doc.save()).toBeValidPdf();
     expect(await history.undo()).toBe(true);
-    expect(await doc.listAnnotations(0)).toEqual([]);
+    expect(await doc.listFormFields()).toEqual([]);
     expect(history.state.canUndo).toBe(false);
     expect(await runs.list()).toMatchObject([{ model: 'fake', mode: 'mapping_only', includedImage: false, status: 'ok' }]);
     doc.dispose();
@@ -184,9 +186,8 @@ describe('SmartFillService', () => {
     const rejected = svc.edit(s['First name']!, { accepted: false }, updated);
     expect(svc.edit(s['Last name']!, { profileKey: null }, updated)).toMatchObject({ profileKey: null, value: '', accepted: false });
     await history.execute(svc.apply([mapped, typed, rejected], sizes)!);
-    const placed = await doc.listAnnotations(0);
-    expect(placed.map((a) => a.type).sort()).toEqual(['freetext', 'stamp']);
-    expect(Math.abs(placed.find((a) => a.type === 'stamp')!.rect.width - 12)).toBeLessThan(2);
+    const created = await doc.listFormFields();
+    expect(created.map((f) => [f.type, f.value]).sort()).toEqual([['checkbox', 'Yes'], ['text', 'other@example.com']]);
     expect(svc.acceptHigh(res.suggestions).filter((x) => x.accepted).every((x) => x.confidence === 'high')).toBe(true);
     doc.dispose();
   });

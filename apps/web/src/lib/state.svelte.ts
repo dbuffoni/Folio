@@ -1,7 +1,7 @@
 // Wires the UI-less application layer to Svelte. Models stay plain classes; any `changed` event bumps
 // one reactive counter, and components read it through `track()` to re-evaluate.
 import {
-  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
+  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
   type CommandContext, type DocumentSession, type Prompts,
 } from '@folio/app';
 import type { Emitter, Msg } from '@folio/core';
@@ -67,6 +67,7 @@ interface PerSession {
   tools: ToolController;
   organise: OrganiseModel;
   form: FormModel;
+  author: FormAuthoringModel;
   outline: OutlineModel;
   find: FindModel;
   smart: SmartFillModel;
@@ -81,6 +82,7 @@ export function models(view: DocumentSession): PerSession {
       tools: new ToolController(session, raw(services), { error: (e) => app.reportError(e), info: (msg) => void app.toast('info', msg) }),
       organise: new OrganiseModel(raw(app), session),
       form: new FormModel(raw(app), session),
+      author: new FormAuthoringModel(raw(app), session),
       outline: new OutlineModel(raw(app), session),
       find: new FindModel(session),
       smart: new SmartFillModel(raw(app), session),

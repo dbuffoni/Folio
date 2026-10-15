@@ -897,6 +897,102 @@ export function runEngineConformance(
     });
 
     describe('forms', () => {
+      it('creates one field of every type on a blank page and they can be filled and saved @FR-FRM-08 @FR-FRM-11', async () => {
+        const doc = await open('text');
+        const r = (x: number, y: number, w = 160, h = 22) => ({ x, y, width: w, height: h });
+        const ids = await doc.createFields([
+          { type: 'text', name: 'person.name', page: 0, rect: r(72, 700), tooltip: 'Full name', required: true },
+          { type: 'text', name: 'notes', page: 0, rect: r(72, 640, 200, 50), multiline: true, maxLength: 200 },
+          { type: 'text', name: 'code', page: 0, rect: r(72, 600, 150), comb: true, maxLength: 6 },
+          { type: 'checkbox', name: 'agree', page: 0, rect: r(72, 560, 16, 16), exportValue: 'Yes' },
+          { type: 'radio', name: 'size', page: 0, rect: r(72, 520, 16, 16), exportValue: 'small' },
+          { type: 'radio', name: 'size', page: 0, rect: r(120, 520, 16, 16), exportValue: 'large' },
+          { type: 'dropdown', name: 'country', page: 0, rect: r(72, 480), options: [{ label: 'Italy', value: 'IT' }, { label: 'France', value: 'FR' }] },
+          { type: 'listbox', name: 'langs', page: 0, rect: r(72, 400, 120, 60), options: [{ label: 'EN', value: 'EN' }, { label: 'IT', value: 'IT' }] },
+          { type: 'button', name: 'submit', page: 0, rect: r(72, 360, 90, 26), caption: 'Send' },
+          { type: 'signature', name: 'sign', page: 0, rect: r(72, 300, 200, 50) },
+        ]);
+        expect(ids).toEqual(['person.name', 'notes', 'code', 'agree', 'size', 'size', 'country', 'langs', 'submit', 'sign']);
+        const fields = await doc.listFormFields();
+        const by = (n: string) => fields.find((f) => f.name === n)!;
+        expect(fields.map((f) => f.name).sort()).toEqual(['agree', 'code', 'country', 'langs', 'notes', 'person.name', 'sign', 'size', 'submit']);
+        expect(by('person.name')).toMatchObject({ type: 'text', required: true, label: 'Full name' });
+        expect(by('notes')).toMatchObject({ multiline: true, maxLength: 200 });
+        expect(by('code')).toMatchObject({ comb: true, maxLength: 6 });
+        expect(by('size').widgets.map((w) => w.exportValue)).toEqual(['small', 'large']);
+        expect(by('country').options!.map((o) => o.label)).toEqual(['Italy', 'France']);
+        expect(by('sign').type).toBe('signature');
+        expect(by('person.name').widgets[0]!.rect).toMatchObject({ x: 72, y: 700, width: 160, height: 22 });
+        // New fields work at once.
+        await doc.setFieldValue('person.name', 'Ada Lovelace');
+        await doc.setFieldValue('agree', true);
+        await doc.setFieldValue('size', 'large');
+        await doc.setFieldValue('country', 'France');
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        const back = await again.listFormFields();
+        expect(back.find((f) => f.name === 'person.name')!.value).toBe('Ada Lovelace');
+        expect(back.find((f) => f.name === 'agree')!.value).not.toBe('Off');
+        expect(back.find((f) => f.name === 'size')!.value).toBe('large');
+        expect(back.find((f) => f.name === 'country')!.value).toBe('France');
+        // Other viewers see the text: the appearance stream carries it.
+        if (caps.realPdf) expect(Buffer.from(bytes).toString('latin1')).toContain('(Ada Lovelace)');
+        doc.dispose();
+        again.dispose();
+      });
+      it('refuses taken names, empty rectangles and unknown pages; XFA and encrypted files are not authored @FR-FRM-08 @FR-FRM-09', async () => {
+        const doc = await open('acroform');
+        const base = { type: 'text' as const, page: 0, rect: { x: 10, y: 10, width: 50, height: 20 } };
+        expect(await code(doc.createFields([{ ...base, name: 'person.name' }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'fresh', rect: { x: 0, y: 0, width: 0, height: 5 } }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'fresh', page: 9 }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: '.bad' }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'code', comb: true }]))).toBe('invalidArgument');
+        expect((await doc.listFormFields()).some((f) => f.name === 'fresh')).toBe(false);
+        const xfa = await open('xfa');
+        expect(await code(xfa.createFields([{ ...base, name: 'x' }]))).toBe('unsupportedFeature');
+        const enc = await engine.open(await fixture('encrypted'), { password: FIXTURE_PASSWORD });
+        expect(await code(enc.createFields([{ ...base, name: 'x' }]))).toBe('unsupportedFeature');
+        for (const d of [doc, xfa, enc]) d.dispose();
+      });
+      it('edits an existing form: properties, move, resize, delete a field and one radio option @FR-FRM-16', async () => {
+        const doc = await open('acroform');
+        const before = await doc.listFormFields();
+        const name = before.find((f) => f.name === 'person.name')!;
+        await doc.updateField(name.id, { multiline: true, required: true, tooltip: 'Your name', maxLength: 40 });
+        let f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f).toMatchObject({ multiline: true, required: true, label: 'Your name', maxLength: 40 });
+        await doc.updateField(name.id, { multiline: false, maxLength: null });
+        f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f.multiline).toBe(false);
+        expect(f.maxLength).toBeUndefined();
+        // Dropdown ↔ list box and new options.
+        await doc.updateField('country', { listbox: true, options: [{ label: 'Spain', value: 'ES' }, { label: 'Italy', value: 'IT' }] });
+        const country = (await doc.listFormFields()).find((x) => x.name === 'country')!;
+        expect(country.type).toBe('listbox');
+        expect(country.options!.map((o) => o.label)).toEqual(['Spain', 'Italy']);
+        await doc.updateField('country', { listbox: false });
+        expect((await doc.listFormFields()).find((x) => x.name === 'country')!.type).toBe('dropdown');
+        // Move and resize.
+        await doc.setWidgetRect(name.id, 0, { x: 100, y: 500, width: 220, height: 30 });
+        f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f.widgets[0]!.rect).toMatchObject({ x: 100, y: 500, width: 220, height: 30 });
+        // Delete one radio option and a whole field.
+        await doc.removeField('color', 1);
+        const color = (await doc.listFormFields()).find((x) => x.name === 'color')!;
+        expect(color.widgets.map((w) => w.exportValue)).toEqual(['red']);
+        await doc.removeField('agree');
+        expect((await doc.listFormFields()).some((x) => x.name === 'agree')).toBe(false);
+        expect(await code(doc.updateField('missing', { required: true }))).toBe('invalidArgument');
+        expect(await code(doc.updateField('agree2', { multiline: true }))).toBe('invalidArgument');
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        expect((await again.listFormFields()).length).toBe((await doc.listFormFields()).length);
+        doc.dispose();
+        again.dispose();
+      });
       it('lists fields with types, flags, options and widgets @FR-FRM-01 @FR-FRM-02', async () => {
         const doc = await open('acroform');
         expect((await doc.getMeta()).hasAcroForm).toBe(true);

@@ -4,6 +4,7 @@ import {
   InvalidPdfError,
   LimitExceededError,
   PasswordRequiredError,
+  UnsupportedFeatureError,
   groupLines,
   normalizeRotation,
   pagesToSearch,
@@ -19,6 +20,8 @@ import type {
   DocMeta,
   EditableMeta,
   FieldId,
+  FieldPatch,
+  FieldSpec,
   FieldValue,
   FontInfo,
   FormField,
@@ -51,6 +54,7 @@ import type {
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
 import { compact } from './compact.ts';
+import { addFields, deleteField, moveWidget, patchField } from './fieldedit.ts';
 import { ensureFieldsArray, importWithForms } from './formrepair.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
@@ -885,6 +889,33 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   async flattenForm(): Promise<void> {
     this.alive();
     forms.flatten(this);
+  }
+  /** Field authoring goes through the structural helper on saved bytes, then the document is reloaded. */
+  private async rewriteForms(fn: (bytes: Uint8Array) => Promise<Uint8Array>): Promise<void> {
+    this.alive();
+    if (this.m.EPDF_IsEncrypted(this.doc)) throw new UnsupportedFeatureError('formEditEncrypted');
+    if (this.m.FPDF_GetFormType(this.doc) >= 2) throw new UnsupportedFeatureError('xfa');
+    this.reload(await fn(this.bytesNow()));
+  }
+  async createFields(specs: FieldSpec[]): Promise<FieldId[]> {
+    if (specs.length === 0) return [];
+    let ids: string[] = [];
+    await this.rewriteForms(async (bytes) => {
+      const out = await addFields(bytes, specs);
+      ids = out.ids;
+      return out.bytes;
+    });
+    return ids;
+  }
+  async updateField(id: FieldId, patch: FieldPatch): Promise<FieldId> {
+    await this.rewriteForms((bytes) => patchField(bytes, id, patch));
+    return id;
+  }
+  async setWidgetRect(id: FieldId, widget: number, rect: Rect): Promise<void> {
+    await this.rewriteForms((bytes) => moveWidget(bytes, id, widget, rect));
+  }
+  async removeField(id: FieldId, widget?: number): Promise<void> {
+    await this.rewriteForms((bytes) => deleteField(bytes, id, widget));
   }
   async listObjects(i: PageIndex): Promise<PageObject[]> {
     return objects.list(this, i);

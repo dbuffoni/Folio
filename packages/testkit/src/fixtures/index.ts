@@ -42,6 +42,8 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   scan: { description: 'Image-only pages', build: () => b.scanDoc(), expectValid: true },
   images: { description: 'Text plus PNG and JPEG image objects', build: b.imagesDoc, expectValid: true },
   annotated: { description: 'Annotations written by another tool', build: b.annotatedDoc, expectValid: true },
+  'scanned-form': { description: 'Scanned paper form: image only, 5 boxes and 2 check squares', build: async () => (await b.scannedFormDoc()).pdf, expectValid: true },
+  'scanned-form-90': { description: 'The same scan with /Rotate 90', build: async () => (await b.scannedFormDoc({ rotate: 90 })).pdf, expectValid: true },
   photos: { description: 'Photographs at 300 dpi (colour, grey, one with transparency) and text', build: b.photosDoc, expectValid: true },
   attachment: { description: 'Embedded file attachment', build: b.attachmentDoc, expectValid: true },
   signed: { description: 'Signature field with a dummy signature value', build: b.signedDoc, expectValid: true },

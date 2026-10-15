@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { MODES, formatChord, type DocumentSession, type Mode, type ToolId } from '@folio/app';
+  import { MODES, aiGates, formatChord, type DocumentSession, type Mode, type ToolId } from '@folio/app';
+  import { FIELD_TOOLS } from '@folio/services';
   import { HIGHLIGHT_COLORS } from '@folio/services';
   import { t } from '#lib/i18n/index.ts';
   import { dep, app, isMac, models, registry, commandContext, run, services, sign, track, ui } from '#lib/state.svelte.ts';
@@ -16,6 +17,8 @@
   const hs = $derived(dep(track(), session.historyState));
   const selCount = $derived(dep(track(), session.selection.kind === 'pages' ? session.selection.pages.length : 0));
   const k = (s?: string): string | undefined => (s ? formatChord(s, isMac) : undefined);
+  const FIELD_ICON: Record<string, string> = { text: 'text-cursor-input', multiline: 'align-left', checkbox: 'square-check', radio: 'circle-dot', dropdown: 'chevrons-up-down', listbox: 'list', button: 'rectangle-horizontal', signature: 'signature' };
+  const aiAvailable = $derived(app.settings.ai.enabled && aiGates(app.settings.ai).vision);
   const MODE_ICON: Record<Mode, string> = { view: 'eye', organise: 'layout-grid', annotate: 'highlighter', fill: 'pen-line', edit: 'file-pen' };
   const HL = Object.values(HIGHLIGHT_COLORS).map(colorToHex);
   const INK = ['#d32f2f', '#2563eb', '#16803c', '#171a20', '#a15c00'];
@@ -197,7 +200,18 @@
         <button class="swatch" class:on={colorToHex(opts.color) === c} style="background:{c}" aria-label={c} onclick={() => m.tools.setOptions({ color: hexToColor(c), textColor: hexToColor(c) })}></button>
       {/each}
     {/if}
+  {:else if mode === 'fill' && m.author.active}
+    <button class="tool on" aria-pressed="true" onclick={() => m.author.toggle()} use:tip={t('author.fillForm')}><Icon name="text-cursor-input" /><span class="lbl">{t('author.fillForm')}</span></button>
+    <span class="vsep"></span>
+    {#each FIELD_TOOLS as ft (ft)}
+      <button class="tool" class:on={m.author.tool === ft} aria-pressed={m.author.tool === ft} onclick={() => m.author.setTool(m.author.tool === ft ? 'select' : ft)} use:tip={t(`author.tool.${ft}`)}><Icon name={FIELD_ICON[ft] ?? 'square'} /><span class="lbl">{t(`author.tool.${ft}`)}</span></button>
+    {/each}
+    <span class="vsep"></span>
+    <button class="tool" disabled={m.author.detecting} onclick={() => m.author.detect([session.view.page])} use:tip={t('author.detect')}><Icon name="scan-line" /><span class="lbl">{t('author.detect')}</span></button>
+    <button class="tool" disabled={m.author.detecting || !aiAvailable} onclick={() => m.author.detect([session.view.page], true)} use:tip={aiAvailable ? t('author.detectAi') : t('author.detectAiOff')}><Icon name="sparkles" /><span class="lbl">{t('author.detectAi')}</span></button>
   {:else if mode === 'fill'}
+    <button class="tool" onclick={() => m.author.toggle()} use:tip={t('author.editForm')}><Icon name="pencil-ruler" /><span class="lbl">{t('author.editForm')}</span></button>
+    <span class="vsep"></span>
     {@render toolBtn('select', 'text-cursor-input', t('tool.fillForm'), 'Tab')}
     {@render toolBtn('cover-type', 'type', t('tool.coverType'), undefined, t('tool.coverHint'))}
     {@render toolBtn('check', 'check', t('tool.check'))}

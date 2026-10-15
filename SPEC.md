@@ -290,7 +290,11 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-FRM-05 | Reset form, clear field, **flatten form** (burn in values), export/import field data as JSON/FDF-like JSON. | P1 |
 | FR-FRM-06 | **Cover & type** mode for *non-fillable* PDFs: click anywhere to add a text box that auto-sizes to the clicked line; add check/cross marks; "whiteout" rectangle to hide existing content (see FR-EDT-05). | P0 |
 | FR-FRM-07 | **Detect fillable areas** locally (heuristics over vector lines, boxes, underscores, label proximity): shows suggested fields as clickable ghosts; one click converts a ghost to a text box. | P1 |
-| FR-FRM-08 | **Create/edit form fields**: text, checkbox, radio group, dropdown, signature placeholder; properties panel (name, tooltip, default value, required, font). | Post-R1 |
+| FR-FRM-08 | **Create form fields** (Release 0.1.1): text, multiline, check box, radio group, dropdown, list box, button and signature placeholder, drawn with a rectangle or placed with a click; automatic name from the nearest printed label, else `Text1`; appearance streams generated so other viewers show them; every creation is one undoable step. XFA and encrypted files are not authored; signed files warn first. | P1 |
+| FR-FRM-11 | **Properties panel** (Release 0.1.1): name (unique, validated), tooltip, required, read-only, maximum length, multiline, choices of dropdowns and list boxes; further style properties are Post-R1. | P1 |
+| FR-FRM-15 | **Detect fields** (Release 0.1.1): proposes fields for the current page, locally on vector pages (no network) and with the vision model on scans or on request (page image and text only, never profile values); dashed ghosts the user accepts all, some or none of; low-confidence proposals start unticked; accepted ones become real fields in one undoable step. Shared with Smart Fill. | P1 |
+| FR-FRM-16 | **Edit existing fields** (Release 0.1.1): select, move and resize (drag, arrow keys 1 pt, Shift 10 pt), rename, change tooltip, flags, maximum length, text ↔ several lines, dropdown ↔ list box, delete a field or one radio option; every change undoable. | P1 |
+| FR-FRM-17 | **Edit form / Fill form** (Release 0.1.1): authoring mode with field outlines always on and inputs not interactive; Fill form goes back and the new fields work at once. | P0 |
 | FR-FRM-09 | XFA forms: detect and show message "This dynamic XFA form can't be edited" (graceful fallback to static content if present). | P0 |
 | FR-FRM-10 | **Smart Fill (AI)** and **Profiles** — see FR-AIF in §10. | P1 |
 
@@ -833,6 +837,7 @@ CREATE TABLE history_spill (            -- optional: undo checkpoints spilled to
 | FR-AIF-11 | Cost/usage panel from `ai_runs` (tokens, count). Never logs document content. | Post-R1 |
 | FR-AIF-12 | **Local AI server presets** (Release 0.1.1): Provider field (OpenAI, Ollama, LM Studio, llama.cpp server, Custom) fills the base URL; no API key for loopback hosts (`localhost`, `127.0.0.1`, `[::1]`), remote hosts still need a key and https; "Local: data stays on this computer" badge; 180 s timeout for local servers; no port scanning; a server that does not answer is named in the message; per-preset CORS hint in the web build. | P1 |
 | FR-AIF-13 | **Model capability check** (Release 0.1.1): Test connection (and saving another model) runs two tiny probes, structured output (strict schema, then JSON mode) and vision (8×8 plain-colour image); results are stored per base URL and model; without vision the image option and image-based features are disabled with the reason; JSON mode uses `json_object` plus local validation; without JSON the AI is not used for Smart Fill; 401/429/network are connection errors, not missing capabilities; manual "supports images" override. | P1 |
+| FR-AIF-14 | **Smart Fill on scanned and flat forms** (Release 0.1.1): when a form has no fields, Smart Fill detects the fields (FR-FRM-15; scans through the vision model in the same request that maps the profile keys), creates them as real form fields and fills them as one undoable step; the pre-flight says the page image is sent for this run only when the setting is off; the remembered mapping is stored under an image hash and, after creation, under the new field names so reopening needs no request; option to flatten after filling; without AI or vision a scan returns a clear notice and drawing by hand stays available. | P1 |
 
 ### 10.2 Privacy-first modes
 1. **Mapping-only (default).** The model receives: page text lines with coordinates, field names/types/rects (for AcroForm), optionally a page image with numbered boxes, and the **list of profile keys, labels, types and aliases — but NOT the values**. The model returns *which key goes where*; the app inserts the real values locally. Personal data never leaves the machine.
@@ -1270,7 +1275,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Find & replace text | FR-EDT-09 | |
 | Watermark, header/footer, page numbers | FR-EDT-10 | |
 | Link editor | FR-ANN-10 | Bookmark editor shipped in Release 0.1.1 |
-| Create/edit form fields | FR-FRM-08 | |
+| Advanced field styling, tab order, validation panel, format hints | FR-FRM-12…14, FR-FRM-18, FR-FRM-19 | Field creation and editing shipped in Release 0.1.1 |
 | Local OCR (Tesseract WASM, English and Italian first) | FR-OCR-01…04 | Unlocks editing text on scans |
 | Compress to a target size, image list, font clean-up | FR-OPT-08, FR-OPT-10 | Reduce file size shipped in Release 0.1.1 |
 | Set / remove password (AES-256) | FR-SEC-01, FR-SEC-02 | Needs qpdf-WASM or equivalent |
