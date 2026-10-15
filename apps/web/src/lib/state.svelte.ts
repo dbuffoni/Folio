@@ -1,7 +1,7 @@
 // Wires the UI-less application layer to Svelte. Models stay plain classes; any `changed` event bumps
 // one reactive counter, and components read it through `track()` to re-evaluate.
 import {
-  AiSettingsModel, AppModel, ExportImagesModel, FindModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
+  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
   type CommandContext, type DocumentSession, type Prompts,
 } from '@folio/app';
 import type { Emitter, Msg } from '@folio/core';
@@ -107,6 +107,7 @@ export const wizards = {
   merge: (): MergeWizard => observe(new MergeWizard(raw(app))),
   split: (s: DocumentSession): SplitWizard => observe(new SplitWizard(raw(app), raw(s))),
   images: (): ImagesWizard => observe(new ImagesWizard(raw(app))),
+  compress: (s: DocumentSession): CompressModel => observe(new CompressModel(raw(app), raw(s))),
   exportImages: (s: DocumentSession): ExportImagesModel => observe(new ExportImagesModel(raw(app), raw(s))),
   /** Settings ▸ Smart Fill. On desktop a new AI host is approved in a native dialog first. */
   aiSettings: (): AiSettingsModel => {

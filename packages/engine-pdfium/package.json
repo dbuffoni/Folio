@@ -13,9 +13,7 @@
   "dependencies": {
     "@embedpdf/pdfium": "2.15.1",
     "@folio/core": "workspace:*",
-    "@folio/ports": "workspace:*"
-  },
-  "devDependencies": {
+    "@folio/ports": "workspace:*",
     "pdf-lib": "^1.17.1"
   }
 }

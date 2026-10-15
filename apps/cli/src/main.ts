@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { parsePageRanges, isFolioError } from '@folio/core';
 import { createNodeEngine } from '@folio/engine-pdfium/node';
-import { ExportService, FormService, ImageToPdfService, MergeService, PageService, SplitService, TextEditService, planFiles, planSplit } from '@folio/services';
+import { COMPRESS_PRESETS, CompressService, ExportService, FormService, ImageToPdfService, MergeService, PageService, SplitService, TextEditService, planFiles, planSplit } from '@folio/services';
 
 type Flags = Record<string, string | boolean>;
 function parse(argv: string[]): { args: string[]; flags: Flags } {
@@ -40,6 +40,7 @@ const USAGE = `folio-cli <command>
   fill <file> --set name=value [--set …] -o out.pdf   (repeat --set by comma: a=1,b=2)
   edit-text <file> --page=1 --find=Invoce --replace=Invoice -o out.pdf
   flatten <file> -o out.pdf
+  compress <file> --preset=light|balanced|strong [--color-dpi=N --gray-dpi=N --quality=0.7] -o out.pdf
   fixtures [-o fixtures/generated]                write every generated fixture
 `;
 
@@ -152,6 +153,23 @@ async function main(): Promise<number> {
         await doc.flattenForm();
         await doc.flattenAnnotations();
         await save(need(flags, 'out'), await doc.save());
+        break;
+      }
+      case 'compress': {
+        const original = await readFile(args[0]!);
+        const doc = await engine.open(original, { password: typeof flags.password === 'string' ? flags.password : undefined });
+        const preset = (typeof flags.preset === 'string' ? flags.preset : 'balanced') as keyof typeof COMPRESS_PRESETS;
+        const base = COMPRESS_PRESETS[preset];
+        if (!base) throw new Error(`Unknown preset "${preset}". Use light, balanced or strong.`);
+        const settings = {
+          colorDpi: Number(flags['color-dpi'] ?? base.colorDpi),
+          grayDpi: Number(flags['gray-dpi'] ?? base.grayDpi),
+          jpegQuality: Number(flags.quality ?? base.jpegQuality),
+        };
+        const res = await new CompressService({ engine, images }).run(doc, settings, { originalBytes: original.length, password: typeof flags.password === 'string' ? flags.password : undefined });
+        process.stdout.write(`${JSON.stringify({ before: res.before, after: res.after, saved: Math.round(res.saved * 1000) / 10, replaced: res.replaced, skipped: res.skipped, warnings: res.warnings })}\n`);
+        if (!res.bytes) process.stdout.write('not smaller: nothing written\n');
+        else await save(need(flags, 'out'), res.bytes);
         break;
       }
       case 'fixtures': {

@@ -63,6 +63,7 @@ import ArrowUp from '@lucide/svelte/icons/arrow-up';
 import ArrowDown from '@lucide/svelte/icons/arrow-down';
 import Indent from '@lucide/svelte/icons/indent';
 import Outdent from '@lucide/svelte/icons/outdent';
+import FileDown from '@lucide/svelte/icons/file-down';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import Lock from '@lucide/svelte/icons/lock';
 import LockOpen from '@lucide/svelte/icons/lock-open';
@@ -195,6 +196,7 @@ export const ICONS: Record<string, Component<{ size?: number | string; class?: s
   'arrow-down': ArrowDown,
   'indent': Indent,
   'outdent': Outdent,
+  'file-down': FileDown,
   'list-tree': ListTree,
   'lock': Lock,
   'lock-open': LockOpen,

@@ -137,6 +137,7 @@
           { icon: 'file-output', label: t('cmd.flattenedCopy'), run: () => void run('export.flattenedCopy') },
           { kind: 'sep' },
           { icon: 'file-image', label: t('cmd.exportImages'), run: () => void run('export.images') },
+          { icon: 'file-down', label: t('cmd.compress'), run: () => void run('export.compress') },
           { icon: 'info', label: t('cmd.properties'), run: () => void run('file.properties') },
         ])}><Icon name="chevron-down" /></button>
   </div>

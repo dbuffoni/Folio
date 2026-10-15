@@ -50,6 +50,7 @@ import type {
 } from '@folio/ports';
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
+import { compact } from './compact.ts';
 import { ensureFieldsArray, importWithForms } from './formrepair.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
@@ -951,7 +952,12 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     // A document created in memory has no original bytes to append to.
     const incremental = !!opts.incremental && this.dataPtr !== 0;
     if (incremental) return this.write(FPDF_INCREMENTAL);
-    return ensureFieldsArray(this.write(FPDF_NO_INCREMENTAL));
+    const bytes = await ensureFieldsArray(this.write(FPDF_NO_INCREMENTAL));
+    if (!opts.compact) return bytes;
+    // Encrypted files are left as written: the structural helper cannot re-encrypt them.
+    if (this.m.EPDF_IsEncrypted(this.doc)) return bytes;
+    const small = await compact(bytes);
+    return small.length < bytes.length ? small : bytes;
   }
 
   async snapshot(): Promise<Uint8Array> {

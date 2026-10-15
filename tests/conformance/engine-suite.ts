@@ -156,6 +156,32 @@ export function runEngineConformance(
       });
     });
 
+    describe('compact save', () => {
+      it('writes object streams, Flate for every stream and keeps text and pages @FR-OPT-07', async () => {
+        const doc = await open('text-25');
+        const plain = await doc.save();
+        const small = await doc.save({ compact: true });
+        if (caps.realPdf) {
+          await valid(small);
+          expect(small.length).toBeLessThan(plain.length);
+          const text = Buffer.from(small).toString('latin1');
+          expect(text).toMatch(/\/Type\s*\/ObjStm/);
+          expect(text).toMatch(/\/Type\s*\/XRef/);
+        }
+        const again = await engine.open(small);
+        expect(again.pageCount).toBe(25);
+        expect(await pageTexts(again)).toEqual(await pageTexts(doc));
+        // Incremental saves ignore the option: the signed bytes must stay where they are.
+        const signed = await open('signed');
+        const original = await fixture('signed');
+        const inc = await signed.save({ incremental: true, compact: true });
+        expect(Buffer.from(inc.subarray(0, original.length)).equals(Buffer.from(original))).toBe(true);
+        again.dispose();
+        signed.dispose();
+        doc.dispose();
+      });
+    });
+
     describe('pages', () => {
       it('reports size, rotation and boxes @FR-ORG-01', async () => {
         const doc = await open('mixed-sizes');
@@ -1010,6 +1036,19 @@ export function runEngineConformance(
     });
 
     describe('page content objects', () => {
+      it('describes how an image is stored @FR-OPT-01', async () => {
+        const doc = await open('images');
+        const images = (await doc.listObjects(0)).filter((o) => o.type === 'image');
+        expect(images.length).toBeGreaterThanOrEqual(2);
+        for (const img of images) {
+          expect(img.imageInfo!.byteSize).toBeGreaterThan(0);
+          expect([1, 8, 24, 32]).toContain(img.imageInfo!.bitsPerPixel);
+          expect(img.imageInfo!.filters.length).toBeGreaterThan(0);
+        }
+        expect(images.some((i) => i.imageInfo!.filters.includes('DCTDecode'))).toBe(true);
+        expect((await doc.listObjects(0)).filter((o) => o.type !== 'image').every((o) => o.imageInfo === undefined)).toBe(true);
+        doc.dispose();
+      });
       it('lists objects with type, bounds and text @FR-EDT-07', async () => {
         const doc = await open('images');
         const objs = await doc.listObjects(0);

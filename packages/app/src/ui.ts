@@ -3,7 +3,7 @@ import type { PageIndex, SearchHit } from '@folio/ports';
 import { stepMatch } from '@folio/services';
 import type { DocumentSession } from './session.ts';
 
-export type DialogId = 'settings' | 'merge' | 'split' | 'images' | 'exportImages' | 'signature' | 'stampEditor' | 'properties' | 'metadata' | 'insertBlank' | 'print' | 'history' | 'profiles' | 'shortcuts' | 'privacy' | 'about';
+export type DialogId = 'settings' | 'merge' | 'split' | 'images' | 'exportImages' | 'compress' | 'signature' | 'stampEditor' | 'properties' | 'metadata' | 'insertBlank' | 'print' | 'history' | 'profiles' | 'shortcuts' | 'privacy' | 'about';
 
 /** Search state of one document (FR-VIEW-04). */
 export class FindModel {

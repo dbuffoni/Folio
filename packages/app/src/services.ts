@@ -4,6 +4,7 @@ import { AiRunsRepo, DataCipher, FormMappingRepo, ProfileRepo, RecentFilesRepo, 
 import type { AiProvider, PdfEngine, Platform } from '@folio/ports';
 import {
   AnnotationService,
+  CompressService,
   DocumentService,
   ExportService,
   FormService,
@@ -48,6 +49,7 @@ export class Services {
   readonly split: SplitService;
   readonly imagesToPdf: ImageToPdfService;
   readonly exporter: ExportService;
+  readonly compress: CompressService;
   readonly annotations: AnnotationService;
   readonly signatures: SignatureService;
   readonly stamps: StampService;
@@ -78,6 +80,7 @@ export class Services {
     this.split = new SplitService(engine);
     this.imagesToPdf = new ImageToPdfService({ engine, images: platform.images });
     this.exporter = new ExportService(platform.images);
+    this.compress = new CompressService({ engine, images: platform.images });
     // The author name setting wins; the OS user name is the default (FR-ANN-08).
     this.annotations = new AnnotationService({ author: () => this.settings.authorName || platform.app.userName || '', now: () => clock.now(), newId });
     this.signatures = new SignatureService({ engine, images: platform.images, font: opts.loadFont });

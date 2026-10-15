@@ -169,3 +169,30 @@ describe('chained operations @FR-ORG-01 @FR-APP-05', () => {
     doc.dispose();
   });
 });
+
+describe('Reduce file size with independent tools @FR-OPT-01 @FR-OPT-09 @FR-OPT-11', () => {
+  it('Balanced output: qpdf and pdfcpu clean, the same text, text areas render the same, images at ≤ 150 dpi @FR-OPT-01 @FR-OPT-09', async () => {
+    const { engine, doc } = await opened('photos');
+    const original = await fixture('photos');
+    const { CompressService, COMPRESS_PRESETS } = await import('@folio/services');
+    const { qpdfCheck, pdfcpuValidate, pdftoppm, diffImages } = await import('@folio/testkit');
+    const svc = new CompressService({ engine, images: new NodeImageCodec() });
+    const res = await svc.run(doc, COMPRESS_PRESETS.balanced, { originalBytes: original.length });
+    const out = res.bytes!;
+    expect(out.length).toBeLessThan(original.length * 0.6);
+    expect((await qpdfCheck(out)).ok).toBe(true);
+    expect((await qpdfCheck(out)).warnings).toEqual([]);
+    expect((await pdfcpuValidate(out)).ok).toBe(true);
+    expect(await pdftotext(out)).toEqual(await pdftotext(original));
+    // The headline and the paragraph (top strip of page 1) are pixel-identical in poppler.
+    const a = await pdftoppm(original, 1, 100);
+    const b = await pdftoppm(out, 1, 100);
+    const strip = (img: typeof a): typeof a => ({ width: img.width, height: 120, data: img.data.slice(0, img.width * 120 * 4) });
+    expect(diffImages(strip(a), strip(b), { threshold: 0.05 }).ratio).toBeLessThan(0.001);
+    // Object streams and a compressed cross-reference are in use.
+    expect(Buffer.from(out).toString('latin1')).toMatch(/\/Type\s*\/ObjStm/);
+    expect(Buffer.from(out).toString('latin1')).toMatch(/\/Type\s*\/XRef/);
+    expect((await pdfinfo(out)).pages).toBe(2);
+    expect(await qpdfQdf(out)).toContain('Photos at 300 dpi');
+  });
+});

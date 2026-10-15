@@ -475,6 +475,50 @@ export function sampleJpeg(width = 120, height = 80, seed = 1): Uint8Array {
   const r = sampleRaster(width, height, seed);
   return new Uint8Array(jpeg.encode({ width, height, data: Buffer.from(r.data.buffer) }, 85).data);
 }
+/** Deterministic noisy photo-like JPEG: smooth gradients plus seeded noise, so it neither compresses to nothing nor to everything. */
+export function noisyJpeg(width: number, height: number, seed = 1, quality = 92, gray = false): Uint8Array {
+  const data = Buffer.alloc(width * height * 4);
+  let state = seed * 2654435761;
+  const rnd = (): number => ((state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      const base = 90 + 80 * Math.sin(x / 37 + seed) * Math.cos(y / 53);
+      const n = (rnd() - 0.5) * 40;
+      data[o] = Math.max(0, Math.min(255, base + n + (gray ? 0 : x / 12)));
+      data[o + 1] = Math.max(0, Math.min(255, gray ? data[o]! : base + n + y / 14));
+      data[o + 2] = Math.max(0, Math.min(255, gray ? data[o]! : base + n + 40));
+      data[o + 3] = 255;
+    }
+  }
+  return new Uint8Array(jpeg.encode({ width, height, data }, quality).data);
+}
+
+/**
+ * Photographs at 300 dpi for the compression tests: one colour JPEG drawn on page 1 (3.0 × 4.0 in) and
+ * again, smaller, on page 2 (the same stored image, highest resolution 600 dpi); a grey JPEG; a PNG
+ * with transparency that must stay untouched. Text on both pages.
+ */
+export async function photosDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Photos');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const photo = await doc.embedJpg(noisyJpeg(900, 1200, 7));
+  const grey = await doc.embedJpg(noisyJpeg(600, 450, 9, 90, true));
+  const alpha = new PNG({ width: 300, height: 150 });
+  for (let i = 0; i < 300 * 150; i++) alpha.data.set([30 + (i % 200), 90, 160, i % 7 === 0 ? 0 : 255], i * 4);
+  const logo = await doc.embedPng(PNG.sync.write(alpha));
+  const p1 = doc.addPage([612, 792]);
+  p1.drawText('Photos at 300 dpi', { x: 72, y: 740, size: 18, font });
+  p1.drawText('The quick brown fox jumps over the lazy dog', { x: 72, y: 715, size: 11, font });
+  p1.drawImage(photo, { x: 72, y: 380, width: 216, height: 288 });
+  p1.drawImage(grey, { x: 320, y: 500, width: 144, height: 108 });
+  p1.drawImage(logo, { x: 320, y: 380, width: 72, height: 36 });
+  const p2 = doc.addPage([612, 792]);
+  p2.drawText('Second page uses the photo again', { x: 72, y: 740, size: 14, font });
+  p2.drawImage(photo, { x: 72, y: 560, width: 108, height: 144 });
+  return finish(doc);
+}
+
 /** PNG with a transparent background and a dark handwritten-like stroke (signature import tests). */
 export function signaturePng(width = 200, height = 80, background: [number, number, number, number] = [255, 255, 255, 255]): Uint8Array {
   const png = new PNG({ width, height });

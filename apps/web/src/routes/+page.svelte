@@ -13,6 +13,7 @@
   import SmallDialogs from '#lib/ui/dialogs/SmallDialogs.svelte';
   import SplitDialog from '#lib/ui/dialogs/SplitDialog.svelte';
   import StampsDialog from '#lib/ui/dialogs/StampsDialog.svelte';
+  import CompressDialog from '#lib/ui/dialogs/CompressDialog.svelte';
   import Dialog from '#lib/ui/Dialog.svelte';
   import FindBar from '#lib/ui/FindBar.svelte';
   import Home from '#lib/ui/Home.svelte';
@@ -152,6 +153,7 @@
   {:else if dialog === 'split' && session}<SplitDialog {session} />
   {:else if dialog === 'images'}<ImagesDialog />
   {:else if dialog === 'exportImages' && session}<ExportDialog {session} />
+  {:else if dialog === 'compress' && session}<CompressDialog {session} />
   {:else if dialog === 'signature'}<SignatureDialog />
   {:else if dialog === 'stampEditor'}<StampsDialog />
   {:else if (dialog === 'properties' || dialog === 'metadata') && session}<PropertiesDialog {session} />

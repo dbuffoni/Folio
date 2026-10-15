@@ -318,7 +318,10 @@ All annotations are written as **standard PDF annotation objects with appearance
 
 | ID | Requirement | Pri |
 |---|---|---|
-| FR-OPT-01 | **Reduce file size** with presets (Light / Balanced / Strong / Custom DPI + JPEG quality), preview of estimated size before applying, also strips unused objects and uses object streams / compressed xref. Show before/after size. | Post-R1 |
+| FR-OPT-01 | **Reduce file size** (Release 0.1.1) with presets Light (200 dpi), Balanced (150 dpi), Strong (96 dpi) and Custom (colour/grey dpi, JPEG quality); the estimated size of every preset is measured on the largest images and shown before applying; always works on a copy (`name-compressed.pdf`) or replaces the file with a backup; before/after size and percentage saved; a result that is not smaller is not written. Command palette, CLI `folio-cli compress`. | P1 |
+| FR-OPT-07 | **Lossless pass always on** (Release 0.1.1): full rewrite without unreferenced objects (replaced images, orphaned resources), object streams, compressed cross-reference stream, maximum Flate for every uncompressed stream. | P0 |
+| FR-OPT-09 | **Text sharpness guard** (Release 0.1.1): only image XObjects are touched; text and vector content are never rasterised; images are downsampled only when above the target, never upsampled; an image drawn several times keeps enough pixels for its largest use; images with transparency, masks and 1-bit images are left as they are; a JPEG is re-encoded only if that saves more than 10 %. | P0 |
+| FR-OPT-11 | **Signed documents** (Release 0.1.1): a signed file is never overwritten by compression; a copy can be made and its signatures show as invalid, as announced in the dialog. Encrypted files keep their protection in the copy. | P0 |
 | FR-OPT-02 | **Export pages as images** (PNG, JPEG, WebP; DPI 72–600; range selection; zip or folder). | P0 |
 | FR-OPT-03 | **Images to PDF** (see FR-MRG-03) as its own tile with page-size and margin options. | P1 |
 | FR-OPT-04 | Copy page area as image to clipboard ("Snapshot" tool). | P1 |
@@ -1269,7 +1272,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Link editor | FR-ANN-10 | Bookmark editor shipped in Release 0.1.1 |
 | Create/edit form fields | FR-FRM-08 | |
 | Local OCR (Tesseract WASM, English and Italian first) | FR-OCR-01…04 | Unlocks editing text on scans |
-| Compress / reduce file size | FR-OPT-01 | Needs image-recompression pipeline |
+| Compress to a target size, image list, font clean-up | FR-OPT-08, FR-OPT-10 | Reduce file size shipped in Release 0.1.1 |
 | Set / remove password (AES-256) | FR-SEC-01, FR-SEC-02 | Needs qpdf-WASM or equivalent |
 | Secure redaction (rasterise-based) | FR-SEC-03 | |
 | Presentation (full-screen) mode | FR-VIEW-10 | |

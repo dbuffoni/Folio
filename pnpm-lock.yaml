@@ -265,7 +265,6 @@ importers:
       '@folio/ports':
         specifier: workspace:*
         version: link:../ports
-    devDependencies:
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1

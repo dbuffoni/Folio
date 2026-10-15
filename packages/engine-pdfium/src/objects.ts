@@ -80,6 +80,18 @@ function objectText(m: Pdfium, obj: Ptr, textPage: Ptr): string {
   return getUtf16(m, (buf, len) => m.FPDFTextObj_GetText(obj, textPage, buf, len));
 }
 
+/** Storage facts about an image object: bits per pixel, stored size and filter chain. */
+function imageInfo(m: Pdfium, a: Arena, obj: Ptr, page: Ptr): NonNullable<PageObject['imageInfo']> {
+  // FPDF_IMAGEOBJ_METADATA: width, height, h_dpi, v_dpi, bits_per_pixel, colorspace, marked_content_id.
+  const meta = a.alloc(28);
+  const bitsPerPixel = m.FPDFImageObj_GetImageMetadata(obj, page, meta) ? a.u32(meta, 4) : 0;
+  const byteSize = Math.max(0, m.FPDFImageObj_GetImageDataRaw(obj, 0, 0));
+  const filters: string[] = [];
+  const n = Math.max(0, m.FPDFImageObj_GetImageFilterCount(obj));
+  for (let k = 0; k < n; k++) filters.push(getAscii(m, (buf, len) => m.FPDFImageObj_GetImageFilter(obj, k, buf, len)));
+  return { bitsPerPixel, byteSize, filters };
+}
+
 export function list(d: DocInternals, i: PageIndex): PageObject[] {
   d.checkPage(i);
   const m = d.m;
@@ -105,6 +117,7 @@ export function list(d: DocInternals, i: PageIndex): PageObject[] {
           const p = a.alloc(8);
           if (m.FPDFImageObj_GetImagePixelSize(obj, p, p + 4))
             o.imageSize = { width: a.u32(p, 0), height: a.u32(p, 1) };
+          o.imageInfo = imageInfo(m, a, obj, page);
         }
         out.push(o);
       }

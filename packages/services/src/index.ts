@@ -17,3 +17,4 @@ export * from './text-edit.ts';
 export * from './object-edit.ts';
 export * from './smartfill.ts';
 export * from './outline.ts';
+export * from './compress.ts';

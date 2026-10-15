@@ -15,6 +15,12 @@ import type { StoredSignature } from '@folio/db';
 import type { Color, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
+  COMPRESS_PRESETS,
+  normalizeSettings,
+  type CompressAnalysis,
+  type CompressPreset,
+  type CompressResult,
+  type CompressSettings,
   DEFAULT_IMAGE_PAGE,
   DEFAULT_MERGE,
   DEFAULT_TEMPLATE,
@@ -894,6 +900,141 @@ export class SignModel extends ViewModel {
   async reorderStamps(ids: string[]): Promise<void> {
     await this.app.services.stampsRepo.reorder(ids);
     await this.load();
+  }
+}
+
+// ---- Reduce file size (FR-OPT-01) --------------------------------------------------------------
+
+export type CompressStage = 'idle' | 'analysing' | 'ready' | 'running' | 'done';
+export class CompressModel extends ViewModel {
+  stage: CompressStage = 'idle';
+  preset: CompressPreset = 'balanced';
+  custom: CompressSettings = { ...COMPRESS_PRESETS.balanced };
+  /** Estimated size per preset, once measured. */
+  estimates: Partial<Record<CompressPreset, number>> = {};
+  /** 'copy' writes `name-compressed.pdf`; 'replace' overwrites the open file (never for signed files). */
+  target: 'copy' | 'replace' = 'copy';
+  result: CompressResult | null = null;
+  progress = 0;
+  analysis: CompressAnalysis | null = null;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+  }
+  get size(): number {
+    return this.session.byteSize ?? 0;
+  }
+  get signed(): boolean {
+    return this.session.meta.hasSignatures;
+  }
+  get encrypted(): boolean {
+    return this.session.meta.isEncrypted;
+  }
+  get canReplace(): boolean {
+    return !this.signed && !!this.session.ref;
+  }
+  get settings(): CompressSettings {
+    return this.preset === 'custom' ? normalizeSettings(this.custom) : COMPRESS_PRESETS[this.preset];
+  }
+  /** Measures the document and the estimated size of every preset. */
+  async start(): Promise<void> {
+    this.stage = 'analysing';
+    this.result = null;
+    this.estimates = {};
+    this.target = this.canReplace ? this.target : 'copy';
+    this.abort = new AbortController();
+    this.emit();
+    const ok = await this.app.guard(async () => {
+      await this.session.settled();
+      const bytes = this.size || (await this.session.doc.save()).length;
+      this.analysis = await this.app.services.compress.analyze(this.session.doc, bytes, this.abort!.signal);
+      for (const p of ['light', 'balanced', 'strong'] as const) {
+        this.estimates[p] = await this.app.services.compress.estimate(this.session.doc, this.analysis, COMPRESS_PRESETS[p], this.abort!.signal);
+        this.emit();
+      }
+      return true;
+    });
+    this.stage = ok ? 'ready' : 'idle';
+    this.emit();
+  }
+  async setPreset(preset: CompressPreset): Promise<void> {
+    this.preset = preset;
+    this.emit();
+    if (preset === 'custom') await this.estimateCustom();
+  }
+  async setCustom(patch: Partial<CompressSettings>): Promise<void> {
+    this.custom = { ...this.custom, ...patch };
+    this.preset = 'custom';
+    this.emit();
+    await this.estimateCustom();
+  }
+  private async estimateCustom(): Promise<void> {
+    if (!this.analysis) return;
+    const size = await this.app.guard(() => this.app.services.compress.estimate(this.session.doc, this.analysis!, this.custom, this.abort?.signal));
+    if (size !== undefined) this.estimates.custom = size;
+    this.emit();
+  }
+  setTarget(target: 'copy' | 'replace'): void {
+    this.target = target === 'replace' && !this.canReplace ? 'copy' : target;
+    this.emit();
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+
+  /**
+   * Compresses a copy; nothing is written when the result is not smaller. Returns the written file name,
+   * or null (cancelled, no gain, failure).
+   */
+  async run(): Promise<string | null> {
+    const files = this.app.services.platform.files;
+    const svc = this.app.services.compress;
+    this.stage = 'running';
+    this.progress = 0;
+    this.abort = new AbortController();
+    this.emit();
+    const res = await this.app.guard(async () => {
+      await this.session.settled();
+      return svc.run(this.session.doc, this.settings, {
+        originalBytes: this.size || (await this.session.doc.save()).length,
+        signal: this.abort!.signal,
+        progress: (done, total) => {
+          this.progress = total ? done / total : 1;
+          this.emit();
+        },
+      });
+    });
+    this.stage = res ? 'done' : 'ready';
+    this.result = res ?? null;
+    this.emit();
+    if (!res) return null;
+    if (!res.bytes) {
+      this.app.toast('info', msg('compress.noGain'));
+      return null;
+    }
+    const replace = this.target === 'replace' && this.canReplace;
+    let ref: FileRef | null | undefined;
+    if (replace) ref = this.session.ref!;
+    else ref = await files.pickSave({ suggestedName: svc.copyName(this.session.name), kind: 'pdf' });
+    if (!ref) return null;
+    const written = await this.app.guard(async () => {
+      await files.write(ref!, res.bytes!, { atomic: true, backup: replace ? this.app.settings.keepBackup : false });
+      return true;
+    });
+    if (!written) return null;
+    this.app.toast('success', msg('compress.done', { name: ref.name, before: res.before, after: res.after, percent: Math.round(res.saved * 100) }));
+    if (replace) {
+      // The file now holds the compressed document: reopen it so the tab shows what is on disk.
+      this.session.markSaved(ref, res.after);
+      const tab = this.session;
+      await this.app.closeTab(tab.id);
+      await this.app.openRef(ref);
+    }
+    return ref.name;
   }
 }
 

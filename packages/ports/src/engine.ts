@@ -363,6 +363,14 @@ export interface PageObject {
   text?: string;
   /** Present for image objects: pixel size of the source image. */
   imageSize?: Size;
+  /** Present for image objects: how the pixels are stored (FR-OPT-01). */
+  imageInfo?: {
+    bitsPerPixel: number;
+    /** Size of the stored (still compressed) image data in bytes. */
+    byteSize: number;
+    /** PDF filters in order, e.g. ["DCTDecode"] or ["FlateDecode"]. */
+    filters: string[];
+  };
   fillColor?: Color;
   strokeColor?: Color;
 }
@@ -411,6 +419,11 @@ export interface RectSpec {
 export interface SaveOptions {
   /** Append changes instead of rewriting (keeps earlier revisions and signatures valid up to that point). */
   incremental?: boolean;
+  /**
+   * Lossless size pass on a full rewrite: object streams, a compressed cross-reference stream and
+   * Flate for every uncompressed stream (FR-OPT-07). Ignored together with `incremental`.
+   */
+  compact?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------

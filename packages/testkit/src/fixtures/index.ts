@@ -42,6 +42,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   scan: { description: 'Image-only pages', build: () => b.scanDoc(), expectValid: true },
   images: { description: 'Text plus PNG and JPEG image objects', build: b.imagesDoc, expectValid: true },
   annotated: { description: 'Annotations written by another tool', build: b.annotatedDoc, expectValid: true },
+  photos: { description: 'Photographs at 300 dpi (colour, grey, one with transparency) and text', build: b.photosDoc, expectValid: true },
   attachment: { description: 'Embedded file attachment', build: b.attachmentDoc, expectValid: true },
   signed: { description: 'Signature field with a dummy signature value', build: b.signedDoc, expectValid: true },
   encrypted: { description: 'AES-256 password protected', build: encryptedDoc, expectValid: true, password: FIXTURE_PASSWORD },
