@@ -400,6 +400,89 @@ export function runEngineConformance(
         doc.dispose();
         again.dispose();
       });
+      it('edits bookmarks in place: add, rename, move, nest and delete @FR-EDT-11', async () => {
+        const doc = await open('bookmarks');
+        const titles = async (): Promise<unknown> =>
+          (await doc.getOutline()).map((n) => [n.title, n.children.map((c) => c.title)]);
+        await doc.editOutline({ op: 'add', parent: [], index: 1, title: 'Inserted', target: { kind: 'page', page: 2, point: { x: 10, y: 20 } } });
+        expect(await titles()).toEqual([['Chapter 1', ['Section 1.1']], ['Inserted', []], ['Chapter 2', []], ['Appendix – Ünïcode', []]]);
+        await doc.editOutline({ op: 'add', parent: [1], index: 0, title: 'Child', target: { kind: 'uri', uri: 'https://example.com/' } });
+        await doc.editOutline({ op: 'rename', path: [0, 0], title: '  Renamed 1.1  ' });
+        expect(await titles()).toEqual([['Chapter 1', ['Renamed 1.1']], ['Inserted', ['Child']], ['Chapter 2', []], ['Appendix – Ünïcode', []]]);
+        // Indent "Chapter 2" under "Inserted" (after its child), then outdent the child to the top.
+        await doc.editOutline({ op: 'move', path: [2], parent: [1], index: 1 });
+        await doc.editOutline({ op: 'move', path: [1, 0], parent: [], index: 0 });
+        expect(await titles()).toEqual([['Child', []], ['Chapter 1', ['Renamed 1.1']], ['Inserted', ['Chapter 2']], ['Appendix – Ünïcode', []]]);
+        const outline = await doc.getOutline();
+        expect(outline[0]!.target).toEqual({ kind: 'uri', uri: 'https://example.com/' });
+        expect(outline[2]!.target).toMatchObject({ kind: 'page', page: 2 });
+        expect(outline[2]!.children[0]!.target).toMatchObject({ kind: 'page', page: 3 });
+        await doc.editOutline({ op: 'setTarget', path: [3], target: { kind: 'page', page: 0 } });
+        await doc.editOutline({ op: 'remove', path: [1] });
+        expect((await doc.getOutline()).map((n) => n.title)).toEqual(['Child', 'Inserted', 'Appendix – Ünïcode']);
+        expect((await doc.getOutline())[2]!.target).toMatchObject({ kind: 'page', page: 0 });
+        // Bad paths, empty titles and moving an entry into itself are refused.
+        expect(await code(doc.editOutline({ op: 'rename', path: [9], title: 'x' }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'rename', path: [0], title: '   ' }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'add', parent: [], index: 0, title: 'x'.repeat(513) }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'move', path: [1], parent: [7], index: 0 }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'remove', path: [] }))).toBe('invalidArgument');
+        if (caps.realPdf) {
+          const bytes = await doc.save();
+          await valid(bytes);
+          const again = await engine.open(bytes);
+          expect((await again.getOutline()).map((n) => n.title)).toEqual(['Child', 'Inserted', 'Appendix – Ünïcode']);
+          again.dispose();
+        }
+        doc.dispose();
+      });
+      it('leaves untouched bookmarks exactly as they were: actions, style, colour @FR-EDT-27', async () => {
+        const doc = await open('bookmarks-actions');
+        const before = await doc.getOutline();
+        expect(before.map((n) => n.target)).toEqual([
+          expect.objectContaining({ kind: 'page', page: 0 }),
+          { kind: 'unsupported', reason: 'unknown' },
+          { kind: 'uri', uri: 'https://example.com/spec' },
+          { kind: 'unsupported', reason: expect.any(String) },
+        ]);
+        await doc.editOutline({ op: 'rename', path: [0], title: 'Introduction' });
+        await doc.editOutline({ op: 'add', parent: [], index: 4, title: 'Last' });
+        if (caps.realPdf) {
+          const bytes = await doc.save();
+          const text = Buffer.from(bytes).toString('latin1');
+          // The entries nobody edited still carry their named action, colour, style flags and script.
+          expect(text).toMatch(/\/N\s*\/NextPage/);
+          expect(text).toMatch(/\/C\s*\[\s*1(\.0+)?\s+0(\.0+)?\s+0(\.0+)?\s*\]/);
+          expect(text).toMatch(/\/F\s*2\b/);
+          expect(text).toMatch(/\/S\s*\/JavaScript/);
+          expect(text).toContain('app.alert');
+        }
+        const after = await doc.getOutline();
+        expect(after.map((n) => n.title)).toEqual(['Introduction', 'Next page', 'Website', 'Script', 'Last']);
+        expect(after.slice(1, 4).map((n) => n.target)).toEqual(before.slice(1, 4).map((n) => n.target));
+        // Moving an entry is a copy: its title and target survive, the original is gone.
+        await doc.editOutline({ op: 'move', path: [2], parent: [], index: 0 });
+        expect((await doc.getOutline()).map((n) => n.title)).toEqual(['Website', 'Introduction', 'Next page', 'Script', 'Last']);
+        expect((await doc.getOutline())[0]!.target).toEqual({ kind: 'uri', uri: 'https://example.com/spec' });
+        doc.dispose();
+      });
+      it('bookmarks follow their pages; entries of deleted pages are reported as missing @FR-EDT-27', async () => {
+        const doc = await open('bookmarks');
+        await doc.movePages([0], 4);
+        const moved = await doc.getOutline();
+        // Chapter 1 pointed at the first page, which is now the last.
+        expect(moved[0]!.target).toMatchObject({ kind: 'page', page: 4 });
+        expect(moved[0]!.children[0]!.target).toMatchObject({ kind: 'page', page: 0 });
+        // Chapter 2's page is now third; Appendix and the section keep theirs.
+        await doc.deletePages([2]);
+        const after = await doc.getOutline();
+        const chapter2 = after.find((n) => n.title === 'Chapter 2')!;
+        expect(chapter2.target).toEqual({ kind: 'unsupported', reason: 'missing' });
+        for (const n of after.flatMap((x) => [x, ...x.children])) {
+          if (n.target?.kind === 'page') expect(n.target.page).toBeLessThan(doc.pageCount);
+        }
+        doc.dispose();
+      });
       it('reports link targets and never exposes script or launch actions as openable @FR-VIEW-05 @FR-SEC-05', async () => {
         const doc = await open('links');
         const links = await doc.getLinks(0);

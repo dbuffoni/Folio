@@ -10,6 +10,7 @@ import {
   ImageToPdfService,
   MergeService,
   ObjectEditService,
+  OutlineService,
   PageService,
   RecoveryService,
   SignatureService,
@@ -53,6 +54,7 @@ export class Services {
   readonly forms: FormService;
   readonly textEdit: TextEditService;
   readonly objects: ObjectEditService;
+  readonly outline: OutlineService;
   readonly recovery: RecoveryService;
   readonly smartFill: SmartFillService;
   readonly ai: AiProvider;
@@ -83,6 +85,7 @@ export class Services {
     this.forms = new FormService({ newId });
     this.textEdit = new TextEditService();
     this.objects = new ObjectEditService(platform.images);
+    this.outline = new OutlineService();
     this.recovery = new RecoveryService({ storage: platform.storage, clock });
     if (opts.ai) {
       this.ai = opts.ai;

@@ -116,6 +116,9 @@ export class DocumentSession {
     } else if (inv.kind === 'form') {
       this.fieldCache = null;
       this.renderer.invalidate();
+    } else if (inv.kind === 'outline') {
+      // The bookmarks panel reloads when this counter changes.
+      this.structureVersion++;
     } else if (inv.kind === 'meta') {
       void this.doc.getMeta().then((m) => {
         this.meta = m;

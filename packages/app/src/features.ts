@@ -12,7 +12,7 @@ import {
   type Msg,
 } from '@folio/core';
 import type { StoredSignature } from '@folio/db';
-import type { Color, FieldValue, FileRef, FormField, ImageFormat, PageIndex, Point } from '@folio/ports';
+import type { Color, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
   DEFAULT_IMAGE_PAGE,
@@ -34,6 +34,8 @@ import {
   tabOrder,
   toggle,
   type AnalysisResult,
+  type MoveIntent,
+  type OutlinePath,
   type ConflictPolicy,
   type HandwritingFont,
   type ImagePageOptions,
@@ -892,6 +894,135 @@ export class SignModel extends ViewModel {
   async reorderStamps(ids: string[]): Promise<void> {
     await this.app.services.stampsRepo.reorder(ids);
     await this.load();
+  }
+}
+
+// ---- Bookmarks (FR-EDT-11, FR-EDT-27) ----------------------------------------------------------
+
+export class OutlineModel extends ViewModel {
+  tree: OutlineNode[] = [];
+  editing = false;
+  /** Path of the selected entry, or null. */
+  selected: OutlinePath | null = null;
+  /** Entry being renamed in place. */
+  renaming: OutlinePath | null = null;
+  collapsed = new Set<string>();
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+    session.invalidated.on((inv) => {
+      if (['outline', 'structure', 'all'].includes(inv.kind)) void this.load();
+    });
+  }
+  private get service() {
+    return this.app.services.outline;
+  }
+  async load(): Promise<void> {
+    this.tree = await this.session.nav.outline();
+    if (this.selected && !this.service.node(this.tree, this.selected)) this.selected = null;
+    this.emit();
+  }
+  /** Entries whose page was deleted, keyed by joined path (shown as "Target removed"). */
+  get removed(): Set<string> {
+    return new Set(this.service.issues(this.tree).map((i) => i.path.join('.')));
+  }
+  get signed(): boolean {
+    return this.session.meta.hasSignatures;
+  }
+  setEditing(on: boolean): void {
+    this.editing = on;
+    this.renaming = null;
+    this.emit();
+  }
+  select(path: OutlinePath | null): void {
+    this.selected = path;
+    this.emit();
+  }
+  toggleCollapsed(path: OutlinePath): void {
+    const key = path.join('.');
+    if (this.collapsed.has(key)) this.collapsed.delete(key);
+    else this.collapsed.add(key);
+    this.collapsed = new Set(this.collapsed);
+    this.emit();
+  }
+  startRename(path = this.selected): void {
+    if (!path || !this.service.node(this.tree, path)) return;
+    this.renaming = path;
+    this.emit();
+  }
+
+  /** The signed-document warning applies to every edit; false when the user backs out. */
+  private async allowed(): Promise<boolean> {
+    if (!this.signed) return true;
+    return this.app.prompts.confirm(msg('bookmarks.confirmSigned'), { confirmLabel: msg('action.continue') });
+  }
+  private async run(cmd: () => ReturnType<typeof this.service.add>, after?: () => void): Promise<boolean> {
+    if (!(await this.allowed())) return false;
+    const ok = await this.app.guard(async () => {
+      await this.session.run(cmd());
+      await this.load();
+      return true;
+    });
+    if (ok) after?.();
+    this.emit();
+    return !!ok;
+  }
+
+  /** Adds an entry at the current page: after the selection (sibling) or as its first child. */
+  async add(title: string, asChild = false): Promise<boolean> {
+    const sel = this.selected;
+    const parent = sel ? (asChild ? sel : sel.slice(0, -1)) : [];
+    const siblings = parent.length ? this.service.node(this.tree, parent)!.children.length : this.tree.length;
+    const index = sel && !asChild ? sel[sel.length - 1]! + 1 : siblings;
+    const target = this.service.viewTarget(this.session.view.page);
+    return this.run(
+      () => this.service.add(parent, index, title, target),
+      () => (this.selected = [...parent, index]),
+    );
+  }
+  async rename(path: OutlinePath, title: string): Promise<boolean> {
+    const ok = await this.run(() => this.service.rename(path, title));
+    if (ok) this.renaming = null;
+    this.emit();
+    return ok;
+  }
+  /** Del: asks first when the entry has children. */
+  async remove(path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    const size = this.service.subtreeSize(this.tree, path);
+    if (size === 0) return false;
+    if (size > 1 && !(await this.app.prompts.confirm(msg('bookmarks.confirmDelete', { count: size }), { danger: true, confirmLabel: msg('action.delete') })))
+      return false;
+    return this.run(
+      () => this.service.remove(path),
+      () => (this.selected = null),
+    );
+  }
+  async move(intent: MoveIntent, path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    const to = this.service.planMove(this.tree, path, intent);
+    if (!to) return false;
+    return this.run(
+      () => this.service.move(path, to),
+      () => (this.selected = this.service.pathAfterMove(path, to)),
+    );
+  }
+  /** Drag and drop: `before` is the entry the dragged one is dropped on, null for the end of the list. */
+  async drop(from: OutlinePath, before: OutlinePath | null): Promise<boolean> {
+    const to = this.service.dropPosition(from, before, this.tree);
+    if (!to) return false;
+    return this.run(
+      () => this.service.move(from, to),
+      () => (this.selected = this.service.pathAfterMove(from, to)),
+    );
+  }
+  /** "Set target to current view", also the fix for a removed target. */
+  async setTargetHere(path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    return this.run(() => this.service.setTarget(path, this.service.viewTarget(this.session.view.page)));
   }
 }
 

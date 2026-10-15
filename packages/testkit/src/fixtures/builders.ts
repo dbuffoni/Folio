@@ -242,6 +242,33 @@ export async function bookmarksDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/**
+ * Outline whose entries use more than a page destination: a bold red entry with a named action, a web
+ * link and a JavaScript action (FR-EDT-27: editing other entries must leave these untouched).
+ */
+export async function bookmarksActionsDoc(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await textDoc({ pages: 4, title: 'Bookmark actions' }));
+  const ctx = doc.context;
+  const pages = doc.getPages();
+  const outlineRef = ctx.nextRef();
+  const refs = [ctx.nextRef(), ctx.nextRef(), ctx.nextRef(), ctx.nextRef()];
+  const entries: Array<Record<string, unknown>> = [
+    { Title: PDFHexString.fromText('Intro'), Dest: [pages[0]!.ref, PDFName.of('XYZ'), 72, 720, 0] },
+    { Title: PDFHexString.fromText('Next page'), F: 2, C: [1, 0, 0], A: { S: 'Named', N: 'NextPage' } },
+    { Title: PDFHexString.fromText('Website'), A: { S: 'URI', URI: PDFString.of('https://example.com/spec') } },
+    { Title: PDFHexString.fromText('Script'), A: { S: 'JavaScript', JS: PDFString.of('app.alert(1)') } },
+  ];
+  entries.forEach((e, k) => {
+    const dict = ctx.obj({ ...e, Parent: outlineRef }) as PDFDict;
+    if (k > 0) dict.set(PDFName.of('Prev'), refs[k - 1]!);
+    if (k < refs.length - 1) dict.set(PDFName.of('Next'), refs[k + 1]!);
+    ctx.assign(refs[k]!, dict);
+  });
+  ctx.assign(outlineRef, ctx.obj({ Type: 'Outlines', First: refs[0]!, Last: refs[3]!, Count: 4 }));
+  doc.catalog.set(PDFName.of('Outlines'), outlineRef);
+  return finish(doc);
+}
+
 /** Page 1 has an internal link to page 3, an https link, a JavaScript action and a launch action. */
 export async function linksDoc(): Promise<Uint8Array> {
   const doc = await PDFDocument.load(await textDoc({ pages: 3, title: 'Links' }));

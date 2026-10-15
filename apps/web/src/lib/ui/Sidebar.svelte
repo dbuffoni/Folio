@@ -21,8 +21,30 @@
   const ICON: Record<string, string> = { highlight: 'highlighter', underline: 'underline', strikeout: 'strikethrough', squiggly: 'spline', text: 'message-square', freetext: 'type', line: 'minus', square: 'square', circle: 'circle', polyline: 'waypoints', polygon: 'waypoints', ink: 'pen-line', stamp: 'stamp', other: 'paperclip' };
   const LABEL: Record<string, string> = { highlight: 'ui.highlight', underline: 'ui.underline', strikeout: 'ui.strikeout', squiggly: 'ui.squiggly', text: 'ui.note', freetext: 'ui.textbox', line: 'ui.line', square: 'ui.rectangle', circle: 'ui.ellipse', polyline: 'ui.polyline', polygon: 'ui.polyline', ink: 'ui.line', stamp: 'ui.stamp', other: 'ui.other' };
 
-  let outline = $state<OutlineNode[]>([]);
-  let collapsed = $state(new Set<string>());
+  const om = $derived(dep(track(), m.outline));
+  const outline = $derived(dep(track(), om.tree));
+  const collapsed = $derived(dep(track(), om.collapsed));
+  const editing = $derived(dep(track(), om.editing));
+  const selPath = $derived(dep(track(), om.selected));
+  const renaming = $derived(dep(track(), om.renaming));
+  const removed = $derived(dep(track(), om.removed));
+  let dragFrom = $state<number[] | null>(null);
+  let dropOn = $state<string | null>(null);
+  let newTitle = $state('');
+  const same = (a: number[] | null, b: number[]): boolean => !!a && a.join('.') === b.join('.');
+  function onTreeKey(e: KeyboardEvent, path: number[], target: OutlineNode['target']): void {
+    if (e.target instanceof HTMLInputElement) return;
+    if (!editing) return void (e.key === 'Enter' && app.followLink(target, session));
+    const mod = (k: string): boolean => (e.key === k) && !e.ctrlKey && !e.metaKey;
+    if (mod('F2')) om.startRename(path);
+    else if (mod('Delete')) void om.remove(path);
+    else if (e.key === 'Tab') void om.move(e.shiftKey ? 'outdent' : 'indent', path);
+    else if (e.altKey && e.key === 'ArrowUp') void om.move('up', path);
+    else if (e.altKey && e.key === 'ArrowDown') void om.move('down', path);
+    else if (e.key === 'Enter') app.followLink(target, session);
+    else return;
+    e.preventDefault();
+  }
   let annots = $state<ListedAnnotation[]>([]);
   let attachments = $state<AttachmentInfo[]>([]);
   let filter = $state<string>('all');
@@ -32,7 +54,7 @@
 
   $effect(() => {
     void sv;
-    if (tab === 'outline') void session.nav.outline().then((o) => (outline = o));
+    if (tab === 'outline') void om.load();
     if (tab === 'attachments') void session.doc.listAttachments().then((a) => (attachments = a));
   });
   // The annotation list follows every change of the document.
@@ -41,10 +63,7 @@
     if (tab === 'annotations') void services.annotations.list(session.doc).then((a) => (annots = a));
   });
   function toggle(path: string): void {
-    const next = new Set(collapsed);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    collapsed = next;
+    om.toggleCollapsed(path.split('.').map(Number));
   }
   function selectAnnot(a: ListedAnnotation): void {
     session.goToPage(a.page);
@@ -81,23 +100,58 @@
         </button>
       {/each}
     {:else if tab === 'outline'}
+      <div class="row" style="padding:4px 8px;gap:4px;flex-wrap:wrap">
+        <button class="btn sm" aria-pressed={editing} onclick={() => om.setEditing(!editing)}><Icon name="pencil" />{t('bookmarks.edit')}</button>
+        {#if editing}
+          <button class="ib" aria-label={t('bookmarks.addSibling')} use:tip={t('bookmarks.addSibling')} onclick={() => om.add(t('bookmarks.newTitle', { page: page + 1 }))}><Icon name="plus" /></button>
+          <button class="ib" aria-label={t('bookmarks.addChild')} use:tip={t('bookmarks.addChild')} disabled={!selPath} onclick={() => om.add(t('bookmarks.newTitle', { page: page + 1 }), true)}><Icon name="corner-down-right" /></button>
+          <button class="ib" aria-label={t('bookmarks.rename')} use:tip={t('bookmarks.rename')} disabled={!selPath} onclick={() => om.startRename()}><Icon name="text-cursor-input" /></button>
+          <button class="ib" aria-label={t('bookmarks.indent')} use:tip={t('bookmarks.indent')} disabled={!selPath} onclick={() => om.move('indent')}><Icon name="indent" /></button>
+          <button class="ib" aria-label={t('bookmarks.outdent')} use:tip={t('bookmarks.outdent')} disabled={!selPath} onclick={() => om.move('outdent')}><Icon name="outdent" /></button>
+          <button class="ib" aria-label={t('bookmarks.up')} use:tip={t('bookmarks.up')} disabled={!selPath} onclick={() => om.move('up')}><Icon name="arrow-up" /></button>
+          <button class="ib" aria-label={t('bookmarks.down')} use:tip={t('bookmarks.down')} disabled={!selPath} onclick={() => om.move('down')}><Icon name="arrow-down" /></button>
+          <button class="ib" aria-label={t('bookmarks.target')} use:tip={t('bookmarks.target')} disabled={!selPath} onclick={() => om.setTargetHere()}><Icon name="locate-fixed" /></button>
+          <button class="ib" aria-label={t('action.delete')} use:tip={t('action.delete')} disabled={!selPath} onclick={() => om.remove()}><Icon name="trash-2" /></button>
+        {/if}
+      </div>
       {#if flat.length === 0}
         <p class="note">{t('ui.noOutline')}</p>
       {:else}
-        <ul class="tree" role="tree">
+        <ul class="tree" role="tree" aria-label={t('ui.outline')}>
           {#each flat as item (item.path.join('.'))}
-            <li role="treeitem" aria-selected="false" style="padding-left:{8 + item.depth * 14}px" tabindex="0" onclick={() => app.followLink(item.target, session)} onkeydown={(e) => e.key === 'Enter' && app.followLink(item.target, session)}>
+            {@const key = item.path.join('.')}
+            <li role="treeitem" aria-level={item.depth + 1} aria-selected={same(selPath, item.path)} class:on={same(selPath, item.path)} class:drop={dropOn === key}
+              style="padding-left:{8 + item.depth * 14}px" tabindex="0" draggable={editing}
+              onclick={() => (editing ? om.select(item.path) : app.followLink(item.target, session))}
+              ondblclick={() => editing && om.startRename(item.path)}
+              onfocus={() => editing && !same(selPath, item.path) && om.select(item.path)}
+              onkeydown={(e) => onTreeKey(e, item.path, item.target)}
+              ondragstart={() => (dragFrom = item.path)} ondragover={(e) => { if (dragFrom) { e.preventDefault(); dropOn = key; } }}
+              ondragend={() => ((dragFrom = null), (dropOn = null))}
+              ondrop={(e) => { e.preventDefault(); const from = dragFrom; dragFrom = null; dropOn = null; if (from) void om.drop(from, item.path); }}>
               <span style="display:flex;gap:4px;align-items:center;min-width:0">
                 {#if item.hasChildren}
-                  <button class="link" style="color:inherit;display:inline-flex" aria-label={collapsed.has(item.path.join('.')) ? t('action.show') : t('action.hide')} onclick={(e) => (e.stopPropagation(), toggle(item.path.join('.')))}><Icon name={collapsed.has(item.path.join('.')) ? 'chevron-right' : 'chevron-down'} size={14} /></button>
+                  <button class="link" style="color:inherit;display:inline-flex" aria-label={collapsed.has(key) ? t('action.show') : t('action.hide')} onclick={(e) => (e.stopPropagation(), toggle(key))}><Icon name={collapsed.has(key) ? 'chevron-right' : 'chevron-down'} size={14} /></button>
                 {/if}
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{item.title}</span>
+                {#if renaming && same(renaming, item.path)}
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input type="text" value={item.title} maxlength="512" aria-label={t('bookmarks.rename')} autofocus style="flex:1;min-width:0"
+                    onclick={(e) => e.stopPropagation()}
+                    onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') void om.rename(item.path, e.currentTarget.value); else if (e.key === 'Escape') om.select(item.path), (om.renaming = null); }}
+                    onblur={(e) => om.renaming && void om.rename(item.path, e.currentTarget.value)} />
+                {:else}
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{item.title}</span>
+                {/if}
               </span>
-              {#if item.page !== undefined}<small>{item.page + 1}</small>{/if}
+              {#if removed.has(key)}
+                <small class="warnc" title={t('bookmarks.removedHint')}>{t('bookmarks.removed')}</small>
+              {:else if item.page !== undefined}<small>{item.page + 1}</small>{/if}
             </li>
           {/each}
         </ul>
-        <p class="note" style="padding:8px">{t('ui.outlineReadOnly')}</p>
+        {#if editing}
+          <p class="note" style="padding:8px">{om.signed ? t('bookmarks.signedNote') : t('bookmarks.keysHint')}</p>
+        {/if}
       {/if}
     {:else if tab === 'annotations'}
       {#if annots.length === 0}

@@ -310,7 +310,8 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-EDT-08 | Scanned pages (image-only): the Edit text tool shows "No selectable text on this page" and offers Cover & type (OCR arrives in Release 2). | P0 |
 | FR-EDT-09 | **Find & replace** text across the document (each replacement uses FR-EDT-02 rules; preview list; skip substitutions that need font change unless confirmed). | Post-R1 |
 | FR-EDT-10 | Add **watermark** (text/image; position, opacity, rotation, pages) and **header/footer & page numbers** (tokens `{page}`, `{pages}`, `{date}`, `{filename}`; margins; font). Both inserted as page content. | Post-R1 |
-| FR-EDT-11 | Edit links and bookmarks (outline editor: add/rename/move/delete). | Post-R1 |
+| FR-EDT-11 | **Bookmark editor** (Release 0.1.1): add at the current page, rename (F2), delete (Del, confirmation for entries with children), nest and move (Tab, Shift+Tab, Alt+↑/↓, drag and drop), "Set target to current view"; every operation is one undoable step; signed documents warn first. The link editor stays Post-R1 (FR-ANN-10). | P1 |
+| FR-EDT-27 | **Outline after structural edits** (Release 0.1.1): entries the user did not touch keep their original action, style and open state; bookmarks follow their pages when pages are moved; entries of deleted pages show "Target removed" and none points past the last page. | P0 |
 | FR-EDT-12 | Vector graphics editing (paths) is not supported; display-only. | — |
 
 ### 6.9 Optimise, convert, export (OPT)
@@ -1265,7 +1266,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Signature library import/export | FR-STM-11 | |
 | Find & replace text | FR-EDT-09 | |
 | Watermark, header/footer, page numbers | FR-EDT-10 | |
-| Outline/bookmark and link editor | FR-EDT-11, FR-ANN-10 | |
+| Link editor | FR-ANN-10 | Bookmark editor shipped in Release 0.1.1 |
 | Create/edit form fields | FR-FRM-08 | |
 | Local OCR (Tesseract WASM, English and Italian first) | FR-OCR-01…04 | Unlocks editing text on scans |
 | Compress / reduce file size | FR-OPT-01 | Needs image-recompression pipeline |

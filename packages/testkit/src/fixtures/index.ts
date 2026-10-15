@@ -32,6 +32,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   'rotated-text': { description: 'Text drawn at 30°', build: b.rotatedTextDoc, expectValid: true },
   unicode: { description: 'Greek, Cyrillic, Hebrew (RTL), Polish', build: b.unicodeDoc, expectValid: true },
   bookmarks: { description: 'Two-level outline', build: b.bookmarksDoc, expectValid: true },
+  'bookmarks-actions': { description: 'Outline with named, URI and JavaScript actions, style and colour', build: b.bookmarksActionsDoc, expectValid: true },
   links: { description: 'Internal, web, JavaScript and launch links', build: b.linksDoc, expectValid: true },
   acroform: { description: 'AcroForm with all Release 1 field types', build: () => b.acroFormDoc(), expectValid: true },
   'acroform-prefilled': { description: 'Same form with values', build: () => b.acroFormDoc({ prefilled: true }), expectValid: true },

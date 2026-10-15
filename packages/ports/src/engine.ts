@@ -155,13 +155,25 @@ export interface SearchHit {
 export type LinkTarget =
   | { kind: 'page'; page: PageIndex; point?: Point; zoom?: number }
   | { kind: 'uri'; uri: string }
-  | { kind: 'unsupported'; reason: 'javascript' | 'launch' | 'remote' | 'named' | 'unknown' };
+  /** `missing`: the destination page no longer exists in the document (FR-EDT-27). */
+  | { kind: 'unsupported'; reason: 'javascript' | 'launch' | 'remote' | 'named' | 'unknown' | 'missing' };
 
 export interface OutlineNode {
   title: string;
   target?: LinkTarget;
   children: OutlineNode[];
 }
+/**
+ * One edit of the bookmark tree. Paths are child indexes from the root. Everything the edit does not
+ * name (actions, style, open state of other entries) is left exactly as in the file (FR-EDT-27).
+ * For `move`, `parent` and `index` describe the position in the tree after the entry was taken out.
+ */
+export type OutlineEdit =
+  | { op: 'add'; parent: number[]; index: number; title: string; target?: LinkTarget }
+  | { op: 'rename'; path: number[]; title: string }
+  | { op: 'remove'; path: number[] }
+  | { op: 'move'; path: number[]; parent: number[]; index: number }
+  | { op: 'setTarget'; path: number[]; target: LinkTarget };
 export interface LinkInfo {
   rect: Rect;
   target: LinkTarget;
@@ -443,6 +455,8 @@ export interface PdfDocument {
   search(q: SearchQuery): AsyncIterable<SearchHit>;
   getOutline(): Promise<OutlineNode[]>;
   setOutline(nodes: OutlineNode[]): Promise<void>;
+  /** In-place edit of one bookmark (FR-EDT-11). @throws InvalidArgumentError for a path that does not exist. */
+  editOutline(edit: OutlineEdit): Promise<void>;
   getLinks(i: PageIndex): Promise<LinkInfo[]>;
   listAttachments(): Promise<AttachmentInfo[]>;
   getAttachment(index: number): Promise<Uint8Array>;

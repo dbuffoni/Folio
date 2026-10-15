@@ -7,7 +7,7 @@ import {
   NodeCrypto, NodeImageCodec, fixture, sharedEngine,
 } from '@folio/testkit';
 import { AppModel } from './app.ts';
-import { ExportImagesModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
+import { ExportImagesModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
 import type { Prompts } from './prompts.ts';
 import { createRegistry, type CommandContext } from './registry.ts';
 import { Services } from './services.ts';
@@ -76,6 +76,7 @@ export interface TestApp {
   tools(session: DocumentSession): ToolController;
   organise(session: DocumentSession): OrganiseModel;
   form(session: DocumentSession): FormModel;
+  outline(session: DocumentSession): OutlineModel;
   find(session: DocumentSession): FindModel;
   smartFill(session: DocumentSession): SmartFillModel;
   split(session: DocumentSession): SplitWizard;
@@ -123,7 +124,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   const ui = new UiState();
   const sign = new SignModel(app);
   const registry = createRegistry();
-  const cache = new Map<string, { tools?: ToolController; organise?: OrganiseModel; form?: FormModel; find?: FindModel }>();
+  const cache = new Map<string, { tools?: ToolController; organise?: OrganiseModel; form?: FormModel; outline?: OutlineModel; find?: FindModel }>();
   const slot = (s: DocumentSession) => {
     let c = cache.get(s.id);
     if (!c) cache.set(s.id, (c = {}));
@@ -144,6 +145,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     tools: (s) => (slot(s).tools ??= new ToolController(s, services, { error: (e) => app.reportError(e), info: (m) => void app.toast('info', m) })),
     organise: (s) => (slot(s).organise ??= new OrganiseModel(app, s)),
     form: (s) => (slot(s).form ??= new FormModel(app, s)),
+    outline: (s) => (slot(s).outline ??= new OutlineModel(app, s)),
     find: (s) => (slot(s).find ??= new FindModel(s)),
     smartFill: (s) => new SmartFillModel(app, s),
     split: (s) => new SplitWizard(app, s),
