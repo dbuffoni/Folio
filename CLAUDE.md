@@ -4,8 +4,8 @@ Open-source everyday PDF editor (GPL-3.0-or-later). Tauri 2 + SvelteKit + TypeSc
 
 ## Scope
 
-- Release 1 scope is locked in SPEC §5; the deferred list is SPEC §17.0.
-- **Never implement a `Post-R1` feature.** If a task seems to need one, stop and say so.
+- Release 1 (0.1.0) is delivered; its scope is SPEC §5. Development is in phase P10: incremental releases built from the Notion plan (SPEC §16.10).
+- **Build only cards of the current release that are Ready.** A `Post-R1` feature or a §17.0 entry outside that set stays out of scope; if a task seems to need one, stop and say so.
 - UI language is English only; every user-facing string goes through i18n (`apps/web/src/lib/i18n/messages/en.json`).
 
 ## Architecture rules

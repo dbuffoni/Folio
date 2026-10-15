@@ -1,11 +1,11 @@
 # Folio — Open-Source Everyday PDF Editor
-## Functional & Technical Specification (Release 1 scope locked)
+## Functional & Technical Specification (Release 1 delivered; incremental releases from the plan)
 
 | | |
 |---|---|
 | **Working title** | Folio (placeholder, rename freely) |
-| **Document status** | Consolidated for development hand-off. Release 1 scope confirmed by the product owner on 2026-10-11 (see §5.1) |
-| **Date** | 2026-10-11 |
+| **Document status** | Release 1 (version 0.1.0) delivered: phases P0–P9 done (see `docs/PROGRESS.md`). Since 2026-10-15 development continues in phase P10, incremental releases built from sets of features picked from the product plan (§16.10) |
+| **Date** | 2026-10-11, updated 2026-10-15 (phase P10) |
 | **Requested by** | Daniele |
 | **Baseline stack** | Tauri 2 · SvelteKit + TypeScript · Tailwind CSS · Rust (only where required) · SQLite · AppImage |
 | **Target platforms** | Release 1: Linux (AppImage) and a pure web build. Windows and macOS: architecture stays compatible; unsigned installers are built by CI (signing and notarisation deferred to Release 2) |
@@ -37,7 +37,7 @@
 18. Risks and open questions
 19. Appendices (shortcuts, glossary, sources)
 
-Requirement IDs look like `FR-ORG-03`. Priorities: **P0** = must ship in Release 1, **P1** = included in Release 1 but the first to be cut if the schedule slips, **Post-R1** = deliberately deferred (see §5 and §17.0). Every requirement without a `Post-R1` tag is in scope for Release 1.
+Requirement IDs look like `FR-ORG-03`. Priorities: **P0** = must ship in Release 1, **P1** = included in Release 1 but the first to be cut if the schedule slips, **Post-R1** = deliberately deferred (see §5 and §17.0). Every requirement without a `Post-R1` tag is in scope for Release 1. From phase P10, a requirement enters scope when an incremental release takes it: its priority becomes that release's version (for example `0.1.1`) and it leaves §17.0 (see §16.10).
 
 ---
 
@@ -123,6 +123,8 @@ From vendor comparison matrices and open-source roundups, professional editors g
 ## 5. Release 1 scope (locked), decision log and priorities
 
 Release 1 is the first public, usable version. Its scope was fixed with the product owner through a 25-question review on 2026-10-11. Anything not listed as included below is in the deferred list (§17.0) and carries a `Post-R1` tag in §6.
+
+Release 1 shipped as version 0.1.0. This table stays as the record of what it contains; what comes after is not decided here but in the product plan, one incremental release at a time (§16.10).
 
 | Module | **Included in Release 1** | Deferred (Post-R1) |
 |---|---|---|
@@ -1203,6 +1205,7 @@ Each phase ends with `/gate <phase>`: all listed tests green in CI, coverage gat
 | **P7 Platform shell** | Tauri and Rust adapters, AppImage hardening | `platform/tauri` and `platform/web` adapters, Rust commands (atomic write, keyring, http proxy, single-instance, file association), capabilities and CSP, Rust tests, packaging polish | Adapter conformance tests pass for both platforms; AppImage opens a fixture PDF passed as argument, saves it atomically, and exits cleanly in the distro matrix; **`services-complete` gate** creates `.claude/state/ui-unlocked` |
 | **P8 User interface (last)** | Screens bound to existing view-models | Design system, then screens in this order: viewer, organiser, merge/split wizards, annotate and stamp, forms and text edit, Smart Fill panel, settings, home screen, onboarding; Playwright e2e and visual regression; accessibility and i18n lint | All P0 flows in §3 pass e2e in web and AppImage; axe has no serious violations; visual baselines approved |
 | **P9 Release hardening** | Quality and delivery | Performance tuning to §13 budgets, usability tests (§7.9), security review, docs, README, privacy page, sample PDF, signed release | NFRs green; **Release 1 AppImage published** (16.8) |
+| **P10 Incremental releases** | Grow Folio one release at a time from the product plan | For each release (0.1.1, 0.1.2, …): the feature set picked in the plan, specified in §6, built test-first, released as AppImage and web build (§16.10) | Per release: the P9 gate on the whole product, every requirement of the release traced to tests, every card of the release Done in the plan, release published |
 
 **Spike mapping:** S1 (engine and webview) and S2 (annotations) and S3 (text edit) and S5 (SQLite parity) are run inside P2/P5 as headless tests wherever possible; only the WebKitGTK question in S1 needs a real AppImage run, which is why the skeleton AppImage exists from P0. S4 (encryption and compression) is outside Release 1.
 
@@ -1222,7 +1225,7 @@ Each phase ends with `/gate <phase>`: all listed tests green in CI, coverage gat
 - **Per-phase smoke test (`pnpm appimage:smoke`):** run the AppImage under Xvfb with a fixture PDF as an argument; assert via `tauri-driver`/WebDriver that the window title shows the file name, that a service call (e.g. page count over Tauri IPC) returns the expected value, that a save-as-copy produces a valid PDF, and that the process exits with code 0. From P8 the same job also drives a UI scenario.
 - **Distro matrix (P7 onward):** Ubuntu 22.04 and 24.04, Fedora current, Debian stable, Arch (containers or VMs), X11 and Wayland sessions where feasible. Known WebKitGTK/GPU quirks are documented with environment-variable workarounds and a "Safe graphics mode" launcher entry.
 - **Quality checks:** `appimagelint`, executable-bit and desktop-file validation, AppStream metainfo validation, MIME association for `application/pdf`.
-- **Release (P9):** tag `v1.0.0` triggers the pipeline; release notes list the included requirement IDs; assets published on the repository's release page together with checksums and signature; the static web build is published in parallel.
+- **Release (P9):** a version tag (`v0.1.0` for Release 1, then `v0.1.1`, … in P10) triggers the pipeline; release notes list the included requirement IDs; assets published on the repository's release page together with checksums and signature; the static web build is published in parallel.
 
 ### 16.9 Epics and acceptance criteria
 Each epic is accepted twice: first **at service level in P6** (headless scenario script, no UI), then **at UI level in P8** (Playwright e2e in the web build and in the AppImage).
@@ -1241,6 +1244,47 @@ Each epic is accepted twice: first **at service level in P6** (headless scenario
 
 **E7 Split every N pages.** *Given* a 25-page PDF and N = 10, *then* three files (10, 10 and 5 pages) named `{name}_{n}.pdf` are created with correct page ranges; naming conflicts auto-number.
 
+
+### 16.10 Incremental delivery from the plan (P10 onward)
+
+After Release 1, Folio grows through small incremental releases. Each release is a **set of features taken from the product plan**, specified, built test-first and shipped before the next set is chosen. The services-first rule of §16.1 still holds inside every feature (services and tests before UI), but the UI lock of P0–P7 no longer applies, since the UI exists.
+
+**Source of truth.** The plan is the *Folio Kanban* database on the *Plan* page in Notion (https://app.notion.com/p/3f7e701bc14880f6838fe3a9a1a0a09c). One card is one feature or one bug. Fields:
+
+| Field | Meaning |
+|---|---|
+| Name, page body | What the feature does for the user; a `Source:` line with the requirement IDs (or `new`); once analysed, a *Functional analysis* section (goal, current state, expected behaviour, rules and edge cases, technical impact, dependencies, acceptance criteria, out of scope) |
+| Type | Feature or Bug |
+| Tag | Product area (Forms, OCR and text, AI, …) |
+| Status | Not started → Candidate → Ready → In progress → Done |
+| Release | The version the card belongs to (for example `0.1.1`) |
+| T-shirt size | Relative effort: XS, S, M, L, XL |
+
+The plan decides **what** and **when**; this SPEC stays the reference for **how** (requirements, architecture, quality rules). §17 keeps describing features not yet planned.
+
+**Workflow for one release.**
+1. **Pick.** The product owner marks the cards of the next release as *Candidate*.
+2. **Analyse.** For each Candidate, a functional analysis is written on the card against the current release of the code, and the card gets its Release and T-shirt size. Cards a Candidate depends on are pulled into the same release or the Candidate moves out.
+3. **Accept.** The product owner reviews the analyses and moves the accepted cards to *Ready*. Only Ready cards are built.
+4. **Specify.** Before code, each Ready card is reflected in this SPEC: its existing requirement rows in §6 (or §10) get the release version as priority instead of `Post-R1`, new features get new requirement IDs written from the card's analysis, and the entry leaves the §17.0 table. The retagging is done in the same pull request as the tests that cover it, so `pnpm trace` (which treats every row that is not `Post-R1` as in scope) stays green on the main branch.
+5. **Build.** The card goes *In progress*, then is built with the pattern of §16.7: tests first and tagged with the requirement IDs, implementation, independent oracles, `spec-guardian` checking the change against the card and this SPEC. One pull request per card where possible.
+6. **Close the card.** When the pull request is merged, the card becomes *Done*.
+7. **Release.** When every card of the release is Done: the P9 gate on the whole product (tests, coverage, traceability, interop, performance, e2e, licences, AppImage smoke test), version bump, tag `v<version>`, release notes listing the cards and their requirement IDs, AppImage and web build published (§16.8), `docs/PROGRESS.md` updated.
+
+**Rules.**
+- Nothing outside the current release's cards is built. A feature still tagged `Post-R1` or listed in §17.0 that is not in the release stays out of scope, as before.
+- A card that turns out to need another feature stops and goes back to the product owner instead of growing silently.
+- Bugs (Type Bug) can join any release without a SPEC change unless they change specified behaviour.
+- Architecture decisions taken while building a release are recorded as ADRs in `docs/adr`, as in earlier phases.
+- The Definition of Done of `CLAUDE.md` applies to every card.
+
+**Release log.**
+
+| Version | Content | State |
+|---|---|---|
+| 0.1.0 | Release 1, phases P0–P9 (§5) | Delivered |
+| 0.1.1 | 13 cards: Make scanned pages searchable, OCR language packs, Multi-language OCR, Read difficult scans with AI, Create form fields, Edit existing form fields, Field templates, Bookmark editor, Reduce file size, Extract tables, Local AI server presets, Model capability check, Smart Fill on scanned paper forms | Analysed, waiting for acceptance (Candidate) |
+
 ---
 
 ## 17. Features not included in Release 1 (parking lot for future development)
@@ -1249,7 +1293,7 @@ Everything below was consciously left out to keep Folio a focused, first-level e
 
 ### 17.0 Planned features deferred from Release 1 (decided 2026-10-11)
 
-These were designed in this document and then consciously moved out of Release 1. The requirement IDs in §6 are tagged `Post-R1`; the design is ready, so they can be scheduled for Release 2 without rework.
+These were designed in this document and then consciously moved out of Release 1. The requirement IDs in §6 are tagged `Post-R1`; the design is ready, so they can be scheduled for a later release without rework. From P10 an entry leaves this table when an incremental release takes it (§16.10, step 4).
 
 | Feature | Requirement IDs | Note |
 |---|---|---|
