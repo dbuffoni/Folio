@@ -1,6 +1,6 @@
 import { OpenAiProvider } from '@folio/ai';
 import { DEFAULT_SETTINGS, aiCapabilities, uuid, type Settings } from '@folio/core';
-import { AiRunsRepo, DataCipher, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
+import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
 import type { AiProvider, PdfEngine, Platform } from '@folio/ports';
 import {
   AnnotationService,
@@ -43,6 +43,7 @@ export class Services {
   readonly signaturesRepo: SignatureRepo;
   readonly stampsRepo: StampRepo;
   readonly profiles: ProfileRepo;
+  readonly templates: FieldTemplateRepo;
   readonly mappings: FormMappingRepo;
   readonly aiRuns: AiRunsRepo;
   readonly documents: DocumentService;
@@ -76,6 +77,7 @@ export class Services {
     this.signaturesRepo = new SignatureRepo(platform.db, clock, newId, cipher);
     this.stampsRepo = new StampRepo(platform.db, clock, newId);
     this.profiles = new ProfileRepo(platform.db, clock, newId, cipher);
+    this.templates = new FieldTemplateRepo(platform.db, clock, newId);
     this.mappings = new FormMappingRepo(platform.db, clock, newId);
     this.aiRuns = new AiRunsRepo(platform.db, clock, newId);
     this.documents = new DocumentService({ engine, files: platform.files, crypto: platform.crypto });

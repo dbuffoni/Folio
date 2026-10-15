@@ -11,7 +11,7 @@ import {
   splitExt,
   type Msg,
 } from '@folio/core';
-import type { StoredSignature } from '@folio/db';
+import { uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
 import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
@@ -905,6 +905,175 @@ export class SignModel extends ViewModel {
   async reorderStamps(ids: string[]): Promise<void> {
     await this.app.services.stampsRepo.reorder(ids);
     await this.load();
+  }
+}
+
+// ---- Profiles and field templates (FR-FRM-20, FR-AIF-01) --------------------------------------
+
+export class ProfilesModel extends ViewModel {
+  profiles: Profile[] = [];
+  templates: FieldTemplate[] = [];
+  editing: string | null = null;
+  /** Keys skipped by the last "add template", for the notice. */
+  skipped: string[] = [];
+  constructor(private readonly app: AppModel) {
+    super();
+  }
+  private get s() {
+    return this.app.services;
+  }
+  async load(): Promise<void> {
+    this.profiles = await this.s.profiles.list();
+    this.templates = await this.s.templates.list();
+    if (this.editing && !this.profiles.some((p) => p.id === this.editing)) this.editing = null;
+    this.emit();
+  }
+  get current(): Profile | null {
+    return this.profiles.find((p) => p.id === this.editing) ?? null;
+  }
+  open(id: string | null): void {
+    this.editing = id;
+    this.skipped = [];
+    this.emit();
+  }
+  private async run<T>(task: () => Promise<T>): Promise<T | undefined> {
+    const out = await this.app.guard(task);
+    await this.load();
+    return out;
+  }
+
+  // ---- profiles ---------------------------------------------------------------------------
+  /** New profile: empty, or built from one or more templates (built-in or user-made). */
+  async create(name: string, templateIds: string[] = []): Promise<Profile | undefined> {
+    return this.run(async () => {
+      const p = await this.s.profiles.create(name);
+      for (const id of templateIds) {
+        const t = this.templates.find((x) => x.id === id);
+        if (t) await this.s.profiles.addTemplate(p.id, t.fields);
+      }
+      this.editing = p.id;
+      return (await this.s.profiles.get(p.id))!;
+    });
+  }
+  async duplicate(id: string): Promise<void> {
+    await this.run(async () => (this.editing = (await this.s.profiles.duplicate(id)).id));
+  }
+  async remove(id: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('confirm.removeProfile'), { danger: true, confirmLabel: msg('action.delete') }))) return false;
+    await this.run(() => this.s.profiles.remove(id));
+    return true;
+  }
+  async rename(id: string, name: string): Promise<boolean> {
+    return !!(await this.run(async () => (await this.s.profiles.rename(id, name), true)));
+  }
+  async setDefault(id: string): Promise<void> {
+    await this.run(() => this.s.profiles.setDefault(id));
+  }
+
+  // ---- entries ----------------------------------------------------------------------------
+  /** Adds an empty entry; the key is made from the label and stays as it is when the label changes. */
+  async addField(profileId: string, label: string, type: ProfileFieldType = 'text'): Promise<string | undefined> {
+    const p = this.profiles.find((x) => x.id === profileId);
+    const key = uniqueKey(label, p?.fields.map((f) => f.key) ?? []);
+    return this.run(async () => {
+      await this.s.profiles.setField(profileId, { key, label: label.trim() || key, type, value: '' });
+      return key;
+    });
+  }
+  /** Typed edits: invalid dates, e-mail addresses and numbers are refused with the reason (no write). */
+  async updateField(
+    profileId: string,
+    key: string,
+    patch: Partial<{ label: string; value: string; type: ProfileFieldType; sensitive: boolean; aliases: string[]; options: string[] }>,
+  ): Promise<boolean> {
+    const f = this.profiles.find((p) => p.id === profileId)?.fields.find((x) => x.key === key);
+    if (!f) return false;
+    const next = { ...f, ...patch };
+    const problem = validateProfileValue(next.type, next.value);
+    if (problem) {
+      this.app.toast('warning', msg(`profiles.invalid.${problem}`));
+      this.emit();
+      return false;
+    }
+    return !!(await this.run(async () => {
+      await this.s.profiles.setField(profileId, next);
+      return true;
+    }));
+  }
+  /** Changing a key forgets the remembered mappings that used it, after confirmation. */
+  async changeKey(profileId: string, key: string, newKey: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('profiles.confirmKey'), { confirmLabel: msg('action.continue') }))) return false;
+    return !!(await this.run(async () => {
+      await this.s.profiles.renameKey(profileId, key, newKey);
+      await this.s.mappings.dropKey(profileId, key);
+      return true;
+    }));
+  }
+  async removeField(profileId: string, key: string): Promise<void> {
+    await this.run(async () => {
+      await this.s.profiles.removeField(profileId, key);
+      await this.s.mappings.dropKey(profileId, key);
+    });
+  }
+  async moveField(profileId: string, key: string, direction: -1 | 1): Promise<void> {
+    const keys = this.profiles.find((p) => p.id === profileId)?.fields.map((f) => f.key) ?? [];
+    const at = keys.indexOf(key);
+    const to = at + direction;
+    if (at < 0 || to < 0 || to >= keys.length) return;
+    [keys[at], keys[to]] = [keys[to]!, keys[at]!];
+    await this.run(() => this.s.profiles.reorder(profileId, keys));
+  }
+
+  // ---- templates --------------------------------------------------------------------------
+  async addTemplate(profileId: string, templateId: string): Promise<void> {
+    const t = this.templates.find((x) => x.id === templateId);
+    if (!t) return;
+    const res = await this.run(() => this.s.profiles.addTemplate(profileId, t.fields));
+    this.skipped = res?.skipped ?? [];
+    if (this.skipped.length) this.app.toast('info', msg('profiles.skipped', { count: this.skipped.length, keys: this.skipped.join(', ') }));
+    this.emit();
+  }
+  async saveAsTemplate(profileId: string, name: string): Promise<FieldTemplate | undefined> {
+    const p = this.profiles.find((x) => x.id === profileId);
+    return p ? this.run(() => this.s.templates.fromProfile(p, name)) : undefined;
+  }
+  async createTemplate(name: string): Promise<FieldTemplate | undefined> {
+    return this.run(() => this.s.templates.create(name));
+  }
+  async updateTemplate(id: string, patch: { name?: string; fields?: FieldDefinition[] }): Promise<boolean> {
+    return !!(await this.run(async () => (await this.s.templates.update(id, patch), true)));
+  }
+  async duplicateTemplate(id: string): Promise<void> {
+    await this.run(() => this.s.templates.duplicate(id));
+  }
+  async removeTemplate(id: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('profiles.confirmTemplate'), { danger: true, confirmLabel: msg('action.delete') }))) return false;
+    await this.run(() => this.s.templates.remove(id));
+    return true;
+  }
+  async exportTemplate(id: string): Promise<boolean> {
+    const t = this.templates.find((x) => x.id === id);
+    const files = this.s.platform.files;
+    if (!t) return false;
+    const ref = await files.pickSave({ suggestedName: `${t.name}.template.json`, kind: 'json' });
+    if (!ref) return false;
+    await files.write(ref, new TextEncoder().encode(JSON.stringify(this.s.templates.exportJson(t), null, 2)), { atomic: true });
+    return true;
+  }
+  async importTemplate(): Promise<FieldTemplate | null> {
+    const files = this.s.platform.files;
+    const [ref] = await files.pickOpen({ accept: ['json'] });
+    if (!ref) return null;
+    const out = await this.run(async () => {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(new TextDecoder().decode(await files.read(ref)));
+      } catch {
+        /* reported as "not a template file" */
+      }
+      return this.s.templates.importJson(data);
+    });
+    return out ?? null;
   }
 }
 

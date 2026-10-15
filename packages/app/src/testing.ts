@@ -7,7 +7,7 @@ import {
   NodeCrypto, NodeImageCodec, fixture, sharedEngine,
 } from '@folio/testkit';
 import { AppModel } from './app.ts';
-import { CompressModel, ExportImagesModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
+import { CompressModel, ExportImagesModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, ProfilesModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
 import type { Prompts } from './prompts.ts';
 import { createRegistry, type CommandContext } from './registry.ts';
 import { Services } from './services.ts';
@@ -83,6 +83,7 @@ export interface TestApp {
   split(session: DocumentSession): SplitWizard;
   exportImages(session: DocumentSession): ExportImagesModel;
   compress(session: DocumentSession): CompressModel;
+  profiles(): ProfilesModel;
   merge(): MergeWizard;
   images(): ImagesWizard;
   /** Context for running registry commands against the active tab. */
@@ -154,6 +155,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     split: (s) => new SplitWizard(app, s),
     exportImages: (s) => new ExportImagesModel(app, s),
     compress: (s) => new CompressModel(app, s),
+    profiles: () => new ProfilesModel(app),
     merge: () => new MergeWizard(app),
     images: () => new ImagesWizard(app),
     ctx() {

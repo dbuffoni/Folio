@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { OPENAI_KEY_SECRET } from '@folio/ai';
-  import { deleteAllData, PROFILE_TEMPLATES, type Profile, type ProfileFieldType } from '@folio/db';
+  import { deleteAllData } from '@folio/db';
   import { DATE_FORMATS, formatDate } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
   import { AI_PROVIDERS } from '@folio/core';
@@ -9,6 +9,7 @@
   import { tm } from '#lib/i18n/index.ts';
   import Dialog from '../Dialog.svelte';
   import Icon from '../Icon.svelte';
+  import ProfilesPane from '../ProfilesPane.svelte';
 
   let { initial = 'appearance' }: { initial?: string } = $props();
   const PANES = ['appearance', 'smartFill', 'profiles', 'general', 'privacy', 'about'] as const;
@@ -70,63 +71,6 @@
     await refreshKey();
   }
 
-  // ---- Profiles -------------------------------------------------------------------------------
-  let profiles = $state<Profile[]>([]);
-  let editing = $state<string | null>(null);
-  let newName = $state('');
-  let newTemplates = $state<string[]>(['identity', 'address', 'contacts']);
-  let entry = $state({ label: '', value: '', sensitive: false });
-  const current = $derived(profiles.find((p) => p.id === editing) ?? null);
-  async function loadProfiles(): Promise<void> {
-    profiles = await services.profiles.list();
-  }
-  $effect(() => {
-    if (pane === 'profiles') void loadProfiles();
-  });
-  async function createProfile(): Promise<void> {
-    const p = await app.guard(() => services.profiles.create(newName, newTemplates));
-    if (!p) return;
-    newName = '';
-    await loadProfiles();
-    editing = p.id;
-  }
-  async function setField(p: Profile, key: string, patch: { value?: string; sensitive?: boolean }): Promise<void> {
-    const f = p.fields.find((x) => x.key === key)!;
-    await app.guard(() => services.profiles.setField(p.id, { ...f, ...patch }));
-    await loadProfiles();
-  }
-  async function addEntry(p: Profile): Promise<void> {
-    if (!entry.label.trim()) return;
-    await app.guard(() => services.profiles.setField(p.id, { key: entry.label, label: entry.label.trim(), type: 'text' as ProfileFieldType, value: entry.value, sensitive: entry.sensitive }));
-    entry = { label: '', value: '', sensitive: false };
-    await loadProfiles();
-  }
-  async function exportProfile(p: Profile): Promise<void> {
-    const ref = await services.platform.files.pickSave({ suggestedName: `${p.name}.profile.json`, kind: 'json' });
-    if (ref) await app.guard(async () => services.platform.files.write(ref, new TextEncoder().encode(JSON.stringify(await services.profiles.exportJson(p.id), null, 2)), { atomic: true }));
-  }
-  async function importProfile(): Promise<void> {
-    const [ref] = await services.platform.files.pickOpen({ accept: ['json'] });
-    if (!ref) return;
-    await app.guard(async () => {
-      const text = new TextDecoder().decode(await services.platform.files.read(ref));
-      let data: unknown = null; // a file that is not JSON is reported like any other file that is not a profile
-      try {
-        data = JSON.parse(text);
-      } catch {
-        /* handled by importJson */
-      }
-      return services.profiles.importJson(data);
-    });
-    await loadProfiles();
-  }
-  async function removeProfile(p: Profile): Promise<void> {
-    if (!(await app.prompts.confirm({ key: 'confirm.removeProfile' }, { danger: true, confirmLabel: { key: 'action.delete' } }))) return;
-    await services.profiles.remove(p.id);
-    editing = null;
-    await loadProfiles();
-  }
-
   // ---- General --------------------------------------------------------------------------------
   let recentCount = $state(0);
   $effect(() => {
@@ -155,15 +99,6 @@
     await services.platform.clipboard.writeText(`Folio ${info.version} · ${info.os} · ${info.locale}\n${navigator.userAgent}\n\n${services.platform.log.dump()}`).catch(() => undefined);
     copied = true;
   }
-  /** Rename keeps the old name when the new one is rejected (empty) and says why. */
-  async function renameProfile(id: string, previous: string, input: HTMLInputElement): Promise<void> {
-    const ok = await app.guard(async () => {
-      await services.profiles.rename(id, input.value);
-      return true;
-    });
-    if (!ok) input.value = previous;
-    await loadProfiles();
-  }
   async function resetAll(): Promise<void> {
     if (!(await app.prompts.confirm({ key: 'confirm.resetSettings' }, { danger: true, confirmLabel: { key: 'settings.reset' } }))) return;
     await app.resetSettings();
@@ -184,7 +119,7 @@
 <Dialog title={t('settings.title')} width={800} onclose={() => ui.closeDialog()}>
   <div class="setwrap">
     <nav class="setnav" aria-label={t('settings.title')}>
-      {#each PANES as p (p)}<button class:on={pane === p} aria-current={pane === p ? 'page' : undefined} onclick={() => ((pane = p), (editing = null))}>{t(`settings.${p}`)}</button>{/each}
+      {#each PANES as p (p)}<button class:on={pane === p} aria-current={pane === p ? 'page' : undefined} onclick={() => (pane = p)}>{t(`settings.${p}`)}</button>{/each}
     </nav>
     <div class="setpane">
       {#if pane === 'appearance'}
@@ -254,42 +189,7 @@
         {@const visionGate = dep(v, aim.visionGate())}
         <div class="togrow"><div>{t('settings.ai.image')}<small>{visionGate.ok ? t('settings.ai.imageHint') : tm(visionGate.reason)}</small></div><input type="checkbox" class="tog" aria-label={t('settings.ai.image')} disabled={!visionGate.ok} checked={s.ai.includeImage && visionGate.ok} onchange={(e) => ai({ includeImage: e.currentTarget.checked })} /></div>
       {:else if pane === 'profiles'}
-        {#if current}
-          {@const p = current}
-          <div class="row"><button class="btn sm ghost" style="flex:none" onclick={() => (editing = null)}><Icon name="chevron-left" /></button><input type="text" value={p.name} aria-label={t('settings.profile.name')} maxlength="60" onchange={(e) => renameProfile(p.id, p.name, e.currentTarget)} />
-            {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => services.profiles.setDefault(p.id).then(loadProfiles)}>{t('action.setDefault')}</button>{/if}
-          </div>
-          <div class="ptable">
-            <b class="lab">{t('settings.profile.label')}</b><b class="lab">{t('settings.profile.value')}</b><b class="lab" title={t('settings.profile.sensitiveHint')}>{t('settings.profile.sensitive')}</b><span></span>
-            {#each p.fields as f (f.key)}
-              <label for="pf-{f.key}" title={f.aliases.join(', ')}>{f.label}</label>
-              <input id="pf-{f.key}" type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : 'text'} value={f.value} autocomplete="off" onchange={(e) => setField(p, f.key, { value: e.currentTarget.value })} />
-              <input type="checkbox" aria-label="{t('settings.profile.sensitive')}: {f.label}" checked={f.sensitive} onchange={(e) => setField(p, f.key, { sensitive: e.currentTarget.checked })} />
-              <button class="ib" onclick={() => services.profiles.removeField(p.id, f.key).then(loadProfiles)} aria-label="{t('action.remove')} {f.label}"><Icon name="x" /></button>
-            {/each}
-            <input type="text" bind:value={entry.label} placeholder={t('settings.profile.label')} aria-label={t('settings.profile.label')} />
-            <input type="text" bind:value={entry.value} placeholder={t('settings.profile.value')} aria-label={t('settings.profile.value')} />
-            <input type="checkbox" bind:checked={entry.sensitive} aria-label={t('settings.profile.sensitive')} />
-            <button class="ib" disabled={!entry.label.trim()} onclick={() => addEntry(p)} aria-label={t('settings.profile.addEntry')}><Icon name="plus" /></button>
-          </div>
-          <p class="note">{t('settings.profile.sensitiveHint')}</p>
-          <div class="row"><button class="btn sm" onclick={() => exportProfile(p)}>{t('settings.profile.export')}</button><span class="grow"></span><button class="btn sm danger" onclick={() => removeProfile(p)}><Icon name="trash-2" />{t('action.delete')}</button></div>
-        {:else}
-          {#if profiles.length === 0}<p class="note">{t('settings.profile.empty')}</p>{/if}
-          <ul class="rlist">
-            {#each profiles as p (p.id)}
-              <li><Icon name="user" /><b>{p.name}</b>{#if p.isDefault}<span class="chip acc">{t('action.default')}</span>{/if}<small>{t('settings.profile.entries', { count: p.fields.filter((f) => f.value).length })}</small><button class="btn sm" onclick={() => (editing = p.id)}>{t('action.edit')}</button></li>
-            {/each}
-          </ul>
-          <div class="field"><label for="pn">{t('settings.profile.new')}</label>
-            <div class="row"><input id="pn" type="text" maxlength="60" bind:value={newName} placeholder={t('settings.profile.name')} style="flex:1" /><button class="btn" style="flex:none" disabled={!newName.trim()} onclick={createProfile}><Icon name="plus" />{t('action.add')}</button><button class="btn" style="flex:none" onclick={importProfile}>{t('settings.profile.import')}</button></div>
-            <div class="row" style="flex-wrap:wrap;gap:10px">
-              <span class="note" style="flex:none">{t('settings.profile.templates')}</span>
-              {#each Object.keys(PROFILE_TEMPLATES) as k (k)}<label style="width:auto;display:flex;gap:4px;align-items:center;flex:none"><input type="checkbox" bind:group={newTemplates} value={k} />{t(`settings.profile.template.${k}`)}</label>{/each}
-            </div>
-          </div>
-          <p class="note">{t('settings.profile.hint')}</p>
-        {/if}
+        <ProfilesPane />
       {:else if pane === 'general'}
         <div class="g2">
           <div class="field"><label for="un">{t('settings.units')}</label><select id="un" value={s.units} onchange={(e) => set('units', e.currentTarget.value as 'mm')}><option value="mm">{t('settings.units.mm')}</option><option value="in">{t('settings.units.in')}</option><option value="pt">{t('settings.units.pt')}</option></select></div>
