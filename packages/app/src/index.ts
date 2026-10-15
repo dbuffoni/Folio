@@ -9,3 +9,4 @@ export * from './tools.ts';
 export * from './features.ts';
 export * from './ui.ts';
 export * from './registry.ts';
+export * from './ai-settings.ts';

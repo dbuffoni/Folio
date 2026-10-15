@@ -4,7 +4,9 @@
   import { deleteAllData, PROFILE_TEMPLATES, type Profile, type ProfileFieldType } from '@folio/db';
   import { DATE_FORMATS, formatDate } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, app, desktop, services, track, ui, VERSION } from '#lib/state.svelte.ts';
+  import { AI_PROVIDERS } from '@folio/core';
+  import { dep, app, desktop, services, track, ui, VERSION, wizards } from '#lib/state.svelte.ts';
+  import { tm } from '#lib/i18n/index.ts';
   import Dialog from '../Dialog.svelte';
   import Icon from '../Icon.svelte';
 
@@ -20,8 +22,8 @@
   // ---- Smart Fill -----------------------------------------------------------------------------
   let keyInput = $state('');
   let hasKey = $state(false);
-  let test = $state<{ ok: boolean; text: string } | null>(null);
-  let models = $state<string[]>([]);
+  const aim = wizards.aiSettings();
+  let urlProblem = $state<string | null>(null);
   let baseUrl = $state('');
   let passphrase = $state('');
   const secrets = services.platform.secrets;
@@ -51,23 +53,14 @@
     app.toast('success', { key: 'toast.keyRemoved' });
   }
   async function saveBaseUrl(): Promise<void> {
-    const url = baseUrl.trim().replace(/\/+$/, '');
-    try {
-      new URL(url);
-    } catch {
-      return void (baseUrl = app.settings.ai.baseUrl);
-    }
-    // On desktop the Rust side asks the user to approve the new host in a native dialog.
-    const http = services.platform.http as unknown as { allowOrigin?(u: string): Promise<boolean> };
-    if (http.allowOrigin && !(await app.guard(() => http.allowOrigin!(url)))) return void (baseUrl = app.settings.ai.baseUrl);
-    await ai({ baseUrl: url });
+    const problem = await aim.setBaseUrl(baseUrl);
+    urlProblem = problem ? tm(problem) : null;
+    if (problem) baseUrl = app.settings.ai.baseUrl;
   }
-  async function testConnection(): Promise<void> {
-    test = null;
-    const res = await services.openAi?.testConnection();
-    if (!res) return;
-    test = res.ok ? { ok: true, text: t('settings.ai.test.ok', { count: res.models }) } : { ok: false, text: t('settings.ai.test.fail', { reason: t(`error.ai.${res.reason}`) === `error.ai.${res.reason}` ? t(`error.${res.reason}`) : t(`error.ai.${res.reason}`) }) };
-    if (res.ok) models = (await services.openAi?.listModels().catch(() => [])) ?? [];
+  async function pickProvider(id: string): Promise<void> {
+    urlProblem = null;
+    await aim.selectProvider(id as (typeof AI_PROVIDERS)[number]);
+    baseUrl = app.settings.ai.baseUrl;
   }
   async function unlock(): Promise<void> {
     if (!passphrase || !webSecrets.unlock) return;
@@ -220,10 +213,15 @@
       {:else if pane === 'smartFill'}
         <div class="callout info"><Icon name="shield-check" /><span>{t('settings.ai.info')}</span></div>
         <div class="togrow"><div>{t('settings.ai.enable')}</div><input type="checkbox" class="tog" aria-label={t('settings.ai.enable')} checked={s.ai.enabled} onchange={(e) => ai({ enabled: e.currentTarget.checked })} /></div>
-        {#if !desktop}<div class="callout"><Icon name="info" /><span>{t('settings.ai.cors')}</span></div>{/if}
+        <div class="field"><label for="aip">{t('settings.ai.provider')}</label>
+          <div class="row"><select id="aip" value={aim.provider} onchange={(e) => pickProvider(e.currentTarget.value)} style="flex:1">{#each AI_PROVIDERS as id (id)}<option value={id}>{t(`settings.ai.provider.${id}`)}</option>{/each}</select>
+            {#if aim.local}<span class="chip acc" style="flex:none" data-testid="ai-local"><Icon name="shield-check" size={12} />{t('settings.ai.badge.local')}</span>{/if}
+          </div>
+        </div>
+        {#if !desktop}<div class="callout"><Icon name="info" /><span>{tm(aim.corsHint)}</span></div>{/if}
         <div class="field"><label for="ak">{t('settings.ai.key')}</label>
           <div class="row"><input id="ak" type="password" bind:value={keyInput} placeholder={hasKey ? '••••••••••••••••' : 'sk-…'} autocomplete="off" style="flex:1" /><button class="btn" style="flex:none" disabled={!keyInput.trim()} onclick={saveKey}>{t('settings.ai.saveKey')}</button>{#if hasKey}<button class="btn danger" style="flex:none" onclick={removeKey}>{t('settings.ai.removeKey')}</button>{/if}</div>
-          <span class="hint">{hasKey ? `${t('settings.ai.keySet')} ` : ''}{t(`settings.ai.keyHint.${secretKind}`)}</span>
+          <span class="hint">{hasKey ? `${t('settings.ai.keySet')} ` : ''}{aim.keyRequired ? t(`settings.ai.keyHint.${secretKind}`) : t('settings.ai.keyOptional')}</span>
         </div>
         {#if !desktop && webSecrets.unlock && secretKind !== 'passphrase-encrypted'}
           <div class="field"><label for="pp">{t('settings.ai.passphrase')}</label>
@@ -231,10 +229,21 @@
             <span class="hint">{t('settings.ai.passphraseHint')}</span>
           </div>
         {/if}
-        <div class="field"><label for="bu">{t('settings.ai.baseUrl')}</label><div class="row"><input id="bu" type="text" bind:value={baseUrl} onchange={saveBaseUrl} style="flex:1" /><button class="btn" style="flex:none" disabled={!hasKey} onclick={testConnection}>{t('settings.ai.test')}</button></div><span class="hint">{t('settings.ai.baseUrlHint')}</span>
-          {#if test}<span class={test.ok ? 'okc' : 'err'} role="status">{test.text}</span>{/if}
+        <div class="field"><label for="bu">{t('settings.ai.baseUrl')}</label><div class="row"><input id="bu" type="text" bind:value={baseUrl} onchange={saveBaseUrl} style="flex:1" /><button class="btn" style="flex:none" disabled={aim.testing} onclick={() => aim.test()}>{t('settings.ai.test')}</button></div><span class="hint">{t('settings.ai.baseUrlHint')}</span>
+          {#if urlProblem}<span class="err" role="alert">{urlProblem}</span>{/if}
+          {#if aim.testing}<span class="note" role="status">{t('settings.ai.caps.checking')}</span>{:else if aim.result}<span class={aim.result.ok ? 'okc' : 'err'} role="status">{tm(aim.result.message)}</span>{/if}
         </div>
-        <div class="field"><label for="mdl">{t('settings.ai.model')}</label><input id="mdl" type="text" list="mdls" value={s.ai.model} onchange={(e) => e.currentTarget.value.trim() && ai({ model: e.currentTarget.value.trim() })} /><datalist id="mdls">{#each models as m (m)}<option value={m}></option>{/each}</datalist></div>
+        <div class="field"><label for="mdl">{t('settings.ai.model')}</label><input id="mdl" type="text" list="mdls" value={s.ai.model} onchange={(e) => aim.setModel(e.currentTarget.value)} /><datalist id="mdls">{#each aim.models as m (m)}<option value={m}></option>{/each}</datalist></div>
+        {@const caps = dep(v, aim.capabilities)}
+        <div class="field" data-testid="ai-caps"><span class="lab">{t('settings.ai.caps.title')}</span>
+          {#if caps.probed}
+            <div class="row" style="gap:16px"><span>{t('settings.ai.caps.images')}: <b>{t(caps.vision ? 'settings.ai.caps.yes' : 'settings.ai.caps.no')}</b></span><span>{t('settings.ai.caps.structured')}: <b>{t(`settings.ai.caps.structured.${caps.structured}`)}</b></span></div>
+          {:else}<span class="note">{t('settings.ai.caps.notChecked')}</span>{/if}
+          <span class="hint">{t('settings.ai.caps.cost')}</span>
+        </div>
+        {#if caps.probed && !s.ai.capabilities?.vision}
+          <div class="togrow"><div>{t('settings.ai.caps.visionOverride')}<small>{t('settings.ai.caps.visionOverrideHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.ai.caps.visionOverride')} checked={s.ai.visionOverride} onchange={(e) => aim.setVisionOverride(e.currentTarget.checked)} /></div>
+        {/if}
         <div class="field"><span class="lab">{t('settings.ai.mode')}</span>
           <div class="radios" role="radiogroup">
             {#each ['mapping_only', 'with_values'] as mode (mode)}
@@ -242,7 +251,8 @@
             {/each}
           </div>
         </div>
-        <div class="togrow"><div>{t('settings.ai.image')}<small>{t('settings.ai.imageHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.ai.image')} checked={s.ai.includeImage} onchange={(e) => ai({ includeImage: e.currentTarget.checked })} /></div>
+        {@const visionGate = dep(v, aim.visionGate())}
+        <div class="togrow"><div>{t('settings.ai.image')}<small>{visionGate.ok ? t('settings.ai.imageHint') : tm(visionGate.reason)}</small></div><input type="checkbox" class="tog" aria-label={t('settings.ai.image')} disabled={!visionGate.ok} checked={s.ai.includeImage && visionGate.ok} onchange={(e) => ai({ includeImage: e.currentTarget.checked })} /></div>
       {:else if pane === 'profiles'}
         {#if current}
           {@const p = current}

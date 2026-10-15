@@ -1,6 +1,8 @@
 import {
   Emitter,
   InvalidArgumentError,
+  endpointHost,
+  isLoopbackUrl,
   formatPageRanges,
   isFolioError,
   isValidPageRanges,
@@ -48,6 +50,7 @@ import {
   type Suggestion,
   type TextStampStyle,
 } from '@folio/services';
+import { aiGates } from './ai-settings.ts';
 import type { AppModel } from './app.ts';
 import type { DocumentSession } from './session.ts';
 import type { ToolController } from './tools.ts';
@@ -1042,9 +1045,16 @@ export class SmartFillModel extends ViewModel {
   ) {
     super();
   }
-  /** The AI path is offered only when it is switched on and configured (FR-AIF-02). */
+  /**
+   * The AI path is offered only when it is switched on, configured (FR-AIF-02) and the model can
+   * return JSON (FR-AIF-13).
+   */
   async aiAvailable(): Promise<boolean> {
-    return this.app.settings.ai.enabled && (await this.app.services.ai.isConfigured());
+    return this.app.settings.ai.enabled && aiGates(this.app.settings.ai).json && (await this.app.services.ai.isConfigured());
+  }
+  /** Page images are sent only to a model that can see them (FR-AIF-13). */
+  private get includeImage(): boolean {
+    return this.app.settings.ai.includeImage && aiGates(this.app.settings.ai).vision;
   }
   private pages(): PageIndex[] {
     return this.scope === 'all'
@@ -1093,7 +1103,11 @@ export class SmartFillModel extends ViewModel {
         settings.mode,
         settings.maxPagesPerRun,
       );
-      this.preflight = { ...sf.preflight(req, this.profile), includesImage: settings.includeImage };
+      this.preflight = {
+        ...sf.preflight(req, this.profile),
+        includesImage: this.includeImage,
+        destination: { host: endpointHost(settings.baseUrl), local: isLoopbackUrl(settings.baseUrl) },
+      };
       this.stage = 'preflight';
       this.emit();
       return;
@@ -1130,7 +1144,7 @@ export class SmartFillModel extends ViewModel {
       this.app.services.smartFill.analyze(this.session.doc, this.pages(), this.profile!, {
         useAi: await this.aiAvailable(),
         mode: settings.mode,
-        includeImage: settings.includeImage,
+        includeImage: this.includeImage,
         maxPages: settings.maxPagesPerRun,
         reanalyze,
         signal: this.abort!.signal,

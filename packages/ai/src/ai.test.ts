@@ -104,7 +104,7 @@ describe('OpenAiProvider', () => {
     const none = setup(null);
     expect(await none.provider.isConfigured()).toBe(false);
     expect(await kindOf(none.provider.analyzeForm(req(), new AbortController().signal))).toBe('ai:notConfigured');
-    expect(await none.provider.testConnection()).toEqual({ ok: false, reason: 'notConfigured' });
+    expect(await none.provider.testConnection()).toEqual({ ok: false, reason: 'notConfigured', host: 'api.openai.com', local: false });
     expect(none.http.requests.length).toBe(0);
     const s = setup();
     expect(await s.provider.isConfigured()).toBe(true);
@@ -200,13 +200,100 @@ describe('OpenAiProvider', () => {
     expect(await s.provider.listModels()).toEqual(['alpha', 'zeta']);
     expect(s.http.requests[0]).toMatchObject({ url: 'http://localhost:11434/v1/models', method: 'GET' });
     s.http.enqueue(FakeHttpClient.json(200, { data: [{ id: 'a' }] }));
-    expect(await s.provider.testConnection()).toEqual({ ok: true, models: 1 });
+    expect(await s.provider.testConnection()).toEqual({ ok: true, models: ['a'] });
     s.http.enqueue(FakeHttpClient.json(401, {}));
-    expect(await s.provider.testConnection()).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(await s.provider.testConnection()).toEqual({ ok: false, reason: 'unauthorized', host: 'localhost:11434', local: true });
     s.http.enqueue(() => new NetworkError('offline'));
-    expect(await s.provider.testConnection()).toEqual({ ok: false, reason: 'network' });
+    expect(await s.provider.testConnection()).toEqual({ ok: false, reason: 'network', host: 'localhost:11434', local: true });
     s.http.enqueue(FakeHttpClient.json(200, 'garbage'));
-    expect(await s.provider.testConnection()).toEqual({ ok: true, models: 0 });
+    expect(await s.provider.testConnection()).toEqual({ ok: true, models: [] });
+  });
+});
+
+describe('local servers @FR-AIF-12', () => {
+  it('needs no key on this computer and sends no Authorization header @FR-AIF-12', async () => {
+    const s = setup(null);
+    s.config.baseUrl = 'http://localhost:11434/v1';
+    expect(await s.provider.isConfigured()).toBe(true);
+    s.http.enqueue(FakeHttpClient.json(200, { data: [{ id: 'llama3.2' }] }), completion(good));
+    expect(await s.provider.testConnection()).toEqual({ ok: true, models: ['llama3.2'] });
+    const out = await s.provider.analyzeForm(req(), new AbortController().signal);
+    expect(out.fields.length).toBe(2);
+    for (const r of s.http.requests) {
+      expect(r.secretHeaders).toBeUndefined();
+      expect(r.resolvedHeaders.authorization).toBeUndefined();
+      // A model running on the CPU gets three minutes instead of one.
+      expect(r.timeoutMs).toBe(180_000);
+    }
+    for (const host of ['http://127.0.0.1:1234/v1', 'http://[::1]:8080/v1']) {
+      s.config.baseUrl = host;
+      expect(await s.provider.isConfigured()).toBe(true);
+    }
+  });
+  it('still needs a key and https for a remote host @FR-AIF-12', async () => {
+    const s = setup(null);
+    s.config.baseUrl = 'https://llm.example.org/v1';
+    expect(await s.provider.isConfigured()).toBe(false);
+    s.config.baseUrl = 'http://llm.example.org/v1';
+    expect(await s.provider.isConfigured()).toBe(false);
+    const keyed = setup();
+    keyed.config.baseUrl = 'http://llm.example.org/v1';
+    expect(await keyed.provider.isConfigured()).toBe(false);
+    expect(await keyed.provider.testConnection()).toEqual({ ok: false, reason: 'insecure', host: 'llm.example.org', local: false });
+    expect(await kindOf(keyed.provider.listModels())).toBe('ai:insecure');
+    expect(keyed.http.requests.length).toBe(0);
+  });
+});
+
+describe('capability check @FR-AIF-13', () => {
+  const visionAnswer = (word: string) => completion(word);
+  it('a full model supports strict schemas and images @FR-AIF-13', async () => {
+    const s = setup();
+    s.http.enqueue(completion({ ok: true }), visionAnswer('Red'));
+    expect(await s.provider.probeCapabilities()).toEqual({ structured: 'json_schema', vision: true });
+    expect(s.http.requests.length).toBe(2);
+    const [schemaProbe, visionProbe] = s.http.requests.map((r) => JSON.parse(r.body!) as { max_tokens: number; response_format?: { type: string }; messages: Array<{ content: unknown }> });
+    expect(schemaProbe!.response_format!.type).toBe('json_schema');
+    // Probes are tiny: a short answer is all they need.
+    expect(schemaProbe!.max_tokens).toBeLessThanOrEqual(20);
+    expect(JSON.stringify(visionProbe!.messages)).toContain('data:image/png;base64,');
+  });
+  it('a text-only model with JSON mode: json_object and no vision @FR-AIF-13', async () => {
+    const s = setup();
+    s.http.enqueue(FakeHttpClient.json(400, { error: { message: 'response_format json_schema not supported' } }), completion('{"ok": true}'), FakeHttpClient.json(400, { error: { message: 'image input is not supported' } }));
+    expect(await s.provider.probeCapabilities()).toEqual({ structured: 'json_object', vision: false });
+    // A model that ignores the image and guesses wrong has no vision either.
+    s.http.enqueue(completion({ ok: true }), visionAnswer('blue'));
+    expect(await s.provider.probeCapabilities()).toEqual({ structured: 'json_schema', vision: false });
+    // Neither JSON mode answers: structured output is reported as missing.
+    s.http.enqueue(completion('Sure! Here it is: ok'), FakeHttpClient.json(500, {}), visionAnswer('red'));
+    expect(await s.provider.probeCapabilities()).toEqual({ structured: 'none', vision: true });
+  });
+  it('connection errors are not missing capabilities @FR-AIF-13', async () => {
+    let s = setup();
+    s.http.enqueue(FakeHttpClient.json(401, {}));
+    expect(await kindOf(s.provider.probeCapabilities())).toBe('ai:unauthorized');
+    s = setup();
+    s.http.enqueue(FakeHttpClient.json(429, {}));
+    expect(await kindOf(s.provider.probeCapabilities())).toBe('ai:rateLimited');
+    s = setup();
+    s.http.enqueue(() => new NetworkError('ECONNREFUSED'));
+    expect(await kindOf(s.provider.probeCapabilities())).toBe('network');
+    expect(await kindOf(setup(null).provider.probeCapabilities())).toBe('ai:notConfigured');
+  });
+  it('uses JSON mode plus local validation when strict schemas are not available @FR-AIF-13', async () => {
+    const s = setup();
+    const config = s.config as { structured?: string };
+    config.structured = 'json_object';
+    s.http.enqueue(completion(good));
+    expect((await s.provider.analyzeForm(req(), new AbortController().signal)).fields.length).toBe(2);
+    const body = JSON.parse(s.http.requests[0]!.body!) as { response_format: unknown; messages: Array<{ content: string }> };
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0]!.content).toContain(SYSTEM_PROMPT);
+    expect(body.messages[0]!.content).toContain('"newAreas"');
+    // Without any JSON output the model is not usable for Smart Fill.
+    config.structured = 'none';
+    expect(await kindOf(s.provider.analyzeForm(req(), new AbortController().signal))).toBe('ai:unsupported');
   });
 });
 
@@ -222,5 +309,8 @@ describe('FakeAiProvider', () => {
     expect(fake.requests.length).toBe(4);
     fake.configured = false;
     expect(await fake.isConfigured()).toBe(false);
+    expect(await fake.probeCapabilities()).toEqual({ vision: true, structured: 'json_schema' });
+    fake.capabilities = new AiError('unauthorized');
+    await expect(fake.probeCapabilities()).rejects.toThrow(AiError);
   });
 });

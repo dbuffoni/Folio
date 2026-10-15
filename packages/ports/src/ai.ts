@@ -69,8 +69,20 @@ export interface FormAnalysisResult {
   usage?: { inputTokens: number; outputTokens: number };
   model?: string;
 }
+/** How the model can be asked for JSON: strict schema, plain JSON mode, or not at all. */
+export type StructuredOutput = 'json_schema' | 'json_object' | 'none';
+/** What the configured model supports, found by two tiny probe requests (FR-AIF-13). */
+export interface AiCapabilities {
+  vision: boolean;
+  structured: StructuredOutput;
+}
 export interface AiProvider {
   isConfigured(): Promise<boolean>;
+  /**
+   * Sends the two probes (structured output, vision). Only on an explicit user action.
+   * @throws AiError('unauthorized' | 'rateLimited') or NetworkError: those are connection problems, not missing capabilities.
+   */
+  probeCapabilities(signal?: AbortSignal): Promise<AiCapabilities>;
   analyzeForm(req: FormAnalysisRequest, signal: AbortSignal): Promise<FormAnalysisResult>;
   /** Rough token estimate shown in the pre-flight dialog. */
   estimateTokens(req: FormAnalysisRequest): number;

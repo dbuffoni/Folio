@@ -82,7 +82,7 @@
 {#if stage === 'preflight' && sf.preflight}
   {@const p = sf.preflight}
   <Dialog title={t('smartfill.preflight.title')} width={520} onclose={() => sf.cancel()}>
-    <p style="margin:0">{t('smartfill.preflight.intro', { host })}</p>
+    <p style="margin:0">{p.destination?.local ? t('smartfill.preflight.introLocal', { host: p.destination.host }) : t('smartfill.preflight.intro', { host })}</p>
     <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px">
       <li>{t('smartfill.preflight.pages')}: {p.pages.join(', ')}</li>
       <li>{t('smartfill.preflight.fields', { count: p.candidateCount, examples: p.sampleLabels.slice(0, 4).join(', ') || '—' })}</li>

@@ -109,7 +109,7 @@ export interface AnalysisResult {
   fingerprint: string;
   /** Why the AI was not used although it was requested (shown as a notice). */
   fallbackReason?:
-    'offline' | 'unauthorized' | 'rateLimited' | 'malformed' | 'server' | 'blocked' | 'notConfigured';
+    'offline' | 'unauthorized' | 'rateLimited' | 'malformed' | 'server' | 'blocked' | 'notConfigured' | 'insecure' | 'unsupported';
 }
 export interface Preflight {
   mode: 'mapping_only' | 'with_values';
@@ -124,6 +124,8 @@ export interface Preflight {
   withheldKeys: string[];
   includesImage: boolean;
   estimatedTokens: number;
+  /** Where the request goes; a server on this computer is named "local server" (FR-AIF-12). */
+  destination?: { host: string; local: boolean };
 }
 
 // ---- fuzzy matching (FR-AIF-07) ----------------------------------------------------------------
