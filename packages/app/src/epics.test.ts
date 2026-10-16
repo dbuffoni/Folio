@@ -353,7 +353,12 @@ describe('E3 Edit text', () => {
     expect([s.mode, tools.hint]).toEqual(['fill', null]);
     await tools.pointerDown(0, { x: 100, y: 500 });
     expect(tools.typing).toMatchObject({ kind: 'cover', page: 0 });
-    await tools.commitTyping('Typed over the scan');
+    let notified = 0;
+    tools.changed.on(() => notified++);
+    const committing = tools.commitTyping('Typed over the scan');
+    // The field must unmount at once, before the command has finished (Ctrl+S right after Enter).
+    expect([tools.typing, notified]).toEqual([null, 1]);
+    await committing;
     expect((await s.doc.listAnnotations(0))[0]).toMatchObject({
       type: 'freetext',
       contents: 'Typed over the scan',
