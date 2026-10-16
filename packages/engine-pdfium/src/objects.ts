@@ -11,6 +11,7 @@ import type {
   ImageSpec,
   Matrix,
   ObjId,
+  OcrLayerWord,
   PageIndex,
   PageObject,
   PageObjectType,
@@ -292,6 +293,96 @@ export function addText(d: DocInternals, i: PageIndex, spec: TextSpec): ObjId {
     d.commitPage(i);
     return objId(m.FPDFPage_CountObjects(page) - 1);
   });
+}
+
+// ---- OCR layer (FR-OCR-01, FR-OCR-09) ---------------------------------------------------------
+
+/** Name of the marked-content tag that identifies the layer Folio wrote. */
+export const OCR_MARK = 'Folio:OCR';
+/** FPDFPageObjMark_GetName fills a UTF-16 buffer and reports the length through an out parameter. */
+function scopeLen(m: Pdfium, mark: Ptr, buf: Ptr, len: number): number {
+  return scope(m, (a) => {
+    const out = a.alloc(4);
+    const ok = m.FPDFPageObjMark_GetName(mark, buf, len, out);
+    return ok ? a.u32(out) : 0;
+  });
+}
+function markName(m: Pdfium, mark: Ptr): string {
+  return getUtf16(m, (buf, len) => scopeLen(m, mark, buf, len));
+}
+function isOcr(m: Pdfium, obj: Ptr): boolean {
+  const n = m.FPDFPageObj_CountMarks(obj);
+  for (let k = 0; k < n; k++) {
+    const mark = m.FPDFPageObj_GetMark(obj, k);
+    if (mark && markName(m, mark) === OCR_MARK) return true;
+  }
+  return false;
+}
+
+/** Base letter for characters the bundled font does not have (é → e), or the character itself. */
+function foldGlyphs(text: string, covers: (t: string) => boolean): { text: string; substituted: boolean } {
+  if (covers(text)) return { text, substituted: false };
+  const folded = [...text]
+    .map((ch) => (covers(ch) ? ch : ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '')))
+    .join('')
+    .replace(/[^\x20-\x7e\u00a0-\u00ff]/g, '?');
+  return { text: folded, substituted: true };
+}
+
+export function addOcrLayer(d: DocInternals, i: PageIndex, words: OcrLayerWord[]): { written: number; substituted: number } {
+  const m = d.m;
+  const page = d.page(i);
+  const font = d.shared.fonts.load(d.doc, 'sans', 'regular');
+  const covers = (t: string): boolean => d.shared.fonts.covers('sans', 'regular', t);
+  let written = 0;
+  let substituted = 0;
+  scope(m, (a) => {
+    for (const w of words) {
+      if (!(w.width > 0 && w.fontSize > 0) || w.text.trim() === '') continue;
+      const folded = foldGlyphs(w.text, covers);
+      if (folded.text.trim() === '') continue;
+      const obj = m.FPDFPageObj_CreateTextObj(d.doc, font, w.fontSize);
+      if (!obj) throw new InvalidPdfError('Could not create text object');
+      setText(m, a, obj, folded.text);
+      m.FPDFTextObj_SetTextRenderMode(obj, 3); // invisible: the scan image stays exactly as it was
+      // Stretch along the baseline to the word's width, so selection and search boxes match the image.
+      const natural = bounds(m, a, obj).width;
+      const sx = natural > 0 ? w.width / natural : 1;
+      setMatrix(m, a, obj, multiply(multiply([sx, 0, 0, 1, 0, 0], rotation(w.angle)), [1, 0, 0, 1, w.origin.x, w.origin.y]));
+      m.FPDFPageObj_AddMark(obj, OCR_MARK);
+      m.FPDFPage_InsertObject(page, obj);
+      written++;
+      if (folded.substituted) substituted++;
+    }
+  });
+  if (written > 0) d.commitPage(i);
+  return { written, substituted };
+}
+
+/** Objects of the page that belong to Folio's OCR layer, highest index first (safe to remove in order). */
+function ocrObjects(d: DocInternals, i: PageIndex): Ptr[] {
+  const m = d.m;
+  const page = d.page(i);
+  const out: Ptr[] = [];
+  for (let k = m.FPDFPage_CountObjects(page) - 1; k >= 0; k--) {
+    const obj = m.FPDFPage_GetObject(page, k);
+    if (m.FPDFPageObj_GetType(obj) === 1 && isOcr(m, obj)) out.push(obj);
+  }
+  return out;
+}
+export function removeOcrLayer(d: DocInternals, i: PageIndex): number {
+  const m = d.m;
+  const page = d.page(i);
+  const objs = ocrObjects(d, i);
+  for (const obj of objs) {
+    if (m.FPDFPage_RemoveObject(page, obj)) m.FPDFPageObj_Destroy(obj);
+  }
+  if (objs.length) d.commitPage(i);
+  return objs.length;
+}
+export function hasOcrLayer(d: DocInternals, i: PageIndex): boolean {
+  d.checkPage(i);
+  return ocrObjects(d, i).length > 0;
 }
 
 // ---- images ----------------------------------------------------------------------------------

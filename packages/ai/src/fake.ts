@@ -1,6 +1,6 @@
-import type { AiCapabilities, AiProvider, FormAnalysisRequest, FormAnalysisResult } from '@folio/ports';
+import type { AiCapabilities, AiProvider, FormAnalysisRequest, FormAnalysisResult, PageTranscription, PageTranscriptionRequest } from '@folio/ports';
 import { estimateTokens } from './prompt.ts';
-import { validateOutput } from './schema.ts';
+import { validateOutput, validateTranscription } from './schema.ts';
 
 export type FakeAnswer = FormAnalysisResult | Error | ((req: FormAnalysisRequest) => unknown);
 
@@ -20,6 +20,21 @@ export class FakeAiProvider implements AiProvider {
   }
   async isConfigured(): Promise<boolean> {
     return this.configured;
+  }
+  /** Scripted page transcriptions (raw model output goes through the same validation as real answers). */
+  readonly transcriptionRequests: Array<Omit<PageTranscriptionRequest, 'jpeg'>> = [];
+  private transcriptions: Array<PageTranscription | Error | ((req: PageTranscriptionRequest) => unknown)> = [];
+  enqueueTranscription(...answers: Array<PageTranscription | Error | ((req: PageTranscriptionRequest) => unknown)>): this {
+    this.transcriptions.push(...answers);
+    return this;
+  }
+  async recognizePage(req: PageTranscriptionRequest, signal: AbortSignal): Promise<PageTranscription> {
+    if (signal.aborted) throw new Error('aborted');
+    this.transcriptionRequests.push({ page: req.page, width: req.width, height: req.height });
+    const answer = this.transcriptions.shift() ?? { lines: [] };
+    if (answer instanceof Error) throw answer;
+    if (typeof answer === 'function') return { ...validateTranscription(answer(req)), model: 'fake' };
+    return { model: 'fake', ...answer };
   }
   async probeCapabilities(): Promise<AiCapabilities> {
     this.probes++;

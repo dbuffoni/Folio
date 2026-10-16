@@ -14,11 +14,13 @@ import type {
   FormAnalysisResult,
   HttpClient,
   HttpResponse,
+  PageTranscription,
+  PageTranscriptionRequest,
   SecretStore,
   StructuredOutput,
 } from '@folio/ports';
-import { SYSTEM_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
-import { OUTPUT_JSON_SCHEMA, validateOutput } from './schema.ts';
+import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
+import { OUTPUT_JSON_SCHEMA, TRANSCRIPTION_JSON_SCHEMA, validateOutput, validateTranscription } from './schema.ts';
 
 export const OPENAI_KEY_SECRET = 'folio.openai-key';
 
@@ -187,6 +189,41 @@ export class OpenAiProvider implements AiProvider {
             ? { inputTokens: json.usage.prompt_tokens ?? 0, outputTokens: json.usage.completion_tokens ?? 0 }
             : undefined,
         };
+      } catch (e) {
+        if (e instanceof AiError) throw e;
+        detail = String(e).slice(0, 200);
+      }
+    }
+    throw new AiError('malformed', detail);
+  }
+
+  async recognizePage(req: PageTranscriptionRequest, signal: AbortSignal): Promise<PageTranscription> {
+    if (!(await this.isConfigured())) throw new AiError('notConfigured');
+    const json = this.jsonRequest('page_transcription_v1', TRANSCRIPTION_JSON_SCHEMA);
+    const body = {
+      model: this.deps.config().model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: TRANSCRIBE_PROMPT + json.system },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Page ${req.page + 1}, ${req.width}×${req.height} pixels.` },
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${toBase64(req.jpeg)}`, detail: 'high' } },
+          ],
+        },
+      ],
+      response_format: json.responseFormat,
+    };
+    let detail = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await this.call('/chat/completions', 'POST', body, signal);
+      try {
+        const parsed = JSON.parse(res.body) as { choices?: Array<{ message?: { content?: string; refusal?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string };
+        const message = parsed.choices?.[0]?.message;
+        if (message?.refusal) throw new AiError('blocked', 'The model declined the request');
+        const { lines } = validateTranscription(JSON.parse(message?.content ?? ''));
+        return { lines, model: parsed.model ?? this.deps.config().model, usage: parsed.usage ? { inputTokens: parsed.usage.prompt_tokens ?? 0, outputTokens: parsed.usage.completion_tokens ?? 0 } : undefined };
       } catch (e) {
         if (e instanceof AiError) throw e;
         detail = String(e).slice(0, 200);

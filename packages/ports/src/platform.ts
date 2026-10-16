@@ -133,6 +133,8 @@ export interface ImageCodec {
 }
 
 export interface Platform {
+  /** Verified downloads of OCR language data (FR-OCR-02); absent in builds that cannot download. */
+  downloader?: import('./ocr.ts').Downloader;
   files: FileService;
   storage: AppStorage;
   db: Database;

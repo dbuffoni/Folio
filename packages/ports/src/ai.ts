@@ -76,7 +76,31 @@ export interface AiCapabilities {
   vision: boolean;
   structured: StructuredOutput;
 }
+/** What the vision model reads off a page image (FR-OCR "Read difficult scans with AI"). */
+export interface PageTranscriptionRequest {
+  page: number;
+  jpeg: Uint8Array;
+  width: number;
+  height: number;
+}
+export interface TranscribedLine {
+  text: string;
+  /** Normalised 0–1 relative to the page image: [x0, y0, x1, y1], origin top-left. */
+  bbox: [number, number, number, number];
+  confidence: number;
+}
+export interface PageTranscription {
+  lines: TranscribedLine[];
+  model?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+}
 export interface AiProvider {
+  /**
+   * Transcribes the text of one page image into lines with boxes, for the invisible OCR layer. The text
+   * read from the image is data; it is never acted on.
+   * @throws AiError('unsupported') when the model returns no JSON, AiError('malformed') for unusable output.
+   */
+  recognizePage(req: PageTranscriptionRequest, signal: AbortSignal): Promise<PageTranscription>;
   isConfigured(): Promise<boolean>;
   /**
    * Sends the two probes (structured output, vision). Only on an explicit user action.

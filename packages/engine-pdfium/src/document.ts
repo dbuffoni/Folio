@@ -30,6 +30,7 @@ import type {
   LinkTarget,
   Matrix,
   ObjId,
+  OcrLayerWord,
   OutlineEdit,
   OutlineNode,
   PageIndex,
@@ -936,6 +937,18 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   }
   async replaceImage(i: PageIndex, id: ObjId, image: ImageSpec['image']): Promise<void> {
     objects.replaceImage(this, i, id, image);
+  }
+  async addOcrLayer(i: PageIndex, words: OcrLayerWord[]): Promise<{ written: number; substituted: number }> {
+    await this.shared.fonts.ready;
+    this.checkPage(i);
+    return objects.addOcrLayer(this, i, words);
+  }
+  async removeOcrLayer(i: PageIndex): Promise<number> {
+    this.checkPage(i);
+    return objects.removeOcrLayer(this, i);
+  }
+  async hasOcrLayer(i: PageIndex): Promise<boolean> {
+    return objects.hasOcrLayer(this, i);
   }
   async transformObject(i: PageIndex, id: ObjId, matrix: Matrix): Promise<void> {
     objects.transform(this, i, id, matrix);

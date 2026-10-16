@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FormAnalysisRequest, FormAnalysisResult } from '@folio/ports';
+import type { FormAnalysisRequest, FormAnalysisResult, PageTranscription } from '@folio/ports';
 
 export const TRANSFORMS = ['none', 'upper', 'lower', 'date_dmy', 'date_mdy', 'date_iso', 'first_name', 'last_name', 'full_name', 'phone_e164', 'phone_national', 'checkbox_true', 'checkbox_false'] as const;
 const FIELD_TYPES = ['text', 'date', 'number', 'checkbox', 'radio', 'choice', 'signature', 'multiline'] as const;
@@ -125,4 +125,54 @@ export function validateOutput(raw: unknown, req: FormAnalysisRequest): Validati
     newAreas.push({ ...parsed.data, bbox: [x0, y0, x1, y1], profileKey: known ? parsed.data.profileKey : null, confidence: known ? Math.min(1, Math.max(0, parsed.data.confidence)) : 0 });
   }
   return { result: { fields, newAreas }, dropped, downgraded };
+}
+
+/** Output schema of page transcription, sent as a strict JSON Schema. */
+export const TRANSCRIPTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['lines'],
+  properties: {
+    lines: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['text', 'bbox', 'confidence'],
+        properties: {
+          text: { type: 'string' },
+          bbox: { type: 'array', items: { type: 'number' } },
+          confidence: { type: 'number' },
+        },
+      },
+    },
+  },
+} as const;
+
+const lineSchema = z.object({
+  text: z.string(),
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  confidence: z.number().catch(0),
+});
+/** Keeps only usable lines: text present, box ordered and inside the page, confidence in 0–1. */
+export function validateTranscription(raw: unknown): { lines: PageTranscription['lines']; dropped: number } {
+  const top = z.object({ lines: z.array(z.unknown()) }).parse(raw);
+  const clamp = (v: number): number => Math.min(1, Math.max(0, v));
+  const lines: PageTranscription['lines'] = [];
+  let dropped = 0;
+  for (const item of top.lines) {
+    const p = lineSchema.safeParse(item);
+    if (!p.success || p.data.text.trim() === '') {
+      dropped++;
+      continue;
+    }
+    const [a, b, c, d] = p.data.bbox.map(clamp) as [number, number, number, number];
+    const bbox: [number, number, number, number] = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+    if (bbox[2] - bbox[0] < 0.004 || bbox[3] - bbox[1] < 0.002) {
+      dropped++;
+      continue;
+    }
+    lines.push({ text: p.data.text.replace(/\s+/g, ' ').trim(), bbox, confidence: clamp(p.data.confidence) });
+  }
+  return { lines, dropped };
 }

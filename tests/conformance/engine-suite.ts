@@ -156,6 +156,75 @@ export function runEngineConformance(
       });
     });
 
+    describe('OCR text layer', () => {
+      const words = (page: { width: number; height: number }) => [
+        { text: 'Hello', origin: { x: 72, y: page.height - 100 }, angle: 0, width: 60, fontSize: 14 },
+        { text: 'recognised', origin: { x: 140, y: page.height - 100 }, angle: 0, width: 90, fontSize: 14 },
+        { text: 'Città', origin: { x: 72, y: page.height - 130 }, angle: 0, width: 40, fontSize: 14 },
+      ];
+      it('writes invisible text that search and extraction find, and the page looks the same @FR-OCR-01 @FR-OCR-04', async () => {
+        const doc = await open('scan');
+        const before = await doc.render(0, { scale: 1 });
+        expect((await doc.getTextLayer(0)).isScanned).toBe(true);
+        expect(await doc.hasOcrLayer(0)).toBe(false);
+        const res = await doc.addOcrLayer(0, words((await doc.getPageInfo(0)).size));
+        expect(res).toEqual({ written: 3, substituted: 0 });
+        expect(await doc.hasOcrLayer(0)).toBe(true);
+        const layer = await doc.getTextLayer(0);
+        expect(layer.text.replace(/\s+/g, ' ')).toContain('Hello recognised');
+        expect(layer.text).toContain('Città');
+        // The scan image is exactly as before: the text is invisible.
+        expect(await doc.render(0, { scale: 1 })).toRenderLike(before, { tolerance: 0 });
+        const hits: SearchHit[] = [];
+        for await (const h of doc.search({ text: 'recognised' })) hits.push(h);
+        expect(hits.length).toBe(1);
+        // Word boxes are stretched to the width given, so selection matches the image.
+        const run = layer.runs.find((r) => r.text.startsWith('recognised'))!;
+        expect(run.rect.width).toBeGreaterThan(80);
+        expect(run.rect.width).toBeLessThan(100);
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        expect(await again.hasOcrLayer(0)).toBe(true);
+        expect(await again.removeOcrLayer(0)).toBe(3);
+        expect((await again.getTextLayer(0)).text).toBe('');
+        expect((await again.getTextLayer(0)).isScanned).toBe(true);
+        expect(await again.hasOcrLayer(0)).toBe(false);
+        doc.dispose();
+        again.dispose();
+      });
+      it('removing the layer leaves third-party text alone and unsupported letters fall back to a base letter @FR-OCR-03', async () => {
+        const doc = await open('text');
+        const original = (await doc.getTextLayer(0)).text;
+        const res = await doc.addOcrLayer(0, [
+          { text: 'Reka 漢字', origin: { x: 72, y: 300 }, angle: 0, width: 80, fontSize: 12 },
+          { text: 'plain', origin: { x: 72, y: 280 }, angle: 0, width: 30, fontSize: 12 },
+          { text: '   ', origin: { x: 72, y: 260 }, angle: 0, width: 30, fontSize: 12 },
+          { text: 'zero', origin: { x: 72, y: 240 }, angle: 0, width: 0, fontSize: 12 },
+        ]);
+        expect(res.written).toBe(2);
+        expect(res.substituted).toBe(1);
+        expect((await doc.getTextLayer(0)).text).toMatch(/Reka \?\?/);
+        expect(await doc.removeOcrLayer(0)).toBe(2);
+        expect((await doc.getTextLayer(0)).text).toBe(original);
+        // Pages without a layer report none; asking twice is harmless.
+        expect(await doc.removeOcrLayer(0)).toBe(0);
+        expect(await code(doc.addOcrLayer(9, []))).toBe('invalidArgument');
+        doc.dispose();
+      });
+      it('text on a rotated page reads upright when the page is shown @FR-OCR-01', async () => {
+        const doc = await open('rotated-pages');
+        const info = await doc.getPageInfo(1);
+        expect(info.rotation).toBe(90);
+        // On a page shown rotated by 90° the baseline runs up the page: angle 90 in user space.
+        await doc.addOcrLayer(1, [{ text: 'sideways', origin: { x: 100, y: 100 }, angle: 90, width: 60, fontSize: 12 }]);
+        const run = (await doc.getTextLayer(1)).runs.find((r) => r.text.includes('sideways'))!;
+        expect(Math.round(run.angle)).toBe(90);
+        expect(run.rect.height).toBeGreaterThan(run.rect.width);
+        doc.dispose();
+      });
+    });
+
     describe('compact save', () => {
       it('writes object streams, Flate for every stream and keeps text and pages @FR-OPT-07', async () => {
         const doc = await open('text-25');

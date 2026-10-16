@@ -462,6 +462,18 @@ export interface RectSpec {
   strokeWidth?: number;
 }
 
+/** One recognised word to write into the invisible text layer (FR-OCR-01). */
+export interface OcrLayerWord {
+  text: string;
+  /** Start of the baseline in PDF user space. */
+  origin: Point;
+  /** Direction of the text in degrees, counter-clockwise; equals the page rotation for upright scans. */
+  angle: number;
+  /** Length of the word along its baseline, in points: the text is stretched to it so selection matches. */
+  width: number;
+  fontSize: number;
+}
+
 export interface SaveOptions {
   /** Append changes instead of rewriting (keeps earlier revisions and signatures valid up to that point). */
   incremental?: boolean;
@@ -556,6 +568,16 @@ export interface PdfDocument {
   addImage(i: PageIndex, img: ImageSpec): Promise<ObjId>;
   getImage(i: PageIndex, id: ObjId): Promise<RasterImage>;
   replaceImage(i: PageIndex, id: ObjId, image: ImageSpec['image']): Promise<void>;
+  /**
+   * Writes recognised words as invisible text (render mode 3) tagged `Folio:OCR` (FR-OCR-01, FR-OCR-09).
+   * Characters the bundled font lacks are written as their base letter; `substituted` counts the words that
+   * needed that, so the UI can say so.
+   */
+  addOcrLayer(i: PageIndex, words: OcrLayerWord[]): Promise<{ written: number; substituted: number }>;
+  /** Removes the layer Folio made on a page, never third-party text. @returns how many words were removed. */
+  removeOcrLayer(i: PageIndex): Promise<number>;
+  /** Whether the page carries a layer made by Folio. */
+  hasOcrLayer(i: PageIndex): Promise<boolean>;
   transformObject(i: PageIndex, id: ObjId, m: Matrix): Promise<void>;
   removeObject(i: PageIndex, id: ObjId): Promise<void>;
   addRect(i: PageIndex, spec: RectSpec): Promise<ObjId>;

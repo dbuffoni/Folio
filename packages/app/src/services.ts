@@ -1,7 +1,7 @@
 import { OpenAiProvider } from '@folio/ai';
 import { DEFAULT_SETTINGS, aiCapabilities, uuid, type Settings } from '@folio/core';
 import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
-import type { AiProvider, PdfEngine, Platform } from '@folio/ports';
+import type { AiProvider, OcrEngine, PdfEngine, Platform } from '@folio/ports';
 import {
   AnnotationService,
   CompressService,
@@ -10,6 +10,8 @@ import {
   FormAuthoringService,
   FieldDetectionService,
   FormService,
+  OcrLanguageRepo,
+  OcrService,
   ImageToPdfService,
   MergeService,
   ObjectEditService,
@@ -31,6 +33,10 @@ export interface ServicesOptions {
   loadFont: (name: HandwritingFont) => Promise<Uint8Array>;
   /** Overrides the OpenAI provider (tests). */
   ai?: AiProvider;
+  /** Text recognition (FR-OCR-01); absent where it cannot run. */
+  ocr?: OcrEngine;
+  /** Reads the data of an OCR language that ships with the app. */
+  loadOcrLanguage?: (code: string) => Promise<Uint8Array>;
   newId?: () => string;
 }
 
@@ -64,6 +70,8 @@ export class Services {
   readonly outline: OutlineService;
   readonly recovery: RecoveryService;
   readonly smartFill: SmartFillService;
+  readonly ocr: OcrService;
+  readonly ocrLanguages: OcrLanguageRepo;
   readonly ai: AiProvider;
   readonly openAi?: OpenAiProvider;
 
@@ -105,6 +113,13 @@ export class Services {
     }
     this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });
     this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images });
+    this.ocr = new OcrService({ engine: opts.ocr, ai: this.ai, images: platform.images });
+    this.ocrLanguages = new OcrLanguageRepo({
+      storage: platform.storage,
+      crypto: platform.crypto,
+      downloader: platform.downloader,
+      bundled: opts.loadOcrLanguage ?? (async (code) => Promise.reject(new Error(`No bundled OCR data for ${code}`))),
+    });
   }
 
   get platform(): Platform {

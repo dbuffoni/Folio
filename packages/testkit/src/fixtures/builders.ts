@@ -519,6 +519,42 @@ export async function photosDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/** Paragraphs of the OCR fixtures, kept next to the builder so tests can compute the word error rate. */
+export const OCR_TEXT = {
+  en: 'The quick brown fox jumps over the lazy dog. Invoices are due within thirty days of receipt, and late payments may be charged interest.',
+  it: 'La volpe veloce salta sopra il cane pigro. Le fatture devono essere pagate entro trenta giorni dalla ricezione, perché i ritardi sono già costosi.',
+};
+/**
+ * Text set at 16 pt, English then Italian, for the recognition tests. The page is vector text: tests
+ * render it to pixels and recognise that, so the expected text is known exactly.
+ */
+export async function multilingualDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Multilingual');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  const wrap = (text: string, width: number): string[] => {
+    const lines: string[] = [];
+    let cur = '';
+    for (const word of text.split(' ')) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (font.widthOfTextAtSize(next, 16) > width && cur) {
+        lines.push(cur);
+        cur = word;
+      } else cur = next;
+    }
+    return cur ? [...lines, cur] : lines;
+  };
+  let y = 720;
+  for (const para of [OCR_TEXT.en, OCR_TEXT.it]) {
+    for (const line of wrap(para, 468)) {
+      page.drawText(line, { x: 72, y, size: 16, font });
+      y -= 26;
+    }
+    y -= 30;
+  }
+  return finish(doc);
+}
+
 export interface ScannedFormArea {
   /** PDF user space of the unrotated page. */
   rect: { x: number; y: number; width: number; height: number };

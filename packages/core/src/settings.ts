@@ -27,6 +27,12 @@ export const settingsSchema = z.object({
   reduceMotion: z.boolean().default(false),
   sidebar: z.object({ open: z.boolean().default(true), width: z.number().min(160).max(480).default(208), tab: z.enum(['thumbnails', 'outline', 'annotations', 'attachments', 'search']).default('thumbnails') }).default({}),
   inspector: z.object({ open: z.boolean().default(true), width: z.number().min(220).max(480).default(288) }).default({}),
+  ocr: z
+    .object({
+      /** Languages of the last run, in priority order (at most three, FR-OCR-06). */
+      languages: z.array(z.string().regex(/^[a-z]{3}(_[a-z]+)?$/i)).max(3).default([]),
+    })
+    .default({}),
   onboardingDone: z.boolean().default(false),
   signatureNoteShown: z.boolean().default(false),
   ai: z
