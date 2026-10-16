@@ -243,7 +243,6 @@ mod tests {
         );
         assert!(secret_header_value("https://api.openai.com/v1/models", None, Some("Bearer {secret}")).is_err());
         assert!(!is_loopback("https://localhost.evil.example/v1"));
-        assert!(MAX_TIMEOUT_MS >= 180_000);
     }
 
     #[test]

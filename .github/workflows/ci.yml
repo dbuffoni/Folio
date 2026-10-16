@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils
+      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils mupdf-tools
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/web exec playwright install --with-deps chromium firefox webkit
       # Visual baselines are rendered with the fonts of the reference machine; they are compared
