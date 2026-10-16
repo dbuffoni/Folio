@@ -44,6 +44,9 @@ export function describeError(e: unknown): { message: Msg; detail: string } {
  * The application without a UI (SPEC §16.1.6): tabs, opening and saving, close guards, recent files,
  * recovery, toasts. Screens bind to this and to the per-document `DocumentSession`.
  */
+/** Background snapshots wait until the user has been idle this long. */
+const ACTIVITY_PAUSE_MS = 1500;
+
 export class AppModel {
   readonly changed = new Emitter<void>();
   sessions: DocumentSession[] = [];
@@ -53,6 +56,7 @@ export class AppModel {
   /** A tile or flow asked for a tool to be started once a document is open. */
   pendingIntent: Tile | null = null;
   private toastSeq = 0;
+  private lastActivity = 0;
   private scheduler: RecoveryScheduler;
   private offExternal?: () => void;
   private offClose?: () => void;
@@ -78,7 +82,13 @@ export class AppModel {
           },
         })),
       (e) => services.platform.log.warn('recovery snapshot failed', describeError(e).detail),
+      () => Date.now() - this.lastActivity < ACTIVITY_PAUSE_MS,
     );
+  }
+
+  /** The shell calls this on scrolling, typing and pointer input so background work can wait for a pause. */
+  noteActivity(): void {
+    this.lastActivity = Date.now();
   }
 
   get active(): DocumentSession | null {

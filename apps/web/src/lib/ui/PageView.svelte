@@ -15,11 +15,12 @@
     translation,
   } from '@folio/core';
   import type { Annotation, FormField, LinkInfo, Matrix, PageObject, Rect, Rotation } from '@folio/ports';
-  import { HIGHLIGHT_COLORS, cappedScale, type DetectedArea, type EditableLine } from '@folio/services';
+  import { HIGHLIGHT_COLORS, budgetScale, cappedScale, tileRect, type DetectedArea, type EditableLine } from '@folio/services';
   import { t, tm } from '#lib/i18n/index.ts';
-  import { dep, app, models, services, track } from '#lib/state.svelte.ts';
+  import { dep, app, models, raw, services, track } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
-  import { colorToHex, hexToColor, paintSoon, pooledCanvas, png } from './raster.ts';
+  import { colorToHex, hexToColor, paint, paintSoon, pooledCanvas, png } from './raster.ts';
+  import { stableList } from './stable.ts';
   import { tip } from './tip.ts';
   import { untrack } from 'svelte';
 
@@ -29,6 +30,7 @@
     box,
     visible,
     scrolling = false,
+    viewWin = { left: 0, top: 0, right: 0, bottom: 0 },
   }: {
     session: DocumentSession;
     page: number;
@@ -36,11 +38,16 @@
     visible: boolean;
     /** The canvas is being scrolled: renders wait a little longer so pages flying past are skipped. */
     scrolling?: boolean;
+    /** Visible part of the canvas in its own pixels; read only while the page is too large for one bitmap. */
+    viewWin?: { left: number; top: number; right: number; bottom: number };
   } = $props();
   const m = $derived(models(session));
   const tools = $derived(m.tools);
   const v = $derived(track());
-  const info = $derived(dep(v, session.pageInfos[page]));
+  // Plain page data: reading it through the live proxy would tie every geometry derived below to
+  // each model notification.
+  const info = $derived(dep(v, raw(session).pageInfos[page]));
+  const viewRot = $derived(dep(v, session.view.rotation));
   const zoom = $derived(dep(v, session.view.zoom));
   const mode = $derived(dep(v, session.mode));
   const tool = $derived(dep(v, tools.tool));
@@ -50,7 +57,7 @@
   // ---- geometry: PDF user space ↔ CSS pixels of this page box ---------------------------------
   const toView = $derived.by((): Matrix => {
     if (!info) return [1, 0, 0, 1, 0, 0];
-    const rot = ((info.rotation + session.view.rotation) % 360) as Rotation;
+    const rot = ((info.rotation + viewRot) % 360) as Rotation;
     return multiply(translation(-info.cropBox.x, -info.cropBox.y), pageToViewMatrix(info.size, rot, zoom));
   });
   const toPage = $derived(invert(toView));
@@ -59,7 +66,7 @@
     const q = vr(r);
     return `left:${q.x}px;top:${q.y}px;width:${q.width}px;height:${q.height}px`;
   };
-  const upright = $derived(info ? (info.rotation + session.view.rotation) % 360 === 0 : true);
+  const upright = $derived(info ? (info.rotation + viewRot) % 360 === 0 : true);
 
   // ---- bitmap ---------------------------------------------------------------------------------
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -76,10 +83,9 @@
   );
   // Effects name their dependencies first and do the work untracked: reading a live model inside
   // an effect would otherwise re-run it on every model change.
-  const viewRotation = $derived(session.view.rotation);
   $effect(() => {
     void renderTick;
-    const rotation = viewRotation;
+    const rotation = viewRot;
     const target = canvas;
     const pageInfo = info;
     const z = zoom;
@@ -87,7 +93,8 @@
     const ac = new AbortController();
     const timer = untrack(() => {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const scale = cappedScale(pageInfo.size, z * dpr);
+      // Large pages get a bounded base bitmap; the visible part is redrawn sharp by the tile below.
+      const scale = budgetScale(pageInfo.size, z * dpr);
       const priority = page === session.view.page ? 'visible' : 'near';
       // A short delay coalesces renders while zooming with the wheel; a longer one while scrolling.
       return setTimeout(() => {
@@ -96,6 +103,52 @@
           .then((img) => !ac.signal.aborted && paintSoon(target, img, () => ac.signal.aborted))
           .catch((e) => (e as { code?: string }).code !== 'cancelled' && app.reportError(e));
       }, scrolling ? 90 : 40);
+    });
+    return () => (clearTimeout(timer), ac.abort());
+  });
+
+  // ---- sharp tile for zoomed pages -----------------------------------------------------------
+  let tile: HTMLCanvasElement | undefined = $state();
+  const dprNow = (): number => Math.min(2, window.devicePixelRatio || 1);
+  const tiled = $derived(!!info && visible && budgetScale(info.size, zoom * dprNow()) < cappedScale(info.size, zoom * dprNow()) * 0.999);
+  let tileBox = $state({ left: 0, top: 0, width: 0, height: 0 });
+  $effect(() => {
+    if (tile) tile.style.filter = themeFilter(theme);
+  });
+  // A tile belongs to one zoom and rotation: hide it until its replacement is drawn.
+  $effect(() => {
+    void zoom;
+    void viewRot;
+    void renderTick;
+    untrack(() => (tileBox = { left: 0, top: 0, width: 0, height: 0 }));
+  });
+  $effect(() => {
+    void renderTick;
+    const rotation = viewRot;
+    const target = tile;
+    const pageInfo = info;
+    const z = zoom;
+    const win = viewWin;
+    const b = box;
+    if (!target || !pageInfo || !tiled || scrolling) return;
+    const ac = new AbortController();
+    const timer = untrack(() => {
+      const scale = cappedScale(pageInfo.size, z * dprNow());
+      const k = scale / z;
+      const local = { left: win.left - b.x, top: win.top - b.y, right: win.right - b.x, bottom: win.bottom - b.y };
+      const rect = tileRect({ width: b.width, height: b.height }, local, k, 0.15 * (win.bottom - win.top));
+      if (!rect) return undefined;
+      return setTimeout(() => {
+        session.renderer
+          .render({ page, scale, rotation, rect, priority: 'visible', bitmap: true, signal: ac.signal })
+          .then((img) => {
+            if (ac.signal.aborted) return;
+            // Drawn and placed together, so the old pixels are never stretched over the new region.
+            paint(target, img);
+            tileBox = { left: rect.x / k, top: rect.y / k, width: rect.width / k, height: rect.height / k };
+          })
+          .catch((e) => (e as { code?: string }).code !== 'cancelled' && app.reportError(e));
+      }, 40);
     });
     return () => (clearTimeout(timer), ac.abort());
   });
@@ -160,9 +213,11 @@
     );
   });
 
-  const hits = $derived(dep(v, m.find.open ? m.find.hitsOnPage(page) : []));
+  const keepHits = stableList<ReturnType<typeof m.find.hitsOnPage>[number]>();
+  const hits = $derived(keepHits(dep(v, m.find.open ? m.find.hitsOnPage(page) : [])));
+  const keepSelected = stableList<Annotation>();
   const selectedAnnots = $derived(
-    sel.kind === 'annotations' && sel.page === page ? annotations.filter((a) => sel.ids.includes(a.id!)) : [],
+    keepSelected(sel.kind === 'annotations' && sel.page === page ? annotations.filter((a) => sel.ids.includes(a.id!)) : []),
   );
   const drag = $derived(dep(v, tools.drag && tools.drag.page === page ? tools.drag : null));
   const boxes = $derived(
@@ -183,10 +238,11 @@
   const located = $derived(
     smart.located ? smart.suggestions.find((s) => s.ref === smart.located && s.page === page) : undefined,
   );
+  const keepFields = stableList<ReturnType<typeof m.form.stops.filter>[number]>();
   const fields = $derived(
-    dep(v, (mode === 'fill' && !authoring) || mode === 'view'
+    keepFields(dep(v, (mode === 'fill' && !authoring) || mode === 'view'
       ? m.form.stops.filter((s) => s.field.widgets[s.widget]!.page === page)
-      : []),
+      : [])),
   );
   const selBounds = $derived(
     selRects.length
@@ -390,6 +446,9 @@
   aria-label="{t('ui.page')} {page + 1}"
   use:pooledCanvas={(c) => (canvas = c)}
 >
+  {#if tiled}
+    <canvas class="tile" bind:this={tile} aria-hidden="true" style="left:{tileBox.left}px;top:{tileBox.top}px;width:{tileBox.width}px;height:{tileBox.height}px;{tileBox.width ? '' : 'display:none'}"></canvas>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="ov"

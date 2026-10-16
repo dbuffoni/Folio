@@ -58,8 +58,11 @@
     if (tab === 'attachments') void session.doc.listAttachments().then((a) => (attachments = a));
   });
   // The annotation list follows every change of the document.
+  // Refresh on document revisions, not on every model notification (each one is an engine call).
+  const revision = $derived(dep(track(), session.history.revision));
   $effect(() => {
-    void track();
+    void revision;
+    void sv;
     if (tab === 'annotations') void services.annotations.list(session.doc).then((a) => (annots = a));
   });
   function toggle(path: string): void {
