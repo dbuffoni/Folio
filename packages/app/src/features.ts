@@ -1,4 +1,5 @@
 import {
+  DATE_FORMATS,
   Emitter,
   InvalidArgumentError,
   grid,
@@ -10,6 +11,7 @@ import {
   msg,
   parsePageRanges,
   splitExt,
+  type DateFormat,
   type Msg,
 } from '@folio/core';
 import { uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
@@ -868,9 +870,17 @@ export class SignModel extends ViewModel {
       make: (rect) => ({ annotation: stamps.annotation(def, { x: 0, y: 0 }, { width: 0, height: 0 }, rect) }),
     });
   }
-  /** Insert date (Ctrl+Shift+D): today's date in the format from settings. */
-  placeDate(tools: ToolController): void {
-    this.placeStamp(tools, this.app.services.stamps.dateStamp(this.app.settings.dateFormat));
+  /** Insert date (Ctrl+Shift+D): today's date in the chosen format, by default the one from settings (FR-STM-05). */
+  placeDate(tools: ToolController, format: DateFormat = this.app.settings.dateFormat): void {
+    this.placeStamp(tools, this.app.services.stamps.dateStamp(format));
+  }
+  /** Choices for the Stamp ▾ menu: every format with today's date written in it. */
+  dateChoices(): Array<{ format: DateFormat; text: string; isDefault: boolean }> {
+    return DATE_FORMATS.map((format) => ({
+      format,
+      text: this.app.services.stamps.dateText(format),
+      isDefault: format === this.app.settings.dateFormat,
+    }));
   }
 
   async addTextStamp(name: string, style: TextStampStyle): Promise<void> {

@@ -105,6 +105,20 @@ test('fill & sign: built-in stamp @FR-STM-06 @FR-STM-08', async ({ app }) => {
   expect(qdf(await save(app))).toMatch(/\/Subtype \/Stamp/);
 });
 
+test('fill & sign: date stamp in a format picked in the Stamp menu @FR-STM-05', async ({ app }) => {
+  await openPdf(app, 'text.pdf');
+  await mode(app, 'Fill & Sign');
+  await tool(app, 'Stamp').click();
+  const now = new Date();
+  const p = (n: number): string => String(n).padStart(2, '0');
+  await app.getByRole('menuitem', { name: `${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}` }).click();
+  const box = await pageBox(app);
+  await app.mouse.move(box.x + 300, box.y + 500);
+  await app.mouse.click(box.x + 300, box.y + 500);
+  await expect(undo(app)).toBeEnabled();
+  expect(qdf(await save(app))).toContain(`${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}`);
+});
+
 test('edit: add text, whiteout and an image @FR-EDT-05 @FR-EDT-06 @FR-EDT-07', async ({ app }) => {
   await openPdf(app, 'text.pdf');
   await mode(app, 'Edit');

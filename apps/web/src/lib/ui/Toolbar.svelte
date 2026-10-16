@@ -74,6 +74,8 @@
     { kind: 'head', label: t('stamp.builtin') },
     ...sign.builtinStamps.map((s): MenuItem => ({ kind: 'custom', id: s.id })),
     ...(sign.customStamps.length ? ([{ kind: 'head', label: t('stamp.custom') }, ...sign.customStamps.map((s): MenuItem => ({ kind: 'custom', id: s.id }))] as MenuItem[]) : []),
+    { kind: 'head', label: t('stamp.dateHead') },
+    ...sign.dateChoices().map((d): MenuItem => ({ icon: 'calendar', label: d.text, checked: d.isDefault, run: () => sign.placeDate(m.tools, d.format) })),
     { kind: 'sep' },
     { icon: 'settings-2', label: t('stamp.manage'), run: () => ui.openDialog('stampEditor') },
   ];

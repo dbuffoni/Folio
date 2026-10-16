@@ -874,6 +874,7 @@
  "stamp.cross": "Cross",
  "stamp.custom": "Custom",
  "stamp.date": "Today’s date",
+ "stamp.dateHead": "Date stamp (the tick marks your default)",
  "stamp.dot": "Dot",
  "stamp.draft": "DRAFT",
  "stamp.empty": "No custom stamps yet.",
