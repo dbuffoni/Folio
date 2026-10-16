@@ -14,5 +14,13 @@ test('Settings keeps the same size and position for every section @FR-APP-10', a
     const box = (await dialog.boundingBox())!;
     first ??= box;
     expect(box).toEqual(first);
+    // The scrollbar of a long section never covers its controls: they end before the scrollable edge.
+    const overlap = await dialog.evaluate((el) => {
+      const pane = el.querySelector('.setpane')!;
+      const edge = pane.getBoundingClientRect().left + pane.clientWidth;
+      const right = Math.max(...[...pane.querySelectorAll('input, select, button, textarea')].map((c) => c.getBoundingClientRect().right));
+      return right - edge;
+    });
+    expect(overlap).toBeLessThanOrEqual(-8);
   }
 });
