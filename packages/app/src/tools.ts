@@ -723,10 +723,17 @@ export class ToolController {
           }),
         );
       } else if (draft.tool === 'snapshot') {
-        await this.services.platform.clipboard.writeImage(
-          await this.services.exporter.snapshotPng(this.session.doc, draft.page, rect),
-        );
-        this.feedback.info(msg('toast.snapshotCopied'));
+        // Rendering can outlast the user gesture the clipboard needs, so the write starts first.
+        try {
+          await this.services.platform.clipboard.writeImage(
+            this.services.exporter.snapshotPng(this.session.doc, draft.page, rect),
+          );
+          this.feedback.info(msg('toast.snapshotCopied'));
+        } catch (e) {
+          if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError'))
+            this.feedback.info(msg('toast.snapshotRefused'));
+          else throw e;
+        }
       } else if (draft.tool === 'table') {
         this.areaPicked.emit({ tool: 'table', page: draft.page, rect });
       }

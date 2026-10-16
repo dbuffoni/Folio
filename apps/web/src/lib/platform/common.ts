@@ -132,8 +132,10 @@ export class BrowserClipboard implements Clipboard {
     }
     return null;
   }
-  async writeImage(png: Uint8Array): Promise<void> {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]);
+  async writeImage(png: Uint8Array | Promise<Uint8Array>): Promise<void> {
+    // The write is requested now, inside the user gesture; the item resolves when the image is ready.
+    const blob = Promise.resolve(png).then((bytes) => new Blob([bytes as BlobPart], { type: 'image/png' }));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
   }
   async writeText(t: string): Promise<void> {
     await navigator.clipboard.writeText(t);

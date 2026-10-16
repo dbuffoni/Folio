@@ -932,6 +932,7 @@
  "toast.signatureSaved": "Signature saved to the library",
  "toast.smartFillApplied": "{count, plural, one {Filled # field} other {Filled # fields}}",
  "toast.snapshotCopied": "Snapshot copied to the clipboard",
+ "toast.snapshotRefused": "Folio could not copy to the clipboard. Allow clipboard access for this page and try again.",
  "toast.splitDone": "{count, plural, one {Created # file} other {Created # files}}",
  "toast.stampSaved": "Stamp saved to the library",
  "toast.tableCopied": "Table copied. Paste it into a spreadsheet.",

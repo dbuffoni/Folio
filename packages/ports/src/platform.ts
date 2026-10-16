@@ -74,7 +74,8 @@ export interface Shell {
 }
 export interface Clipboard {
   readImage(): Promise<Uint8Array | null>;
-  writeImage(png: Uint8Array): Promise<void>;
+  /** The image may still be rendering: browsers only accept a clipboard write inside the user gesture. */
+  writeImage(png: Uint8Array | Promise<Uint8Array>): Promise<void>;
   writeText(t: string): Promise<void>;
 }
 export interface WindowService {

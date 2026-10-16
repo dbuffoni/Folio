@@ -212,8 +212,8 @@ export class FakeClipboard implements Clipboard {
   async readImage(): Promise<Uint8Array | null> {
     return this.image;
   }
-  async writeImage(png: Uint8Array): Promise<void> {
-    this.image = png;
+  async writeImage(png: Uint8Array | Promise<Uint8Array>): Promise<void> {
+    this.image = await png;
   }
   async writeText(t: string): Promise<void> {
     this.text = t;

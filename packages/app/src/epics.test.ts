@@ -1273,6 +1273,21 @@ describe('other everyday flows', () => {
     await tools.pointerUp(0, { x: 260, y: 740 });
     expect(t.clipboard.image![1]).toBe(0x50);
     expect(t.toastKeys()).toContain('toast.snapshotCopied');
+    // The clipboard write is requested before the render finishes and a refusal is explained.
+    const seen: unknown[] = [];
+    const write = t.clipboard.writeImage.bind(t.clipboard);
+    t.clipboard.writeImage = (png) => (seen.push(png), write(png));
+    tools.setTool('snapshot');
+    await tools.pointerDown(0, { x: 60, y: 690 });
+    await tools.pointerMove(0, { x: 260, y: 740 });
+    await tools.pointerUp(0, { x: 260, y: 740 });
+    expect(seen[0]).toBeInstanceOf(Promise);
+    t.clipboard.writeImage = () => Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
+    tools.setTool('snapshot');
+    await tools.pointerDown(0, { x: 60, y: 690 });
+    await tools.pointerMove(0, { x: 260, y: 740 });
+    await tools.pointerUp(0, { x: 260, y: 740 });
+    expect(t.toastKeys()).toContain('toast.snapshotRefused');
     await s.run(t.services.documents.setMetadata(s.meta, { title: 'New title' }));
     await settle();
     expect(s.meta.title).toBe('New title');
