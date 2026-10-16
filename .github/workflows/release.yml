@@ -12,9 +12,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -27,7 +27,7 @@ jobs:
       - run: pnpm appimage
       - run: cargo install tauri-driver --locked
       - run: pnpm appimage:smoke
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-appimage
           path: apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
@@ -40,16 +40,16 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/desktop bundle:windows
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-windows
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
@@ -58,9 +58,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -69,7 +69,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/desktop bundle:macos
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-macos
           path: apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
@@ -78,13 +78,13 @@ jobs:
     needs: [appimage, windows, macos]
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: dist-release
@@ -97,7 +97,7 @@ jobs:
       - name: Checksums
         run: cd dist-release && sha256sum * > SHA256SUMS
       - name: Draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           generate_release_notes: true
