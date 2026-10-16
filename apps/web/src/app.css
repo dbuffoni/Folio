@@ -355,8 +355,8 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
 .setnav{display:flex;flex-direction:column;gap:2px;width:160px;flex:none}
 .setnav button{border:0;background:none;text-align:left;height:32px;padding:0 10px;border-radius:8px;cursor:pointer;color:var(--color-fg-2)}
 .setnav button.on{background:var(--color-accent-soft);color:var(--color-accent-text);font-weight:500}
-.setwrap{display:flex;gap:18px}
-.setpane{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+.setwrap{display:flex;gap:18px;height:min(520px,calc(90vh - 130px))}
+.setpane{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;overflow:auto;scrollbar-gutter:stable;padding-right:14px}
 .togrow{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
 .togrow small{display:block;color:var(--color-fg-3)}
 .tog{appearance:none;width:34px;height:20px;border-radius:99px;background:var(--color-border);position:relative;cursor:pointer;flex:none;margin:2px 0 0;transition:background .15s}
@@ -395,7 +395,7 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   #sidebar{position:absolute;left:0;top:0;bottom:0;z-index:30;box-shadow:var(--shadow-float)}
   #inspector{width:min(288px,92vw)}
   .two,.g2,.sctable{grid-template-columns:1fr}
-  .setwrap{flex-direction:column}.setnav{flex-direction:row;width:auto;overflow:auto}
+  .setwrap{flex-direction:column;height:auto}.setnav{flex-direction:row;width:auto;overflow:auto}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   #modebar .ib{display:none}
   .seg button .lbl2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

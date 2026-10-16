@@ -132,6 +132,10 @@ describe('Local AI server presets @FR-AIF-12', () => {
       key: 'settings.ai.url.credentials',
     });
     expect(await model.setBaseUrl('not a url')).toEqual({ key: 'settings.ai.url.invalid' });
+    // A pasted endpoint path is reduced to the base URL.
+    expect(await model.setBaseUrl('https://openrouter.ai/api/v1/chat/completions')).toBeNull();
+    expect(t.app.settings.ai.baseUrl).toBe('https://openrouter.ai/api/v1');
+    await model.selectProvider('ollama');
     expect(t.app.settings.ai.baseUrl).toBe('http://localhost:11434/v1');
     // A remote https host is accepted but still needs a key.
     expect(await model.setBaseUrl('https://llm.example.org/v1/')).toBeNull();

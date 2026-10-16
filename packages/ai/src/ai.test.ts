@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiError, FolioError, NetworkError } from '@folio/core';
+import { AiError, FolioError, NetworkError, normalizeBaseUrl } from '@folio/core';
 import type { FormAnalysisRequest } from '@folio/ports';
 import { FakeHttpClient, FakeSecretStore } from '@folio/testkit';
 import { FakeAiProvider } from './fake.ts';
@@ -312,5 +312,20 @@ describe('FakeAiProvider', () => {
     expect(await fake.probeCapabilities()).toEqual({ vision: true, structured: 'json_schema' });
     fake.capabilities = new AiError('unauthorized');
     await expect(fake.probeCapabilities()).rejects.toThrow(AiError);
+  });
+});
+
+describe('OpenRouter connection test @FR-AIF-12 @FR-AIF-02', () => {
+  it('a stored key the keyring never hands back still counts as configured, and a pasted endpoint path is ignored', async () => {
+    const t = setup(null);
+    // Desktop: `secret_get` answers an empty string for the AI key.
+    t.secrets.values.set(OPENAI_KEY_SECRET, '');
+    t.config.baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+    t.config.model = 'anthropic/claude-haiku-5.5';
+    t.http.enqueue(FakeHttpClient.json(200, { data: [{ id: 'anthropic/claude-haiku-5.5' }] }));
+    expect(await t.provider.isConfigured()).toBe(true);
+    expect(await t.provider.testConnection()).toMatchObject({ ok: true, models: ['anthropic/claude-haiku-5.5'] });
+    expect(t.http.requests[0]!.url).toBe('https://openrouter.ai/api/v1/models');
+    expect(normalizeBaseUrl('https://openrouter.ai/api/v1/models/')).toBe('https://openrouter.ai/api/v1');
   });
 });

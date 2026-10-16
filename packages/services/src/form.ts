@@ -81,7 +81,7 @@ const topOf = (r: Rect): number => r.y + r.height;
  */
 export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextLayer): Omit<DetectedArea, 'id'>[] {
   const paths = objects.filter((o) => o.type === 'path').map((o) => o.bounds);
-  const found: Array<Omit<DetectedArea, 'id' | 'label'>> = [];
+  const found: Array<Omit<DetectedArea, 'id' | 'label'> & { preLabel?: string }> = [];
 
   // Boxes: comb rows first (adjacent equal cells), then check squares, then free boxes.
   const boxes = paths.filter((b) => b.height >= 8 && b.height <= 70 && b.width >= 8).sort((a, b) => b.y - a.y || a.x - b.x);
@@ -115,17 +115,24 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
     const crowded = layer.runs.some((r) => intersects(r.rect, { ...area, y: area.y + 2, height: 10 })) || found.some((f) => intersects(f.rect, { ...area, y: area.y + 1, height: 6 }));
     if (!crowded) found.push({ page, rect: area, kind: 'text' });
   }
-  // Underscore runs inside text.
+  // Leaders inside text: underscore runs and the dotted lines of word-processor forms ("name ………………").
+  // An ellipsis character counts as three dots; fewer than six dots is punctuation, not a field.
+  const weight = (t: string | undefined): number => (t === '_' ? 2 : t === '…' ? 3 : t === '.' || t === '·' ? 1 : 0);
   let start = -1;
   for (let i = 0; i <= layer.chars.length; i++) {
-    const isUnderscore = layer.chars[i]?.text === '_';
-    if (isUnderscore && start < 0) start = i;
-    if (!isUnderscore && start >= 0) {
-      if (i - start >= 4) {
-        const rects = layer.chars.slice(start, i).map((c) => c.rect).filter((r) => r.width > 0);
+    const leader = weight(layer.chars[i]?.text) > 0;
+    if (leader && start < 0) start = i;
+    if (!leader && start >= 0) {
+      const run = layer.chars.slice(start, i);
+      if (run.reduce((n, c) => n + weight(c.text), 0) >= 6 && !(run[0]?.text === '_' && i - start < 4)) {
+        const rects = run.map((c) => c.rect).filter((r) => r.width > 0);
         if (rects.length) {
           const u = unionAll(rects);
-          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text' });
+          // The words before the leader on the same line name it.
+          let from = start;
+          while (from > 0 && start - from < 60 && !/[\n\r]/.test(layer.chars[from - 1]!.text) && weight(layer.chars[from - 1]!.text) === 0) from--;
+          const before = layer.chars.slice(from, start).map((c) => c.text).join('').replace(/[:\s]+$/g, '').trim();
+          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text', ...(/\p{L}{2}/u.test(before) ? { preLabel: before } : {}) });
         }
       }
       start = -1;
@@ -133,8 +140,9 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
   }
 
   // Labels: text on the same row to the left (or to the right for check squares), else just above.
-  const labels = layer.lines.map((l) => ({ text: l.text.replace(/_{2,}/g, '').replace(/[:\s]+$/g, '').trim(), rect: l.rect })).filter((l) => l.text.length > 0);
-  const labelFor = (a: Omit<DetectedArea, 'id' | 'label'>): string | undefined => {
+  const labels = layer.lines.map((l) => ({ text: l.text.replace(/[_.…·]{2,}/g, '').replace(/[:\s]+$/g, '').trim(), rect: l.rect })).filter((l) => l.text.length > 0);
+  const labelFor = (a: Omit<DetectedArea, 'id' | 'label'> & { preLabel?: string }): string | undefined => {
+    if (a.preLabel) return a.preLabel;
     let best: { text: string; score: number } | undefined;
     const midY = a.rect.y + a.rect.height / 2;
     for (const l of labels) {
@@ -149,7 +157,7 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
     }
     return best?.text;
   };
-  return found.sort((a, b) => topOf(b.rect) - topOf(a.rect) || a.rect.x - b.rect.x).map((a) => ({ ...a, label: labelFor(a) }));
+  return found.sort((a, b) => topOf(b.rect) - topOf(a.rect) || a.rect.x - b.rect.x).map(({ preLabel: _pre, ...a }) => ({ ...a, label: labelFor({ ...a, preLabel: _pre }) }));
 }
 
 /** Forms: fill, reset, import/export, Cover & type and area detection (FR-FRM-01…03, 05…07, 09). */

@@ -79,9 +79,17 @@ describe('Field detection @FR-FRM-15 @FR-FRM-07', () => {
       const doc = await engine.open(pdf);
       const info = await doc.getPageInfo(0);
       expect(info.rotation).toBe(rotate);
-      // Without AI: the notice, and nothing is invented.
+      // Without AI the shapes in the page image are proposed: the five boxes and two squares.
       const none = await new FieldDetectionService({}).detect(doc, [0], { useAi: false });
-      expect(none).toMatchObject({ proposals: [], notice: 'scanNeedsAi', usedAi: false });
+      expect(none).toMatchObject({ notice: 'scanLocal', usedAi: false });
+      expect(none.proposals.length).toBe(7);
+      for (const a of areas) {
+        const p = none.proposals.find((x) => x.type === a.kind && Math.abs(x.rect.x - a.rect.x) < 2 && Math.abs(x.rect.y - a.rect.y) < 2)!;
+        expect(p, `${a.label} @${rotate}`).toBeTruthy();
+        expect(p.source).toBe('local');
+        expect(Math.abs(p.rect.width - a.rect.width)).toBeLessThan(2);
+        expect(Math.abs(p.rect.height - a.rect.height)).toBeLessThan(2);
+      }
 
       // The model answers in fractions of the page image as shown (rotated).
       const shown = rotatedSize(info.size, info.rotation);

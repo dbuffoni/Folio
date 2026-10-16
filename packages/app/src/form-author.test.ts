@@ -90,8 +90,9 @@ describe('Edit form mode @FR-FRM-08 @FR-FRM-11 @FR-FRM-16 @FR-FRM-17', () => {
     const m = t.author(s);
     await m.toggle();
     // AI not switched on: the notice, hand drawing stays available.
-    expect(await m.detect([0])).toBe(0);
-    expect(m.notice).toBe('scanNeedsAi');
+    expect(await m.detect([0])).toBe(7);
+    expect(m.notice).toBe('scanLocal');
+    m.cancelProposals();
     m.setTool('text');
     expect(await m.createAt(0, { x: 200, y: 200 }, null)).toBe(true);
     await s.undo();

@@ -51,3 +51,33 @@ test('Edit form: draw a text field and a check box, name, save, fill again; qpdf
   expect(dump).toContain('(Ada Lovelace)');
   await tool(app, 'Select').count();
 });
+
+async function editForm(app: import('@playwright/test').Page, file: string): Promise<void> {
+  await openPdf(app, file);
+  await mode(app, 'Fill & Sign');
+  await app.getByRole('button', { name: 'Edit form', exact: true }).click();
+  await app.getByRole('button', { name: 'Detect fields', exact: true }).click();
+}
+
+test('Detect fields: a vector form gets its fields, a plain paper scan gets them from the image, a page with none says so @FR-FRM-15', async ({ app }) => {
+  await editForm(app, 'flat-form.pdf');
+  const panel = app.getByRole('complementary', { name: 'Inspector' });
+  await expect(panel.getByText('6 fields proposed')).toBeVisible();
+  await panel.getByRole('button', { name: 'Create 6 fields' }).click();
+  await expect(app.locator('.afld')).toHaveCount(6);
+
+  // A word-processor form with dotted leaders ("name ………").
+  await editForm(app, 'dotted-form.pdf');
+  await expect(panel.getByText('3 fields proposed')).toBeVisible();
+  await expect(panel.getByText('Il/la sottoscritto/a · Text')).toBeVisible();
+
+  // A scan with no text: the shapes in the image, labelled as a guess.
+  await editForm(app, 'scanned-form.pdf');
+  await expect(panel.getByText('7 fields proposed')).toBeVisible();
+  await expect(panel.getByText(/Found by looking at the page image/)).toBeVisible();
+  await expect(app.locator('.aprop')).toHaveCount(7);
+
+  // Nothing that looks like a field: a message, not silence.
+  await editForm(app, 'invoice.pdf');
+  await expect(panel.getByText('No fields found on this page. Draw them by hand, or try Detect with AI.')).toBeVisible();
+});

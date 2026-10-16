@@ -8,6 +8,7 @@ import {
   isFolioError,
   isLoopbackUrl,
   msg,
+  normalizeBaseUrl,
   presetForUrl,
   type AiProviderId,
   type KnownAiCapabilities,
@@ -100,7 +101,7 @@ export class AiSettingsModel {
 
   /** Typed base URL: https anywhere, plain http only on this computer. Returns the problem, if any. */
   async setBaseUrl(raw: string): Promise<Msg | null> {
-    const url = raw.trim().replace(/\/+$/, '');
+    const url = normalizeBaseUrl(raw);
     const problem = aiEndpointProblem(url);
     if (problem) return msg(`settings.ai.url.${problem}`);
     if (url === this.ai.baseUrl) return null;
