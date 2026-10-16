@@ -39,6 +39,26 @@ fn paths_from_urls(urls: &[url::Url]) -> Vec<PathBuf> {
     urls.iter().filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_file()).collect()
 }
 
+/// The configured window size, reduced so title bar, task bar and dock stay on screen (logical pixels).
+fn fitted_size(configured: (f64, f64), screen: (f64, f64)) -> (f64, f64) {
+    const ROOM: f64 = 0.9;
+    (configured.0.min((screen.0 * ROOM).floor()), configured.1.min((screen.1 * ROOM).floor()))
+}
+
+/// Small screens (1366x768 laptops) cannot hold the 1280x820 default: shrink and centre the window.
+fn fit_window_to_screen(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let (Ok(Some(monitor)), Ok(current)) = (window.current_monitor(), window.outer_size()) else { return };
+    let scale = monitor.scale_factor();
+    let screen = monitor.size().to_logical::<f64>(scale);
+    let size = current.to_logical::<f64>(scale);
+    let (w, h) = fitted_size((size.width, size.height), (screen.width, screen.height));
+    if (w, h) != (size.width, size.height) {
+        let _ = window.set_size(tauri::LogicalSize::new(w, h));
+        let _ = window.center();
+    }
+}
+
 /// Paths among launch arguments that look like documents; flags are ignored.
 pub fn paths_from_args(args: &[String], cwd: Option<&str>) -> Vec<PathBuf> {
     args.iter()
@@ -143,6 +163,7 @@ pub fn run() {
             let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
             let refs = accept_paths(app.handle(), paths_from_args(&args, cwd.as_deref()));
             app.manage(PendingOpen(Mutex::new(refs), Default::default()));
+            fit_window_to_screen(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -231,6 +252,12 @@ mod tests {
         let got = paths_from_args(&args, Some(&dir.path().to_string_lossy()));
         assert_eq!(got, vec![a.clone(), a.clone(), a]);
         assert!(paths_from_args(&["folio".to_string()], None).is_empty());
+    }
+
+    #[test]
+    fn the_window_never_exceeds_the_screen() {
+        assert_eq!(fitted_size((1280.0, 820.0), (1366.0, 768.0)), (1229.0, 691.0));
+        assert_eq!(fitted_size((1280.0, 820.0), (2560.0, 1440.0)), (1280.0, 820.0));
     }
 
     #[test]
