@@ -38,15 +38,16 @@
     if (files.adoptBytes) await app.openRef(files.adoptBytes('Sample form.pdf', bytes));
     else await app.adopt(await services.engine.open(bytes), 'Sample form.pdf');
   }
-  const items = $derived.by((): MenuItem[] =>
-    menu
-      ? [
-          { icon: 'file-text', label: t('action.open'), disabled: menu.card.missing, run: () => void app.openRecent(menu!.card) },
-          ...(services.platform.files.capabilities.reveal ? ([{ icon: 'folder', label: t('home.reveal'), disabled: menu.card.missing, run: () => void app.revealRecent(menu!.card) }] as MenuItem[]) : []),
-          { icon: 'x', label: t('home.removeFromList'), run: () => void app.removeRecent(menu!.card.id) },
-        ]
-      : [],
-  );
+  // The menu closes before an item runs, so the items keep their own reference to the card.
+  const items = $derived.by((): MenuItem[] => {
+    if (!menu) return [];
+    const card = menu.card;
+    return [
+      { icon: 'file-text', label: t('action.open'), disabled: card.missing, run: () => void app.openRecent(card) },
+      ...(services.platform.files.capabilities.reveal ? ([{ icon: 'folder', label: t('home.reveal'), disabled: card.missing, run: () => void app.revealRecent(card) }] as MenuItem[]) : []),
+      { icon: 'x', label: t('home.removeFromList'), run: () => void app.removeRecent(card.id) },
+    ];
+  });
   const when = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 </script>
 
