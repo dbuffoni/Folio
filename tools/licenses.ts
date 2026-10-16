@@ -39,6 +39,7 @@ if (existsSync(manifest)) {
 rows.push({ name: 'PDFium (via @embedpdf/pdfium)', version: 'bundled WASM', license: 'BSD-3-Clause AND Apache-2.0', source: 'bundled' });
 rows.push({ name: 'Liberation fonts', version: readdirSync(join(root, 'assets/fonts/liberation')).filter((f) => f.endsWith('.ttf')).length + ' files', license: 'OFL-1.1', source: 'bundled' });
 rows.push({ name: 'Handwriting fonts (Google Fonts)', version: readdirSync(join(root, 'assets/fonts/handwriting')).filter((f) => f.endsWith('.ttf')).length + ' files', license: 'OFL-1.1', source: 'bundled' });
+rows.push({ name: 'Tesseract OCR engine and language data (tesseract.js, tessdata)', version: '7.x / 4.0.0_best_int, 4.1.0_fast', license: 'Apache-2.0', source: 'bundled' });
 rows.push({ name: 'Lucide icons', version: 'inlined subset', license: 'ISC', source: 'bundled' });
 
 const bad = rows.filter((r) => !ok(r.license));
