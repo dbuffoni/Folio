@@ -5,6 +5,7 @@ import {
   aiTimeoutFor,
   isFolioError,
   isLoopbackUrl,
+  normalizeBaseUrl,
   toBase64,
 } from '@folio/core';
 import type {
@@ -44,7 +45,7 @@ export interface OpenAiDeps {
 export type ConnectionTest =
   { ok: true; models: string[] } | { ok: false; reason: string; host: string; local: boolean };
 
-const trimSlash = (s: string): string => s.replace(/\/+$/, '');
+const trimSlash = normalizeBaseUrl;
 
 /** A plain 8×8 red PNG: the vision probe asks the model which colour it is (FR-AIF-13). */
 export const PROBE_IMAGE_PNG =
@@ -68,7 +69,8 @@ export class OpenAiProvider implements AiProvider {
   constructor(private readonly deps: OpenAiDeps) {}
 
   private async hasKey(): Promise<boolean> {
-    return !!(await this.deps.secrets.get(OPENAI_KEY_SECRET));
+    // The desktop keyring answers an empty string: the key exists but is never handed back.
+    return (await this.deps.secrets.get(OPENAI_KEY_SECRET)) !== null;
   }
   async isConfigured(): Promise<boolean> {
     const { baseUrl, model } = this.deps.config();

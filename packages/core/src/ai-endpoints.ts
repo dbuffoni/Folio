@@ -32,6 +32,13 @@ const parse = (url: string): URL | null => {
   }
 };
 
+/**
+ * The base URL without trailing slashes and without an endpoint path pasted by mistake: providers show
+ * `https://host/v1/chat/completions` as an example, but Folio adds `/chat/completions` and `/models` itself.
+ */
+export const normalizeBaseUrl = (url: string): string =>
+  url.trim().replace(/\/+$/, '').replace(/\/(?:chat\/completions|completions|models)$/, '').replace(/\/+$/, '');
+
 /** True for http(s) URLs whose host is this computer (`localhost`, `127.0.0.1`, `[::1]`). */
 export function isLoopbackUrl(url: string): boolean {
   const u = parse(url);
