@@ -58,39 +58,43 @@
 
 {#if current}
   {@const p = current}
-  <div class="row"><button class="btn sm ghost" style="flex:none" onclick={() => m.open(null)} aria-label={t('action.back')}><Icon name="chevron-left" /></button>
+  <div class="row pheader"><button class="btn sm ghost" style="flex:none" onclick={() => m.open(null)} aria-label={t('action.back')}><Icon name="chevron-left" /></button>
     <input type="text" value={p.name} aria-label={t('settings.profile.name')} maxlength="60" onchange={async (e) => { const input = e.currentTarget; if (!(await m.rename(p.id, input.value))) input.value = p.name; }} />
     {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => m.setDefault(p.id)}>{t('action.setDefault')}</button>{/if}
     <button class="btn sm" style="flex:none" onclick={() => m.duplicate(p.id)}>{t('profiles.duplicate')}</button>
   </div>
-  <div class="ptable ptable-wide">
-    <b class="lab">{t('settings.profile.label')}</b><b class="lab">{t('settings.profile.value')}</b><b class="lab">{t('profiles.type')}</b><b class="lab" title={t('settings.profile.sensitiveHint')}>{t('settings.profile.sensitive')}</b><span></span>
+  <div class="pfields">
     {#each p.fields as f, i (f.key)}
-      <input type="text" value={f.label} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
-      <input id="pf-{f.key}" aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
-      <select value={f.type} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { type: e.currentTarget.value as ProfileFieldType })}>
-        {#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}
-      </select>
-      <input type="checkbox" aria-label="{t('settings.profile.sensitive')}: {f.label}" checked={f.sensitive} onchange={(e) => m.updateField(p.id, f.key, { sensitive: e.currentTarget.checked })} />
-      <span class="row" style="gap:2px;flex:none">
-        <button class="ib" disabled={i === 0} onclick={() => m.moveField(p.id, f.key, -1)} aria-label={t('profiles.up', { label: f.label })}><Icon name="arrow-up" /></button>
-        <button class="ib" disabled={i === p.fields.length - 1} onclick={() => m.moveField(p.id, f.key, 1)} aria-label={t('profiles.down', { label: f.label })}><Icon name="arrow-down" /></button>
-        <button class="ib" onclick={() => m.removeField(p.id, f.key)} aria-label="{t('action.remove')} {f.label}"><Icon name="x" /></button>
-      </span>
-      <small class="note" style="grid-column:1 / -1;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span>{t('settings.profile.key')}: <code>{f.key}</code>
-          {#if keyEdit?.key === f.key}
-            <input type="text" aria-label={t('profiles.newKey')} bind:value={keyEdit.value} style="width:140px" />
-            <button class="link" onclick={async () => { const next = keyEdit!.value; keyEdit = null; if (next && next !== f.key) await m.changeKey(p.id, f.key, next); }}>{t('action.apply')}</button>
-            <button class="link" onclick={() => (keyEdit = null)}>{t('action.cancel')}</button>
-          {:else}
-            <button class="link" onclick={() => (keyEdit = { key: f.key, value: f.key })}>{t('profiles.changeKey')}</button>
-          {/if}</span>
-        <span class="row" style="flex:1;min-width:180px"><label for="al-{f.key}" style="width:auto">{t('profiles.aliases')}</label><input id="al-{f.key}" type="text" value={f.aliases.join(', ')} onchange={(e) => m.updateField(p.id, f.key, { aliases: aliasesOf(e.currentTarget.value) })} /></span>
-        {#if f.type === 'choice'}
-          <span class="row" style="flex:1;min-width:180px"><label for="op-{f.key}" style="width:auto">{t('profiles.options')}</label><input id="op-{f.key}" type="text" value={f.options.join(', ')} onchange={(e) => m.updateField(p.id, f.key, { options: aliasesOf(e.currentTarget.value) })} /></span>
-        {/if}
-      </small>
+      <div class="pfield">
+        <div class="pmain">
+          <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
+          <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
+        </div>
+        <div class="pbar">
+          <select value={f.type} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { type: e.currentTarget.value as ProfileFieldType })}>
+            {#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}
+          </select>
+          <label class="psens" title={t('settings.profile.sensitiveHint')}><input type="checkbox" aria-label="{t('settings.profile.sensitive')}: {f.label}" checked={f.sensitive} onchange={(e) => m.updateField(p.id, f.key, { sensitive: e.currentTarget.checked })} />{t('settings.profile.sensitive')}</label>
+          <span class="grow"></span>
+          <button class="ib" disabled={i === 0} onclick={() => m.moveField(p.id, f.key, -1)} aria-label={t('profiles.up', { label: f.label })}><Icon name="arrow-up" /></button>
+          <button class="ib" disabled={i === p.fields.length - 1} onclick={() => m.moveField(p.id, f.key, 1)} aria-label={t('profiles.down', { label: f.label })}><Icon name="arrow-down" /></button>
+          <button class="ib" onclick={() => m.removeField(p.id, f.key)} aria-label="{t('action.remove')} {f.label}"><Icon name="x" /></button>
+        </div>
+        <div class="pmeta note">
+          <span class="pkey">{t('settings.profile.key')}: <code>{f.key}</code>
+            {#if keyEdit?.key === f.key}
+              <input type="text" aria-label={t('profiles.newKey')} bind:value={keyEdit.value} style="width:140px" />
+              <button class="link" onclick={async () => { const next = keyEdit!.value; keyEdit = null; if (next && next !== f.key) await m.changeKey(p.id, f.key, next); }}>{t('action.apply')}</button>
+              <button class="link" onclick={() => (keyEdit = null)}>{t('action.cancel')}</button>
+            {:else}
+              <button class="link" onclick={() => (keyEdit = { key: f.key, value: f.key })}>{t('profiles.changeKey')}</button>
+            {/if}</span>
+          <span class="pnames"><label for="al-{f.key}">{t('profiles.aliases')}</label><input id="al-{f.key}" type="text" value={f.aliases.join(', ')} onchange={(e) => m.updateField(p.id, f.key, { aliases: aliasesOf(e.currentTarget.value) })} /></span>
+          {#if f.type === 'choice'}
+            <span class="pnames"><label for="op-{f.key}">{t('profiles.options')}</label><input id="op-{f.key}" type="text" value={f.options.join(', ')} onchange={(e) => m.updateField(p.id, f.key, { options: aliasesOf(e.currentTarget.value) })} /></span>
+          {/if}
+        </div>
+      </div>
     {/each}
   </div>
   <div class="row">

@@ -58,3 +58,22 @@ test('profiles editor: create from scratch, typed fields, reorder, save as templ
   await settings.getByRole('button', { name: 'Add', exact: true }).last().click();
   await expect(settings.getByRole('textbox', { name: 'Label: Full name' })).toBeVisible();
 });
+
+test('profile editor keeps every control inside the window at any size @FR-FRM-20 @NFR-11', async ({ app }) => {
+  await app.getByRole('button', { name: 'Settings' }).click();
+  const settings = app.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('button', { name: 'Profiles' }).click();
+  await settings.getByRole('textbox', { name: 'New profile' }).fill('Narrow');
+  await settings.getByRole('button', { name: 'Add', exact: true }).click();
+  for (const [width, height] of [[1360, 860], [900, 700], [640, 700], [420, 780]] as const) {
+    await app.setViewportSize({ width, height });
+    const overflow = await settings.evaluate((el) => {
+      const pane = el.querySelector('.setpane')!;
+      const edge = pane.getBoundingClientRect().left + pane.clientWidth;
+      const controls = [...pane.querySelectorAll('.pfield input, .pfield select, .pfield button')];
+      return { right: Math.max(...controls.map((c) => c.getBoundingClientRect().right)) - edge, scroll: pane.scrollWidth - pane.clientWidth };
+    });
+    expect(overflow.right, `${width}px wide`).toBeLessThanOrEqual(0);
+    expect(overflow.scroll, `${width}px wide`).toBeLessThanOrEqual(0);
+  }
+});
