@@ -40,6 +40,7 @@ const USAGE = `folio-cli <command>
   fill <file> --set name=value [--set …] -o out.pdf   (repeat --set by comma: a=1,b=2)
   edit-text <file> --page=1 --find=Invoce --replace=Invoice -o out.pdf
   flatten <file> -o out.pdf
+  tables <file> --page=3 [--area=x,y,w,h] [--delimiter=;] -o out.csv   table to CSV (local detection)
   ocr <file> [--pages=1-3] [--lang=eng+ita] [--redo] -o out.pdf   invisible text layer (local Tesseract)
   compress <file> --preset=light|balanced|strong [--color-dpi=N --gray-dpi=N --quality=0.7] -o out.pdf
   fixtures [-o fixtures/generated]                write every generated fixture
@@ -154,6 +155,17 @@ async function main(): Promise<number> {
         await doc.flattenForm();
         await doc.flattenAnnotations();
         await save(need(flags, 'out'), await doc.save());
+        break;
+      }
+      case 'tables': {
+        const { TableService } = await import('@folio/services');
+        const doc = await open(args[0]!);
+        const page = Number(flags.page ?? 1) - 1;
+        const area = typeof flags.area === 'string' ? (([x, y, width, height]) => ({ x: x!, y: y!, width: width!, height: height! }))(flags.area.split(',').map(Number)) : null;
+        const svc = new TableService({});
+        const out = await svc.extractLocal(doc, page, area);
+        if (!out) throw new Error(`No table found on page ${page + 1}`);
+        await save(need(flags, 'out'), svc.csv(out.rows, { delimiter: flags.delimiter === ';' ? ';' : ',', bom: !!flags.bom }));
         break;
       }
       case 'ocr': {

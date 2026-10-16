@@ -8,3 +8,4 @@ export * from './history.ts';
 export * from './text-layer.ts';
 export * from './settings.ts';
 export * from './ai-endpoints.ts';
+export * from './tables.ts';

@@ -141,6 +141,7 @@
           { kind: 'sep' },
           { icon: 'file-image', label: t('cmd.exportImages'), run: () => void run('export.images') },
           { icon: 'scan-text', label: t('cmd.ocr.open'), run: () => void run('tool.ocr') },
+          { icon: 'table', label: t('cmd.tableWholePage'), run: () => void run('tool.tableWhole') },
           { icon: 'file-down', label: t('cmd.compress'), run: () => void run('export.compress') },
           { icon: 'info', label: t('cmd.properties'), run: () => void run('file.properties') },
         ])}><Icon name="chevron-down" /></button>
@@ -151,6 +152,7 @@
   {#if mode === 'view'}
     {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
     {@render toolBtn('snapshot', 'camera', t('tool.snapshot'))}
+    {@render toolBtn('table', 'table', t('tool.table'))}
     <span class="vsep"></span>
     {@render menuBtn('columns-2', t('tool.layout'), layoutMenu)}
     {@render cmdBtn('view.zoomOut', 'zoom-out')}

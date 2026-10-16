@@ -327,6 +327,7 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-OPT-07 | **Lossless pass always on** (Release 0.1.1): full rewrite without unreferenced objects (replaced images, orphaned resources), object streams, compressed cross-reference stream, maximum Flate for every uncompressed stream. | P0 |
 | FR-OPT-09 | **Text sharpness guard** (Release 0.1.1): only image XObjects are touched; text and vector content are never rasterised; images are downsampled only when above the target, never upsampled; an image drawn several times keeps enough pixels for its largest use; images with transparency, masks and 1-bit images are left as they are; a JPEG is re-encoded only if that saves more than 10 %. | P0 |
 | FR-OPT-11 | **Signed documents** (Release 0.1.1): a signed file is never overwritten by compression; a copy can be made and its signatures show as invalid, as announced in the dialog. Encrypted files keep their protection in the copy. | P0 |
+| FR-OPT-12 | **Extract tables** (Release 0.1.1): the Extract table tool (or "Extract table from this page") finds a table in the drawn rectangle or the whole page locally from ruled lines, or from alignment and gaps; a preview grid lets the user edit cells, join and split columns, delete rows and columns and mark the header; Save CSV (UTF-8, RFC 4180, comma or semicolon, optional byte order mark) or Copy as tab-separated text; numbers stay exactly as printed; multi-line cells become one cell, merged cells leave the covered columns empty; one page at a time; rotated or vertical text is left out with a notice; "Use AI" (vision model, only on explicit action, after the pre-flight, image of the area only) for scans or poor results. CLI `folio-cli tables`. | P1 |
 | FR-OPT-02 | **Export pages as images** (PNG, JPEG, WebP; DPI 72–600; range selection; zip or folder). | P0 |
 | FR-OPT-03 | **Images to PDF** (see FR-MRG-03) as its own tile with page-size and margin options. | P1 |
 | FR-OPT-04 | Copy page area as image to clipboard ("Snapshot" tool). | P1 |
@@ -1340,7 +1341,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Measurement tools (distance/area/perimeter, scale calibration) | Engineering use. |
 | Barcode/QR generation and scanning | Possible small add-on. |
 | Scanner acquisition (SANE/WIA/ImageCapture), camera scanning, deskew/despeckle/auto-crop of scans | OCR in Release 1 expects existing scans. |
-| Handwriting recognition, ICR, table/structure extraction to Excel, layout-aware OCR | Advanced OCR. |
+| Handwriting recognition, ICR, layout-aware OCR, tables across pages | Advanced OCR (table extraction to CSV shipped in Release 0.1.1). |
 | Stamps marketplace/sharing, dynamic stamps with form data and scripts | A later release may add import/export of the library only. |
 | Customisable toolbars/ribbon, user scripting, remappable shortcuts (Post-R1 partial) | Later UX phase. |
 | Auto-update delivery infrastructure, telemetry-based UX analytics | Optional later, opt-in only. |

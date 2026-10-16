@@ -360,6 +360,7 @@
             'polyline',
             'whiteout',
             'snapshot',
+            'table',
             'note',
             'check',
             'cross',

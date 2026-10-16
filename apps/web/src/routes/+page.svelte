@@ -15,6 +15,7 @@
   import StampsDialog from '#lib/ui/dialogs/StampsDialog.svelte';
   import CompressDialog from '#lib/ui/dialogs/CompressDialog.svelte';
   import OcrDialog from '#lib/ui/dialogs/OcrDialog.svelte';
+  import TablesDialog from '#lib/ui/dialogs/TablesDialog.svelte';
   import Dialog from '#lib/ui/Dialog.svelte';
   import FindBar from '#lib/ui/FindBar.svelte';
   import Home from '#lib/ui/Home.svelte';
@@ -35,6 +36,7 @@
   const session = $derived(dep(v, boot.ready ? app.active : null));
   const dialog = $derived(dep(v, ui.dialog));
   const m = $derived(session ? models(session) : null);
+  const tablesOpen = $derived(dep(v, !!m && m.tables.open));
   const banner = $derived(dep(v, m && session?.mode === 'fill' ? m.form.banner : null));
   let bannerOff = $state<string | null>(null);
   let ocrBannerOff = $state<string | null>(null);
@@ -174,6 +176,7 @@
   {:else if dialog === 'exportImages' && session}<ExportDialog {session} />
   {:else if dialog === 'compress' && session}<CompressDialog {session} />
   {:else if dialog === 'ocr' && session}<OcrDialog {session} />
+  {:else if (dialog === 'tables' || tablesOpen) && session}<TablesDialog {session} />
   {:else if dialog === 'signature'}<SignatureDialog />
   {:else if dialog === 'stampEditor'}<StampsDialog />
   {:else if (dialog === 'properties' || dialog === 'metadata') && session}<PropertiesDialog {session} />

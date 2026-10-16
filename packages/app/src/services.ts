@@ -21,6 +21,7 @@ import {
   SignatureService,
   SmartFillService,
   SplitService,
+  TableService,
   StampService,
   TextEditService,
   type HandwritingFont,
@@ -71,6 +72,7 @@ export class Services {
   readonly recovery: RecoveryService;
   readonly smartFill: SmartFillService;
   readonly ocr: OcrService;
+  readonly tables: TableService;
   readonly ocrLanguages: OcrLanguageRepo;
   readonly ai: AiProvider;
   readonly openAi?: OpenAiProvider;
@@ -113,6 +115,7 @@ export class Services {
     }
     this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });
     this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images });
+    this.tables = new TableService({ ai: this.ai, images: platform.images });
     this.ocr = new OcrService({ engine: opts.ocr, ai: this.ai, images: platform.images });
     this.ocrLanguages = new OcrLanguageRepo({
       storage: platform.storage,

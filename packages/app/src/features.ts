@@ -1,6 +1,7 @@
 import {
   Emitter,
   InvalidArgumentError,
+  grid,
   endpointHost,
   isLoopbackUrl,
   formatPageRanges,
@@ -1109,6 +1110,141 @@ export class OcrModel extends ViewModel {
     this.stage = 'idle';
     this.run = null;
     this.emit();
+  }
+}
+
+// ---- Extract tables (FR-OPT-12) -----------------------------------------------------------------
+
+export class TablesModel extends ViewModel {
+  open = false;
+  page: PageIndex = 0;
+  /** The rectangle the user drew, or null for the whole page. */
+  area: Rect | null = null;
+  rows: string[][] = [];
+  source: 'local' | 'ai' = 'local';
+  ruled = false;
+  skippedRotated = false;
+  busy = false;
+  /** Nothing was found in the area. */
+  empty = false;
+  delimiter: ',' | ';' = ',';
+  bom = false;
+  /** First row is a header (shown in bold; the file is unchanged). */
+  header = true;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+    tools?: { areaPicked: { on(cb: (e: { tool: 'table'; page: PageIndex; rect: Rect }) => void): () => void } },
+  ) {
+    super();
+    tools?.areaPicked.on((e) => void this.extract(e.page, e.rect));
+  }
+  private get s() {
+    return this.app.services;
+  }
+  async aiAvailable(): Promise<boolean> {
+    const ai = this.app.settings.ai;
+    return ai.enabled && aiGates(ai).vision && (await this.s.ai.isConfigured());
+  }
+  get columns(): number {
+    return Math.max(0, ...this.rows.map((r) => r.length));
+  }
+  /** Local detection on a page, for the area or the whole page; the grid opens either way. */
+  async extract(page: PageIndex, area: Rect | null): Promise<void> {
+    this.page = page;
+    this.area = area;
+    this.open = true;
+    this.busy = true;
+    this.empty = false;
+    this.emit();
+    const out = await this.app.guard(() => this.s.tables.extractLocal(this.session.doc, page, area));
+    this.busy = false;
+    this.source = 'local';
+    this.rows = out?.rows ?? [];
+    this.ruled = !!out?.ruled;
+    this.skippedRotated = !!out?.skippedRotated;
+    this.empty = !out || out.rows.length === 0;
+    this.emit();
+  }
+  /** "Use AI": on a scan or when the local result is poor. The pre-flight says what is sent. */
+  async useAi(): Promise<boolean> {
+    if (!(await this.aiAvailable())) {
+      this.app.toast('warning', msg('ai.gate.noVision'));
+      return false;
+    }
+    const host = endpointHost(this.app.settings.ai.baseUrl);
+    if (!(await this.app.prompts.confirm(msg('tables.aiPreflight', { page: this.page + 1, host }), { confirmLabel: msg('tables.aiSend') }))) return false;
+    this.abort = new AbortController();
+    this.busy = true;
+    this.emit();
+    const out = await this.app.guard(() => this.s.tables.extractAi(this.session.doc, this.page, this.area, this.abort!.signal));
+    this.busy = false;
+    if (out) {
+      this.rows = out.rows;
+      this.source = 'ai';
+      this.ruled = false;
+      this.empty = out.rows.length === 0;
+    }
+    this.emit();
+    return !!out;
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+  close(): void {
+    this.open = false;
+    this.rows = [];
+    this.emit();
+  }
+
+  // ---- grid editing ---------------------------------------------------------------------------
+  private set(rows: string[][]): void {
+    this.rows = rows;
+    this.emit();
+  }
+  setCell(r: number, c: number, value: string): void {
+    this.set(grid.setCell(this.rows, r, c, value));
+  }
+  mergeColumns(c: number): void {
+    this.set(grid.mergeColumns(this.rows, c));
+  }
+  splitColumn(c: number): void {
+    this.set(grid.splitColumn(this.rows, c));
+  }
+  deleteRow(r: number): void {
+    this.set(grid.deleteRow(this.rows, r));
+  }
+  deleteColumn(c: number): void {
+    this.set(grid.deleteColumn(this.rows, c));
+  }
+  setOptions(patch: Partial<Pick<TablesModel, 'delimiter' | 'bom' | 'header'>>): void {
+    Object.assign(this, patch);
+    this.emit();
+  }
+
+  // ---- output ---------------------------------------------------------------------------------
+  /** Save CSV: UTF-8, RFC 4180, the chosen separator and optional byte order mark. */
+  async saveCsv(): Promise<boolean> {
+    const files = this.s.platform.files;
+    const ref = await files.pickSave({ suggestedName: this.s.tables.fileName(this.session.name, this.page), kind: 'csv' });
+    if (!ref) return false;
+    const ok = await this.app.guard(async () => {
+      await files.write(ref, this.s.tables.csv(this.rows, { delimiter: this.delimiter, bom: this.bom }), { atomic: true });
+      return true;
+    });
+    if (ok) this.app.toast('success', msg('toast.tableSaved', { name: ref.name }));
+    return !!ok;
+  }
+  /** Copy as tab-separated text, ready to paste into a spreadsheet. */
+  async copy(): Promise<boolean> {
+    const ok = await this.app.guard(async () => {
+      await this.s.platform.clipboard.writeText(this.s.tables.tsv(this.rows));
+      return true;
+    });
+    if (ok) this.app.toast('success', msg('toast.tableCopied'));
+    return !!ok;
   }
 }
 

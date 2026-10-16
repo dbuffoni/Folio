@@ -21,3 +21,4 @@ export * from './compress.ts';
 export * from './form-author.ts';
 export * from './field-detection.ts';
 export * from './ocr.ts';
+export * from './tables.ts';

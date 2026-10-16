@@ -10,10 +10,11 @@ const TYPES: Record<FileKind, { description: string; accept: Record<string, stri
   pdf: { description: 'PDF documents', accept: { 'application/pdf': ['.pdf'] } },
   image: { description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff'] } },
   json: { description: 'JSON files', accept: { 'application/json': ['.json'] } },
+  csv: { description: 'CSV files', accept: { 'text/csv': ['.csv'] } },
   zip: { description: 'ZIP archives', accept: { 'application/zip': ['.zip'] } },
   any: null,
 };
-const EXT: Record<FileKind, string> = { pdf: '.pdf', image: 'image/*', json: '.json', zip: '.zip', any: '' };
+const EXT: Record<FileKind, string> = { pdf: '.pdf', image: 'image/*', json: '.json', zip: '.zip', csv: '.csv', any: '' };
 
 interface Entry {
   file?: File;

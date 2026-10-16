@@ -555,6 +555,57 @@ export async function multilingualDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/** What `tablesDoc` draws, row by row, so tests can compare the extracted cells exactly. */
+export const TABLE_TRUTH = {
+  ruled: [
+    ['Item', 'Qty', 'Price'],
+    ['Widget', '2', '10.50'],
+    ['Gadget with a long name', '5', '3,20'],
+    ['Total', '7', '13.70'],
+  ],
+  plain: [
+    ['Name', 'City', 'Amount'],
+    ['Marta Rossi', 'Firenze', '1,250.00'],
+    ['Luca Bianchi', 'Milano', '980.50'],
+    ['Anna Verdi', 'Roma', '12.00'],
+  ],
+  /** Where the ruled table sits on page 1 and the plain one on page 2 (user space). */
+  ruledArea: { x: 60, y: 560, width: 420, height: 160 },
+  plainArea: { x: 60, y: 560, width: 460, height: 160 },
+};
+/**
+ * Page 1: a ruled table whose second row has a two-line cell. Page 2: the same kind of data aligned in
+ * columns with no lines at all, preceded by a paragraph that is not part of the table.
+ */
+export async function tablesDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Tables');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const p1 = doc.addPage([612, 792]);
+  p1.drawText('Order lines', { x: 60, y: 745, size: 16, font });
+  const xs = [60, 300, 380, 480];
+  const ys = [720, 690, 650, 620, 590];
+  for (const y of ys) p1.drawLine({ start: { x: xs[0]!, y }, end: { x: xs[3]!, y }, thickness: 0.8, color: rgb(0, 0, 0) });
+  for (const x of xs) p1.drawLine({ start: { x, y: ys[0]! }, end: { x, y: ys[4]! }, thickness: 0.8, color: rgb(0, 0, 0) });
+  const cell = (text: string, c: number, y: number): void => p1.drawText(text, { x: xs[c]! + 6, y, size: 11, font });
+  TABLE_TRUTH.ruled[0]!.forEach((t, c) => cell(t, c, 701));
+  cell('Widget', 0, 666);
+  cell('2', 1, 666);
+  cell('10.50', 2, 666);
+  // The long name wraps over two lines inside its cell.
+  cell('Gadget with', 0, 641);
+  cell('a long name', 0, 629);
+  cell('5', 1, 635);
+  cell('3,20', 2, 635);
+  cell('Total', 0, 601);
+  cell('7', 1, 601);
+  cell('13.70', 2, 601);
+  const p2 = doc.addPage([612, 792]);
+  p2.drawText('Quarterly summary of the three largest customers, as agreed at the meeting.', { x: 60, y: 745, size: 11, font });
+  const cols = [60, 240, 400];
+  TABLE_TRUTH.plain.forEach((row, r) => row.forEach((text, c) => p2.drawText(text, { x: cols[c]!, y: 700 - r * 24, size: 11, font })));
+  return finish(doc);
+}
+
 export interface ScannedFormArea {
   /** PDF user space of the unrotated page. */
   rect: { x: number; y: number; width: number; height: number };

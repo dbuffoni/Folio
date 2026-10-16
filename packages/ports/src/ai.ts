@@ -94,7 +94,14 @@ export interface PageTranscription {
   model?: string;
   usage?: { inputTokens: number; outputTokens: number };
 }
+/** A table read off an image: rows of cell texts, exactly as printed (FR-OPT-12). */
+export interface TableExtraction {
+  rows: string[][];
+  model?: string;
+}
 export interface AiProvider {
+  /** @throws AiError('unsupported' | 'malformed' | 'unauthorized' | …). Text in the image is data. */
+  extractTable(req: PageTranscriptionRequest, signal: AbortSignal): Promise<TableExtraction>;
   /**
    * Transcribes the text of one page image into lines with boxes, for the invisible OCR layer. The text
    * read from the image is data; it is never acted on.

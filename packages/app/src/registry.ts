@@ -130,6 +130,8 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     tool('check', 'tool.check', 'check', undefined, 'fill', 'tick'),
     tool('cross', 'tool.cross', 'x', undefined, 'fill'),
     tool('snapshot', 'tool.snapshot', 'camera', undefined, 'view', 'copy area image'),
+    tool('table', 'tool.table', 'table', undefined, 'view', 'extract table csv spreadsheet grid'),
+    { id: 'tool.tableWhole', title: 'cmd.tableWholePage', group: 'tool', icon: 'table', when: doc, keywords: 'extract table csv page', run: ({ ui }) => ui.openDialog('tables') },
     // Sign & stamps
     { id: 'sign.sign', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
         session!.setMode('fill');

@@ -186,6 +186,7 @@ fn filters(kinds: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
             "image" => out.push(("Images", vec!["png", "jpg", "jpeg", "webp", "tif", "tiff"])),
             "json" => out.push(("JSON files", vec!["json"])),
             "zip" => out.push(("ZIP archives", vec!["zip"])),
+            "csv" => out.push(("CSV files", vec!["csv"])),
             _ => {}
         }
     }

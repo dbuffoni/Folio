@@ -45,6 +45,7 @@
       { icon: 'images', label: t('cmd.imagesToPdf'), run: () => void run('task.images') },
       { icon: 'file-image', label: t('cmd.exportImages'), disabled: !has, run: () => void run('export.images') },
       { icon: 'scan-text', label: t('cmd.ocr.open'), disabled: !has, run: () => void run('tool.ocr') },
+      { icon: 'table', label: t('cmd.tableWholePage'), disabled: !has, run: () => void run('tool.tableWhole') },
       { icon: 'file-down', label: t('cmd.compress'), disabled: !has, run: () => void run('export.compress') },
       { kind: 'sep' },
       { icon: 'info', label: t('cmd.properties'), disabled: !has, run: () => void run('file.properties') },

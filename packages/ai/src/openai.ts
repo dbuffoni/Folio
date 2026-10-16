@@ -17,10 +17,11 @@ import type {
   PageTranscription,
   PageTranscriptionRequest,
   SecretStore,
+  TableExtraction,
   StructuredOutput,
 } from '@folio/ports';
-import { SYSTEM_PROMPT, TRANSCRIBE_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
-import { OUTPUT_JSON_SCHEMA, TRANSCRIPTION_JSON_SCHEMA, validateOutput, validateTranscription } from './schema.ts';
+import { SYSTEM_PROMPT, TABLE_PROMPT, TRANSCRIBE_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
+import { OUTPUT_JSON_SCHEMA, TABLE_JSON_SCHEMA, TRANSCRIPTION_JSON_SCHEMA, validateOutput, validateTable, validateTranscription } from './schema.ts';
 
 export const OPENAI_KEY_SECRET = 'folio.openai-key';
 
@@ -189,6 +190,34 @@ export class OpenAiProvider implements AiProvider {
             ? { inputTokens: json.usage.prompt_tokens ?? 0, outputTokens: json.usage.completion_tokens ?? 0 }
             : undefined,
         };
+      } catch (e) {
+        if (e instanceof AiError) throw e;
+        detail = String(e).slice(0, 200);
+      }
+    }
+    throw new AiError('malformed', detail);
+  }
+
+  async extractTable(req: PageTranscriptionRequest, signal: AbortSignal): Promise<TableExtraction> {
+    if (!(await this.isConfigured())) throw new AiError('notConfigured');
+    const json = this.jsonRequest('table_v1', TABLE_JSON_SCHEMA);
+    const body = {
+      model: this.deps.config().model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: TABLE_PROMPT + json.system },
+        { role: 'user', content: [{ type: 'text', text: `The image is ${req.width}×${req.height} pixels.` }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${toBase64(req.jpeg)}`, detail: 'high' } }] },
+      ],
+      response_format: json.responseFormat,
+    };
+    let detail = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await this.call('/chat/completions', 'POST', body, signal);
+      try {
+        const parsed = JSON.parse(res.body) as { choices?: Array<{ message?: { content?: string; refusal?: string } }>; model?: string };
+        const message = parsed.choices?.[0]?.message;
+        if (message?.refusal) throw new AiError('blocked', 'The model declined the request');
+        return { rows: validateTable(JSON.parse(message?.content ?? '')), model: parsed.model ?? this.deps.config().model };
       } catch (e) {
         if (e instanceof AiError) throw e;
         detail = String(e).slice(0, 200);

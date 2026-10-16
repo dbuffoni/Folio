@@ -176,3 +176,17 @@ export function validateTranscription(raw: unknown): { lines: PageTranscription[
   }
   return { lines, dropped };
 }
+
+export const TABLE_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['rows'],
+  properties: { rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } },
+} as const;
+/** Rows of strings, squared to the widest row and capped so a bad answer cannot flood the grid. */
+export function validateTable(raw: unknown): string[][] {
+  const top = z.object({ rows: z.array(z.array(z.unknown())) }).parse(raw);
+  const rows = top.rows.slice(0, 500).map((r) => r.slice(0, 60).map((c) => (typeof c === 'string' ? c : c === null || c === undefined ? '' : String(c)).replace(/\s+/g, ' ').trim()));
+  const width = Math.max(0, ...rows.map((r) => r.length));
+  return rows.filter((r) => r.some((c) => c !== '')).map((r) => [...r, ...Array<string>(width - r.length).fill('')]);
+}

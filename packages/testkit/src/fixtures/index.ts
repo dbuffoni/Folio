@@ -48,6 +48,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   'scanned-form-90': { description: 'The same scan with /Rotate 90', build: async () => (await b.scannedFormDoc({ rotate: 90 })).pdf, expectValid: true },
   'scanned-text': { description: 'The multilingual page as a 200 dpi image only (OCR input)', build: () => scannedTextDoc(), expectValid: true },
   multilingual: { description: 'English and Italian paragraphs at 16 pt (OCR tests)', build: b.multilingualDoc, expectValid: true },
+  tables: { description: 'A ruled table with a two-line cell, and an aligned table without lines', build: b.tablesDoc, expectValid: true },
   photos: { description: 'Photographs at 300 dpi (colour, grey, one with transparency) and text', build: b.photosDoc, expectValid: true },
   attachment: { description: 'Embedded file attachment', build: b.attachmentDoc, expectValid: true },
   signed: { description: 'Signature field with a dummy signature value', build: b.signedDoc, expectValid: true },
