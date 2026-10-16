@@ -1,6 +1,7 @@
 import { bboxToUserRect, intersect, isFolioError, AiError, NetworkError } from '@folio/core';
 import type { AiProvider, FormAnalysisRequest, FormFieldType, ImageCodec, PageIndex, PdfDocument, Rect } from '@folio/ports';
 import { detectAreas } from './form.ts';
+import { detectScanAreas } from './scan-fields.ts';
 
 /** A field Folio proposes to create (FR-FRM-08 "Detect fields"). */
 export interface FieldProposal {
@@ -23,7 +24,11 @@ export type DetectionNotice =
   /** A scanned page and no way to see it: draw the fields by hand. */
   | 'scanNeedsAi'
   | 'aiFailed'
-  | 'visionOff';
+  | 'visionOff'
+  /** A scan read from its image alone: shapes were found, not understood. */
+  | 'scanLocal'
+  /** Nothing that looks like a field was found. */
+  | 'none';
 export interface DetectionResult {
   proposals: FieldProposal[];
   usedAi: boolean;
@@ -35,6 +40,8 @@ export const LOW_CONFIDENCE = 0.6;
 /** Detected fields keep the 0.8 confidence cap of Smart Fill. */
 export const CONFIDENCE_CAP = 0.8;
 const OVERLAP = 0.5;
+/** Shapes read from an image are plausible, not certain. */
+const SCAN_CONFIDENCE = 0.65;
 
 const area = (r: Rect): number => r.width * r.height;
 function overlapRatio(a: Rect, b: Rect): number {
@@ -63,6 +70,24 @@ export class FieldDetectionService {
       source: 'local' as const,
       accepted: true,
     }));
+  }
+
+  /**
+   * Local detection on a scan (FR-FRM-15): underlines, empty boxes and small squares in the page image.
+   * Without a text layer nothing names them, so proposals carry no label.
+   */
+  async detectScanLocal(doc: PdfDocument, page: PageIndex): Promise<FieldProposal[]> {
+    const info = await doc.getPageInfo(page);
+    const shown = info.rotation === 90 || info.rotation === 270 ? { width: info.size.height, height: info.size.width } : info.size;
+    const scale = Math.min(2, 2200 / Math.max(shown.width, shown.height));
+    const img = await doc.render(page, { scale });
+    const result: FieldProposal[] = [];
+    for (const a of detectScanAreas(img, scale, info.rotation)) {
+      const rect = bboxToUserRect([a.x / img.width, a.y / img.height, (a.x + a.width) / img.width, (a.y + a.height) / img.height], info);
+      if (rect.width < 4 || rect.height < 3) continue;
+      result.push({ id: '', page, rect, type: a.kind, confidence: SCAN_CONFIDENCE, source: 'local', accepted: true });
+    }
+    return result;
   }
 
   /** Merges proposals: overlapping ones keep the more confident (local wins ties). */
@@ -94,7 +119,11 @@ export class FieldDetectionService {
       const scanned = (await doc.getTextLayer(page)).isScanned;
       if (scanned || opts.forceAi) {
         if (aiReady) aiPages.push(page);
-        else if (scanned) notice = 'scanNeedsAi';
+        else if (scanned) {
+          const shapes = await this.detectScanLocal(doc, page);
+          found.push(...shapes);
+          notice = shapes.length ? 'scanLocal' : 'scanNeedsAi';
+        }
         if (!scanned) found.push(...(await this.detectLocal(doc, page)));
       } else found.push(...(await this.detectLocal(doc, page)));
     }
@@ -108,7 +137,9 @@ export class FieldDetectionService {
         else throw e;
       }
     }
-    return { proposals: this.merge(found), usedAi, notice };
+    const proposals = this.merge(found);
+    if (proposals.length === 0 && !notice) notice = 'none';
+    return { proposals, usedAi, notice };
   }
 
   /** The vision request: page image and text only, no profile keys, no values (FR-AIF-06). */
