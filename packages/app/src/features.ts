@@ -1275,6 +1275,7 @@ export class ProfilesModel extends ViewModel {
   async load(): Promise<void> {
     this.profiles = await this.s.profiles.list();
     this.templates = await this.s.templates.list();
+    this.signatures = await this.s.signaturesRepo.list('signature');
     if (this.editing && !this.profiles.some((p) => p.id === this.editing)) this.editing = null;
     this.emit();
   }
@@ -1315,6 +1316,11 @@ export class ProfilesModel extends ViewModel {
   }
   async rename(id: string, name: string): Promise<boolean> {
     return !!(await this.run(async () => (await this.s.profiles.rename(id, name), true)));
+  }
+  /** Saved signatures a profile can use (kind "signature"; initials are placed by hand). */
+  signatures: StoredSignature[] = [];
+  async setSignature(profileId: string, signatureId: string | null): Promise<void> {
+    await this.run(() => this.s.profiles.setSignature(profileId, signatureId));
   }
   async setDefault(id: string): Promise<void> {
     await this.run(() => this.s.profiles.setDefault(id));
@@ -2045,6 +2051,10 @@ export class SmartFillModel extends ViewModel {
   located: string | null = null;
   /** Explains an empty result (a scan with no AI, FR-AIF-14). */
   noticeKey: string | null = null;
+  /** Empty signature fields of the pages and the profile's signature for them (option "Sign"). */
+  signFields = 0;
+  signWith: StoredSignature | null = null;
+  signIt = true;
   private abort?: AbortController;
 
   constructor(
@@ -2167,10 +2177,31 @@ export class SmartFillModel extends ViewModel {
     }
     this.result = result;
     this.suggestions = result.suggestions;
-    this.stage = result.suggestions.length ? 'review' : 'empty';
+    await this.findSignatureFields();
+    this.stage = result.suggestions.length || this.signFields ? 'review' : 'empty';
     if (result.fallbackReason && result.fallbackReason !== 'notConfigured')
       this.app.toast('warning', msg(`smartfill.fallback.${result.fallbackReason}`));
     this.noticeKey = result.fallbackReason === 'scanNeedsAi' ? 'smartfill.fallback.scanNeedsAi' : null;
+    this.emit();
+  }
+  /** Counts the signature fields the profile's signature would go into. */
+  private async findSignatureFields(): Promise<void> {
+    this.signFields = 0;
+    this.signWith = null;
+    const id = this.profile?.signatureId;
+    if (!id) return;
+    const sig = await this.app.services.signaturesRepo.get(id);
+    if (!sig) return;
+    this.signWith = sig;
+    this.signFields = (await this.signCommand(sig))?.count ?? 0;
+  }
+  private async signCommand(sig: StoredSignature) {
+    const raster = await this.app.services.platform.images.decode(sig.png);
+    const data = { kind: sig.kind, svg: sig.svg, raster, width: sig.width, height: sig.height };
+    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data);
+  }
+  setSignIt(on: boolean): void {
+    this.signIt = on;
     this.emit();
   }
   /** Review panel edits. */
@@ -2222,10 +2253,11 @@ export class SmartFillModel extends ViewModel {
     const svc = this.app.services.smartFill;
     const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
-    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten });
+    const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
+    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
     if (!cmd) return 0;
     const plan = svc.plan(list, taken);
-    const count = list.filter((s) => s.accepted && s.value !== '').length;
+    const count = list.filter((s) => s.accepted && s.value !== '').length + (sign ? this.signFields : 0);
     const pages = [...new Set(list.filter((s) => plan.nameByRef.has(s.ref)).map((s) => s.page))];
     const ok = await this.app.guard(async () => {
       await this.session.run(cmd);

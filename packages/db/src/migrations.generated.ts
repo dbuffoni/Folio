@@ -11,5 +11,10 @@ export const EMBEDDED: Migration[] = [
     "version": 2,
     "name": "0002_field_templates",
     "sql": "-- 0002_field_templates.sql — reusable sets of profile field definitions (FR-FRM-20) and choice options.\nCREATE TABLE field_templates (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  built_in INTEGER NOT NULL DEFAULT 0,\n  fields_json TEXT NOT NULL,\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\nALTER TABLE profile_fields ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]';\n"
+  },
+  {
+    "version": 3,
+    "name": "0003_profile_signature",
+    "sql": "-- 0003_profile_signature.sql — a profile can name one saved signature to put into signature fields (Smart Fill).\nALTER TABLE profiles ADD COLUMN signature_id TEXT REFERENCES signatures(id) ON DELETE SET NULL;\n"
   }
 ];

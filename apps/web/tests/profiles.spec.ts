@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, mode, openPdf, test, tool } from './helpers.ts';
 
 test('profiles editor: create from scratch, typed fields, reorder, save as template, add to another profile @FR-FRM-20 @NFR-11', async ({ app }) => {
   await app.getByRole('button', { name: 'Settings' }).click();
@@ -76,4 +76,34 @@ test('profile editor keeps every control inside the window at any size @FR-FRM-2
     expect(overflow.right, `${width}px wide`).toBeLessThanOrEqual(0);
     expect(overflow.scroll, `${width}px wide`).toBeLessThanOrEqual(0);
   }
+});
+
+test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app }) => {
+  await openPdf(app, 'text.pdf');
+  await mode(app, 'Fill & Sign');
+  await tool(app, 'Sign').click();
+  await app.getByRole('menuitem', { name: 'Create new signature…' }).click();
+  const dialog = app.getByRole('dialog');
+  const box = (await dialog.locator('canvas').first().boundingBox())!;
+  await app.mouse.move(box.x + 40, box.y + box.height / 2);
+  await app.mouse.down();
+  for (let i = 1; i <= 12; i++) await app.mouse.move(box.x + 40 + i * 18, box.y + box.height / 2 + Math.sin(i) * 25);
+  await app.mouse.up();
+  await dialog.getByRole('button', { name: 'Use now' }).click();
+  await expect(app.getByRole('dialog', { name: 'Create signature' })).toBeHidden();
+  await app.keyboard.press('Escape');
+
+  await app.getByRole('button', { name: 'Settings' }).click();
+  const settings = app.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('button', { name: 'Profiles' }).click();
+  await settings.getByRole('textbox', { name: 'New profile' }).fill('Signer');
+  await settings.getByRole('button', { name: 'Add', exact: true }).click();
+  const pick = settings.getByRole('combobox', { name: 'Signature for signature fields' });
+  await expect(pick).toHaveValue('');
+  const options = await pick.locator('option').allTextContents();
+  expect(options.length).toBe(2);
+  await pick.selectOption({ index: 1 });
+  await settings.getByRole('button', { name: 'Back' }).click();
+  await settings.getByRole('button', { name: 'Edit' }).click();
+  await expect(pick).not.toHaveValue('');
 });
