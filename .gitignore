@@ -31,3 +31,6 @@ Thumbs.db
 # Playwright
 blob-report/
 apps/web/playwright/.cache/
+
+# Local test files (not committed)
+test_assets/

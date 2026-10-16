@@ -59,6 +59,17 @@ describe('Detect fields on a scan, from the page image alone @FR-FRM-15', () => 
     expect(under.height).toBe(28);
   });
 
+  it('finds dotted lines on a noisy page, and ignores underlined words and ordinary full stops @FR-FRM-15', () => {
+    const p = paper(1200, 1600);
+    for (let k = 0; k < 60; k++) p.blob(300 + k * 8, 400, 2, 2); // "name ……………" a row of dots
+    for (let k = 0; k < 40; k++) p.blob(100 + k * 14, 600, 8, 14); // underlined words: letters, then the rule
+    p.hline(100, 616, 560);
+    for (let k = 0; k < 5; k++) p.blob(100 + k * 20, 800, 2, 2); // a few full stops
+    const found = detectScanAreas(p.image, 2);
+    expect(found).toHaveLength(1);
+    expect([found[0]!.x, found[0]!.width, found[0]!.y + found[0]!.height]).toEqual([299, 476, 401]);
+  });
+
   it('a blank page and a page of text give nothing', () => {
     const p = paper(600, 800);
     expect(detectScanAreas(p.image, 2)).toEqual([]);

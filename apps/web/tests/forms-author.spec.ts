@@ -66,6 +66,11 @@ test('Detect fields: a vector form gets its fields, a plain paper scan gets them
   await panel.getByRole('button', { name: 'Create 6 fields' }).click();
   await expect(app.locator('.afld')).toHaveCount(6);
 
+  // A word-processor form with dotted leaders ("name ………").
+  await editForm(app, 'dotted-form.pdf');
+  await expect(panel.getByText('3 fields proposed')).toBeVisible();
+  await expect(panel.getByText('Il/la sottoscritto/a · Text')).toBeVisible();
+
   // A scan with no text: the shapes in the image, labelled as a guess.
   await editForm(app, 'scanned-form.pdf');
   await expect(panel.getByText('7 fields proposed')).toBeVisible();

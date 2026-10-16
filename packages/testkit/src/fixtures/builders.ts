@@ -383,7 +383,7 @@ export interface FlatFormField {
   /** Expected profile key for evaluation corpora; not written into the PDF. */
   key: string;
   label: string;
-  kind: 'underline' | 'box' | 'underscores' | 'comb' | 'checkbox';
+  kind: 'underline' | 'box' | 'underscores' | 'dots' | 'comb' | 'checkbox';
 }
 /**
  * Non-fillable form: labels with ruled lines, empty rectangles, underscore runs, comb boxes and
@@ -427,6 +427,15 @@ export async function flatFormDoc(
         page.drawText(`${f.label}: `, { x: 72, y, size: 11, font });
         const x = 72 + labelWidth + 12;
         const run = '_'.repeat(34);
+        page.drawText(run, { x, y, size: 11, font });
+        areas.push({ ...f, rect: { x, y: y - 2, width: font.widthOfTextAtSize(run, 11), height: 16 } });
+        break;
+      }
+      case 'dots': {
+        // "Label ………………": the leader of a Word form, typed as ellipsis characters.
+        page.drawText(`${f.label} `, { x: 72, y, size: 11, font });
+        const x = 72 + font.widthOfTextAtSize(`${f.label} `, 11);
+        const run = '…'.repeat(20);
         page.drawText(run, { x, y, size: 11, font });
         areas.push({ ...f, rect: { x, y: y - 2, width: font.widthOfTextAtSize(run, 11), height: 16 } });
         break;

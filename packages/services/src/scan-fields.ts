@@ -54,7 +54,28 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
   for (let i = 0; i < w * h; i++) dark[i] = gray[i]! < level ? 1 : 0;
 
   const pt = (n: number): number => n * pxPerPoint;
+  /** Share of dark pixels in a box; writing space is empty, underlined words are not. */
+  const inkIn = (x: number, y: number, bw: number, bh: number): number => {
+    let ink = 0;
+    let all = 0;
+    for (let j = Math.max(0, Math.round(y)); j < Math.min(h, Math.round(y + bh)); j++) {
+      for (let i = Math.max(0, Math.round(x)); i < Math.min(w, Math.round(x + bw)); i++) {
+        all++;
+        ink += dark[j * w + i]!;
+      }
+    }
+    return all === 0 ? 1 : ink / all;
+  };
+  /** Only the band next to the line counts: tight line spacing puts the previous line's letters further up. */
+  const free = (a: ScanArea, side: 'above' | 'below' | 'left' | 'right' = 'above'): boolean => {
+    const band = pt(7);
+    if (side === 'above') return inkIn(a.x, a.y + Math.max(0, a.height - band), a.width, Math.min(a.height, band)) < 0.01;
+    if (side === 'below') return inkIn(a.x, a.y, a.width, Math.min(a.height, band)) < 0.01;
+    if (side === 'left') return inkIn(a.x + Math.max(0, a.width - band), a.y, Math.min(a.width, band), a.height) < 0.01;
+    return inkIn(a.x, a.y, Math.min(a.width, band), a.height) < 0.01;
+  };
   const out: ScanArea[] = [];
+  const dots: Array<{ cx: number; cy: number }> = [];
   const seen = new Uint8Array(w * h);
   const stack: number[] = [];
   for (let start = 0; start < w * h; start++) {
@@ -109,6 +130,11 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
       }
       return all === 0 ? 0 : ink / all;
     };
+    // Tiny round-ish marks: the dots of a dotted line (collected below, a row of them is one field).
+    if (bw <= pt(3) && bh <= pt(3) && count >= 2) {
+      dots.push({ cx: minX + bw / 2, cy: minY + bh / 2 });
+      continue;
+    }
     const long = Math.max(bw, bh);
     const short = Math.min(bw, bh);
     const limit = Math.max(w, h) * 0.95;
@@ -118,17 +144,38 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
       if (bw >= bh) {
         const down = rotation === 180;
         const height = down ? Math.min(strip, h - (minY + bh)) : Math.min(strip, minY);
-        if (height >= pt(6)) out.push({ kind: 'text', x: minX, y: down ? minY + bh : minY - height, width: bw, height });
+        const a: ScanArea = { kind: 'text', x: minX, y: down ? minY + bh : minY - height, width: bw, height };
+        if (height >= pt(6) && free(a, down ? 'below' : 'above')) out.push(a);
       } else {
         const right = rotation === 90;
         const width = right ? Math.min(strip, w - (minX + bw)) : Math.min(strip, minX);
-        if (width >= pt(6)) out.push({ kind: 'text', x: right ? minX + bw : minX - width, y: minY, width, height: bh });
+        const a: ScanArea = { kind: 'text', x: right ? minX + bw : minX - width, y: minY, width, height: bh };
+        if (width >= pt(6) && free(a, right ? 'right' : 'left')) out.push(a);
       }
     } else if (long >= pt(30) && short >= pt(10) && short <= pt(48) && long <= limit && fill <= 0.2 && inkInside() < 0.02) {
       out.push({ kind: 'text', x: minX, y: minY, width: bw, height: bh });
     } else if (bw >= pt(8) && bw <= pt(22) && bh >= pt(8) && bh <= pt(22) && Math.abs(bw - bh) <= pt(3) && fill <= 0.45 && inkInside() < 0.02) {
       out.push({ kind: 'checkbox', x: minX, y: minY, width: bw, height: bh });
     }
+  }
+  // Dotted lines ("name ……………"): at least eight dots on one level, evenly close together.
+  dots.sort((a, b) => a.cx - b.cx);
+  const rows: Array<Array<{ cx: number; cy: number }>> = [];
+  for (const d of dots) {
+    const row = rows.find((r) => Math.abs(r[r.length - 1]!.cy - d.cy) <= pt(1) && d.cx - r[r.length - 1]!.cx <= pt(9) && d.cx >= r[r.length - 1]!.cx);
+    if (row) row.push(d);
+    else rows.push([d]);
+  }
+  for (const row of rows) {
+    if (row.length < 8) continue;
+    const x0 = row[0]!.cx - pt(1);
+    const x1 = row[row.length - 1]!.cx + pt(1);
+    if (x1 - x0 < pt(36) || x1 - x0 > Math.max(w, h) * 0.95) continue;
+    const cy = row.reduce((n, d) => n + d.cy, 0) / row.length;
+    const strip = pt(14);
+    const horizontal = rotation === 0 || rotation === 180;
+    const a: ScanArea = { kind: 'text', x: x0, y: rotation === 180 ? cy + pt(1.5) : cy - strip, width: x1 - x0, height: strip };
+    if (horizontal && free({ ...a, height: strip - pt(2) }, rotation === 180 ? 'below' : 'above')) out.push(a);
   }
   return out;
 }
