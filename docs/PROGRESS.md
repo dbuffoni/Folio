@@ -15,6 +15,30 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 | P8 User interface | done | Svelte screens bound to `packages/app`; Playwright on Chromium, Firefox and WebKit (epics E1–E7, screens, axe in both themes, no-network); visual baselines; AppImage ships the real UI |
 | P9 Release hardening | done locally | interop, golden and performance suites; i18n lint; licence review and notices; bundle budget; CI and release workflows written; `tools/gate.sh P9` passed 2026-10-12 |
 
+## Release 0.1.1
+
+Thirteen cards of the Folio Kanban (Notion), developed locally and not pushed. Every card has unit tests
+(services, app view-models, db on both SQLite drivers), conformance tests where the engine changed, oracle
+tests (qpdf, pdfcpu, poppler) where PDFs are written, and Playwright scenarios.
+
+| Card | Requirements | Where |
+|---|---|---|
+| Local AI server presets | FR-AIF-12 | `packages/core/src/ai-endpoints.ts`, `packages/ai`, `packages/app/src/ai-settings.ts`, Rust `http.rs` |
+| Model capability check | FR-AIF-13 | `OpenAiProvider.probeCapabilities`, `aiCapabilities` in settings |
+| Bookmark editor | FR-EDT-11, FR-EDT-27 | `PdfDocument.editOutline`, `OutlineService`, `OutlineModel`, sidebar |
+| Reduce file size | FR-OPT-01, 07, 09, 11 | `CompressService`, `engine-pdfium/src/compact.ts`, `CompressModel`, `folio-cli compress` |
+| Create form fields, Edit existing fields | FR-FRM-08, 11, 15, 16, 17 | `engine-pdfium/src/fieldedit.ts`, `FormAuthoringService`, `FieldDetectionService`, Edit form mode |
+| Smart Fill on scanned paper forms | FR-AIF-14 | `SmartFillService.plan/apply`, image-hash fingerprint |
+| Field templates | FR-FRM-20 | migration 0002, `FieldTemplateRepo`, `ProfilesModel`, profiles editor |
+| Make scanned pages searchable, Multi-language OCR, OCR language packs, Read difficult scans with AI | FR-OCR-01…04, 06, 09, 10 | `packages/ocr-tesseract`, `OcrService`, `OcrLanguageRepo`, `addOcrLayer`, Rust `download_file` |
+| Extract tables | FR-OPT-12 | `core/src/tables.ts`, `TableService`, `TablesModel` |
+
+Known limits of this release: moved bookmarks keep page/position/zoom and web addresses but not named,
+script or launch actions (PDFium cannot re-attach them); field authoring rewrites the file through pdf-lib
+and refuses XFA and password-protected files; OCR tessdata for languages other than English and Italian
+is downloaded from a pinned `tessdata_fast` release; the OCR run reads a page at 300 dpi and processes
+one page at a time; table extraction is one page at a time and ignores rotated text.
+
 Run `tools/gate.sh <phase>` to re-check a gate, `pnpm trace` for the requirement matrix (`docs/traceability.md`).
 
 ## Known gaps

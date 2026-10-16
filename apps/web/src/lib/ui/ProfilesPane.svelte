@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import type { ProfileFieldType } from '@folio/db';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, services, track, wizards } from '#lib/state.svelte.ts';
+  import { app, dep, services, track, wizards } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import { tip } from './tip.ts';
 
@@ -50,7 +50,7 @@
     } catch {
       /* reported as "not a profile file" */
     }
-    await services.profiles.importJson(data).catch((e) => services.platform.log.warn('profile import', String(e)));
+    await app.guard(() => services.profiles.importJson(data));
     await m.load();
   }
   const aliasesOf = (text: string): string[] => text.split(',').map((a) => a.trim()).filter(Boolean);
@@ -59,7 +59,7 @@
 {#if current}
   {@const p = current}
   <div class="row"><button class="btn sm ghost" style="flex:none" onclick={() => m.open(null)} aria-label={t('action.back')}><Icon name="chevron-left" /></button>
-    <input type="text" value={p.name} aria-label={t('settings.profile.name')} maxlength="60" onchange={(e) => m.rename(p.id, e.currentTarget.value)} />
+    <input type="text" value={p.name} aria-label={t('settings.profile.name')} maxlength="60" onchange={async (e) => { const input = e.currentTarget; if (!(await m.rename(p.id, input.value))) input.value = p.name; }} />
     {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => m.setDefault(p.id)}>{t('action.setDefault')}</button>{/if}
     <button class="btn sm" style="flex:none" onclick={() => m.duplicate(p.id)}>{t('profiles.duplicate')}</button>
   </div>

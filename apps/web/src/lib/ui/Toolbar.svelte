@@ -140,8 +140,8 @@
           { icon: 'file-output', label: t('cmd.flattenedCopy'), run: () => void run('export.flattenedCopy') },
           { kind: 'sep' },
           { icon: 'file-image', label: t('cmd.exportImages'), run: () => void run('export.images') },
-          { icon: 'scan-text', label: t('cmd.ocr.open'), run: () => void run('tool.ocr') },
-          { icon: 'table', label: t('cmd.tableWholePage'), run: () => void run('tool.tableWhole') },
+          { icon: 'scan-text', label: t('cmd.ocr.open'), run: () => void run('task.ocr') },
+          { icon: 'table', label: t('cmd.tableWholePage'), run: () => void run('task.tableWhole') },
           { icon: 'file-down', label: t('cmd.compress'), run: () => void run('export.compress') },
           { icon: 'info', label: t('cmd.properties'), run: () => void run('file.properties') },
         ])}><Icon name="chevron-down" /></button>

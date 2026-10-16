@@ -346,6 +346,7 @@ describe('mode and tool commands @FR-APP-09', () => {
       check: 'fill',
       cross: 'fill',
       snapshot: 'view',
+      table: 'view',
     };
     const tools = t.registry.all().filter((c) => c.group === 'tool' && c.id !== 'tool.select');
     expect(tools.map((c) => c.id.slice(5)).sort()).toEqual(Object.keys(owner).sort());
