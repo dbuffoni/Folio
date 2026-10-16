@@ -1903,8 +1903,15 @@ export class FormModel extends ViewModel {
     this.fields = await this.session.fields();
     this.emit();
   }
+  private stopsFor: FormField[] | null = null;
+  private stopsCache: ReturnType<typeof tabOrder> = [];
+  /** Tab order, recomputed only when the field list is replaced (every page reads it on each refresh). */
   get stops(): ReturnType<typeof tabOrder> {
-    return tabOrder(this.fields);
+    if (this.stopsFor !== this.fields) {
+      this.stopsCache = tabOrder(this.fields);
+      this.stopsFor = this.fields;
+    }
+    return this.stopsCache;
   }
   get fillableCount(): number {
     return this.fields.filter(isFillable).length;

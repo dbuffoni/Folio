@@ -418,4 +418,71 @@ describe('RecoveryScheduler @FR-APP-06', () => {
     a.dispose();
     b.dispose();
   });
+
+  it('periodic ticks are skipped while busy, forced after three deferrals; a direct tick is never deferred @FR-APP-06', async () => {
+    const storage = new MemoryStorage();
+    const rec = new RecoveryService({ storage, clock: new FakeClock() });
+    const { doc: a } = await openFixture('text');
+    let snapshots = 0;
+    const doc = Object.assign(Object.create(a), {
+      snapshot: async () => {
+        snapshots++;
+        return a.snapshot();
+      },
+    }) as PdfDocument;
+    let revision = 0;
+    const sessions = [{ doc, dirty: true, state: { sessionId: 's1', name: 's1.pdf', revision } }];
+    // Every pass sees a new revision, so a pass that runs always writes a snapshot.
+    const bump = () => {
+      revision++;
+      sessions[0]!.state = { sessionId: 's1', name: 's1.pdf', revision };
+    };
+    let busy = true;
+    const ticker = new ManualTicker();
+    const errors: unknown[] = [];
+    const sched = new RecoveryScheduler(
+      rec,
+      ticker,
+      () => sessions,
+      (e) => errors.push(e),
+      () => busy,
+    );
+    sched.start(30);
+    const periodic = async () => {
+      bump();
+      ticker.tick();
+      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+    };
+
+    // While busy: three periodic ticks are deferred, the fourth runs.
+    for (let i = 1; i <= 3; i++) {
+      await periodic();
+      expect(snapshots).toBe(0);
+    }
+    await periodic();
+    expect(snapshots).toBe(1);
+
+    // The deferral count starts again after a forced run.
+    for (let i = 1; i <= 3; i++) await periodic();
+    expect(snapshots).toBe(1);
+    await periodic();
+    expect(snapshots).toBe(2);
+
+    // Not busy: a periodic tick runs at once and resets the count.
+    busy = false;
+    await periodic();
+    expect(snapshots).toBe(3);
+    busy = true;
+    for (let i = 1; i <= 3; i++) await periodic();
+    expect(snapshots).toBe(3);
+    await periodic();
+    expect(snapshots).toBe(4);
+
+    // A direct tick is never deferred, even while busy.
+    bump();
+    expect(await sched.tick()).toBe(1);
+    expect(snapshots).toBe(5);
+    expect(errors).toEqual([]);
+    a.dispose();
+  });
 });

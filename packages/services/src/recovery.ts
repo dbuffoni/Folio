@@ -69,6 +69,8 @@ export interface Ticker {
   every(ms: number, fn: () => void): () => void;
 }
 
+const MAX_DEFERRALS = 3;
+
 /** Drives periodic snapshots for the open sessions while they are dirty. */
 export class RecoveryScheduler {
   private cancel?: () => void;
@@ -78,15 +80,27 @@ export class RecoveryScheduler {
     private readonly ticker: Ticker,
     private readonly sessions: () => Array<{ doc: PdfDocument; dirty: boolean; state: Omit<RecoveryState, 'savedAt' | 'pageCount'> }>,
     private readonly onError: (e: unknown) => void = () => undefined,
+    /** True while the user is scrolling or typing: a snapshot serialises the whole PDF in the engine worker, which would stall renders. */
+    private readonly busy: () => boolean = () => false,
   ) {}
+  private deferred = 0;
 
   start(intervalSec: number): void {
     this.stop();
-    this.cancel = this.ticker.every(intervalSec * 1000, () => void this.tick());
+    this.cancel = this.ticker.every(intervalSec * 1000, () => void this.scheduled());
   }
   stop(): void {
     this.cancel?.();
     this.cancel = undefined;
+  }
+  /** A timer pass: waits for a pause in the user's activity, but never more than `MAX_DEFERRALS` intervals. */
+  private async scheduled(): Promise<void> {
+    if (this.busy() && this.deferred < MAX_DEFERRALS) {
+      this.deferred++;
+      return;
+    }
+    this.deferred = 0;
+    await this.tick();
   }
   /** One pass; exposed so tests and "before risky operation" hooks can force it. */
   async tick(): Promise<number> {

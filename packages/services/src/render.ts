@@ -100,7 +100,8 @@ export class RenderService {
   async thumbnail(page: PageIndex, width = this.opts.thumbnailWidth ?? 200, signal?: AbortSignal): Promise<RasterImage> {
     const info = await this.doc.getPageInfo(page);
     const shown = rotatedSize(info.size, info.rotation);
-    return this.render({ page, scale: Math.min(width, 200) / shown.width, priority: 'thumbnail', signal });
+    // A decoded bitmap (where the engine runs in a worker) is drawn without copying pixels on the UI thread.
+    return this.render({ page, scale: Math.min(width, 200) / shown.width, priority: 'thumbnail', bitmap: true, signal });
   }
 
   /** Drops cached bitmaps of the given pages (all pages when omitted) after a document change. */
@@ -162,6 +163,37 @@ export class RenderService {
 export function cappedScale(size: { width: number; height: number }, scale: number, maxSide = 8192): number {
   const longest = Math.max(size.width, size.height) * scale;
   return longest > maxSide ? (scale * maxSide) / longest : scale;
+}
+/**
+ * Scale for the whole-page bitmap: `cappedScale`, further lowered so the bitmap holds at most
+ * `maxPixels`. Beyond that the viewer draws the visible part as a sharp tile on top (see `tileRect`).
+ */
+export function budgetScale(size: { width: number; height: number }, scale: number, maxPixels = 4_000_000, maxSide = 8192): number {
+  const capped = cappedScale(size, scale, maxSide);
+  const pixels = size.width * capped * size.height * capped;
+  return pixels > maxPixels ? capped * Math.sqrt(maxPixels / pixels) : capped;
+}
+/**
+ * Region of a page, in device pixels at `scale`, that covers a window given in CSS pixels of the page
+ * box (`view` may extend past the page; `pad` extra CSS pixels are added around it). `k` is device
+ * pixels per CSS pixel. Returns null when the window does not touch the page.
+ */
+export function tileRect(
+  box: { width: number; height: number },
+  view: { left: number; top: number; right: number; bottom: number },
+  k: number,
+  pad = 0,
+): { x: number; y: number; width: number; height: number } | null {
+  const x0 = Math.max(0, view.left - pad);
+  const y0 = Math.max(0, view.top - pad);
+  const x1 = Math.min(box.width, view.right + pad);
+  const y1 = Math.min(box.height, view.bottom + pad);
+  if (x1 <= x0 || y1 <= y0) return null;
+  const fullW = Math.round(box.width * k);
+  const fullH = Math.round(box.height * k);
+  const x = Math.min(fullW - 1, Math.floor(x0 * k));
+  const y = Math.min(fullH - 1, Math.floor(y0 * k));
+  return { x, y, width: Math.max(1, Math.min(fullW - x, Math.ceil(x1 * k) - x)), height: Math.max(1, Math.min(fullH - y, Math.ceil(y1 * k) - y)) };
 }
 /** Tiles (1024² by default) covering a region of a page rendered at `scale`. */
 export function tilesFor(full: { width: number; height: number }, visible: { x: number; y: number; width: number; height: number }, tile = 1024): Array<{ x: number; y: number; width: number; height: number }> {

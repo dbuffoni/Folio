@@ -353,7 +353,12 @@ describe('E3 Edit text', () => {
     expect([s.mode, tools.hint]).toEqual(['fill', null]);
     await tools.pointerDown(0, { x: 100, y: 500 });
     expect(tools.typing).toMatchObject({ kind: 'cover', page: 0 });
-    await tools.commitTyping('Typed over the scan');
+    let notified = 0;
+    tools.changed.on(() => notified++);
+    const committing = tools.commitTyping('Typed over the scan');
+    // The field must unmount at once, before the command has finished (Ctrl+S right after Enter).
+    expect([tools.typing, notified]).toEqual([null, 1]);
+    await committing;
     expect((await s.doc.listAnnotations(0))[0]).toMatchObject({
       type: 'freetext',
       contents: 'Typed over the scan',
@@ -567,6 +572,30 @@ describe('E4 Fill a form', () => {
     ]);
   });
 
+  it('caches the tab order: same array while the fields are unchanged, a new one after load() replaces them @FR-FRM-01 @FR-FRM-02', async () => {
+    const t = await createTestApp();
+    const s = await t.open('acroform', '/form-stops.pdf');
+    const form = t.form(s);
+    await form.load();
+    const stops = form.stops;
+    expect(stops.length).toBeGreaterThan(0);
+    expect(form.stops).toBe(stops);
+    expect(form.stops).toBe(stops);
+    const order = stops.map((st) => st.field.name);
+    // A document edit reloads the field list; the tab order is then recomputed into a new array.
+    const before = form.fields;
+    await form.set(stops[0]!.field, 'Marta Esempio');
+    expect(form.fields).not.toBe(before);
+    const reloaded = form.stops;
+    expect(reloaded).not.toBe(stops);
+    expect(reloaded.map((st) => st.field.name)).toEqual(order);
+    expect(form.stops).toBe(reloaded);
+    // Replacing the list by hand is also a replacement.
+    form.fields = [...form.fields];
+    expect(form.stops).not.toBe(reloaded);
+    expect(form.stops.map((st) => st.field.name)).toEqual(order);
+  });
+
   it('explains that dynamic XFA forms cannot be edited @FR-FRM-09', async () => {
     const t = await createTestApp();
     const s = await t.open('xfa', '/xfa.pdf');
@@ -600,7 +629,12 @@ describe('Annotations can be placed from the keyboard @NFR-11', () => {
     expect(await tools.placeWithKeyboard(0)).toBe(true);
     expect(tools.typing).toMatchObject({ kind: 'textbox', page: 0 });
     await tools.commitTyping('From the keyboard');
-    expect((await s.doc.listAnnotations(0)).map((a) => a.type)).toEqual(['square', 'line', 'text', 'freetext']);
+    expect((await s.doc.listAnnotations(0)).map((a) => a.type)).toEqual([
+      'square',
+      'line',
+      'text',
+      'freetext',
+    ]);
 
     // Select has nothing to place; a markup tool needs a text selection.
     tools.setTool('select');
@@ -685,7 +719,10 @@ describe('Typed text boxes keep everything that was typed @FR-ANN-03', () => {
     tools.setTool('textbox');
     tools.setOptions({ fontSize: 12 });
     await tools.pointerDown(0, { x: 100, y: 400 });
-    const first = 'This sentence is long enough to wrap onto several lines inside the text box that was drawn. '.repeat(3).trim();
+    const first =
+      'This sentence is long enough to wrap onto several lines inside the text box that was drawn. '
+        .repeat(3)
+        .trim();
     await tools.commitTyping(`${first}\nSecond paragraph that must survive.`);
     tools.setTool('textbox');
     await tools.pointerDown(0, { x: 590, y: 30 });
@@ -916,7 +953,9 @@ describe('E6 Images to PDF', () => {
     t.files.put('/pics/fake.png', new Uint8Array([1, 2, 3]));
     const w = t.images();
     await w.addFiles(
-      ['/pics/1.jpg', '/pics/2.jpg', '/pics/3.jpg', '/pics/notes.txt', '/pics/fake.png'].map((p) => t.files.ref(p)),
+      ['/pics/1.jpg', '/pics/2.jpg', '/pics/3.jpg', '/pics/notes.txt', '/pics/fake.png'].map((p) =>
+        t.files.ref(p),
+      ),
     );
     expect(w.items.map((i) => i.name)).toEqual(['1.jpg', '2.jpg', '3.jpg']);
     expect(t.toastKeys()).toEqual(['images.notAnImage', 'images.notAnImage']);
@@ -1282,7 +1321,8 @@ describe('other everyday flows', () => {
     await tools.pointerMove(0, { x: 260, y: 740 });
     await tools.pointerUp(0, { x: 260, y: 740 });
     expect(seen[0]).toBeInstanceOf(Promise);
-    t.clipboard.writeImage = () => Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
+    t.clipboard.writeImage = () =>
+      Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
     tools.setTool('snapshot');
     await tools.pointerDown(0, { x: 60, y: 690 });
     await tools.pointerMove(0, { x: 260, y: 740 });

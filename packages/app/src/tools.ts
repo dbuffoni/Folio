@@ -1,4 +1,13 @@
-import { Emitter, containsPoint, fitTextBox, isFolioError, msg, rectFromPoints, translate, type Msg } from '@folio/core';
+import {
+  Emitter,
+  containsPoint,
+  fitTextBox,
+  isFolioError,
+  msg,
+  rectFromPoints,
+  translate,
+  type Msg,
+} from '@folio/core';
 import type {
   Annotation,
   Color,
@@ -738,7 +747,13 @@ export class ToolController {
         this.areaPicked.emit({ tool: 'table', page: draft.page, rect });
       }
     });
-    if (SHAPES.includes(draft.tool) || draft.tool === 'polyline' || draft.tool === 'snapshot' || draft.tool === 'table') this.done();
+    if (
+      SHAPES.includes(draft.tool) ||
+      draft.tool === 'polyline' ||
+      draft.tool === 'snapshot' ||
+      draft.tool === 'table'
+    )
+      this.done();
     else this.emit();
   }
 
@@ -815,6 +830,9 @@ export class ToolController {
     const t = this.typing;
     if (!t) return;
     this.typing = null;
+    // Unmount the text field now, not when the command ends: a shortcut pressed meanwhile (Ctrl+S)
+    // would otherwise be swallowed by the field that is still on screen.
+    this.emit();
     const value = text.replace(/\s+$/g, '');
     const o = this.options;
     await this.safe(async () => {
@@ -926,7 +944,8 @@ export class ToolController {
       const rect = e.line.line.rect;
       if (result.missingGlyphs)
         this.notice = { kind: 'missingGlyphs', message: msg('edit.missingGlyphs'), result, rect };
-      else if (result.overflow) this.notice = { kind: 'overflow', message: msg('edit.overflow'), result, rect };
+      else if (result.overflow)
+        this.notice = { kind: 'overflow', message: msg('edit.overflow'), result, rect };
       else if (result.font.kind === 'substituted')
         this.notice = {
           kind: 'substituted',

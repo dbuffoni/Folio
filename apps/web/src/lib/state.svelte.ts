@@ -144,6 +144,9 @@ export async function start(): Promise<void> {
       const id = setInterval(fn, ms);
       return () => clearInterval(id);
     } });
+    // Periodic recovery snapshots wait for a pause in scrolling, typing and pointer input.
+    for (const type of ['scroll', 'wheel', 'keydown', 'pointerdown'] as const)
+      window.addEventListener(type, () => rawApp.noteActivity(), { capture: true, passive: true });
     const rawSign = new SignModel(rawApp);
     watch(rawApp.changed);
     watch(raw(ui).changed);

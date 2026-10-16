@@ -18,6 +18,8 @@
   const dropBefore = $derived(dep(v, org.dropBefore));
   const mixed = $derived(dep(v, new Set(session.pageInfos.map((p) => `${Math.round(p.size.width)}x${Math.round(p.size.height)}`)).size > 1));
   let dragging = $state<number | null>(null);
+  // The hover toolbar exists only on the card under the pointer: 300 pages would otherwise mount 1200 buttons.
+  let hot = $state<number | null>(null);
   let menu = $state<{ x: number; y: number; page: number } | null>(null);
   let grid: HTMLDivElement | undefined = $state();
   let band = $state<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -116,16 +118,20 @@
       ondragstart={(e) => ((dragging = i), e.dataTransfer?.setData('text/plain', String(i)))}
       ondragend={() => ((dragging = null), org.dragOver(null))}
       ondragover={(e) => ondragover(e, i)}
+      onpointerenter={() => (hot = i)}
+      onpointerleave={() => hot === i && (hot = null)}
     >
-      <span class="chk"><Icon name="check" /></span>
+      <span class="chk">{#if selected.includes(i)}<Icon name="check" />{/if}</span>
       {#if mixed}<span class="chip badge">{sizeLabel(i)}</span>{/if}
       <button class="op" aria-pressed={selected.includes(i)} aria-label="{t('ui.page')} {i + 1}"><Thumb {session} page={i} width={size} version={sv} /></button>
+      {#if hot === i}
       <div class="mab">
         <button class="ib" onclick={(e) => (e.stopPropagation(), void org.rotate(270, i))} use:tip={t('cmd.rotateCcw')} aria-label={t('cmd.rotateCcw')}><Icon name="rotate-ccw" /></button>
         <button class="ib" onclick={(e) => (e.stopPropagation(), void org.rotate(90, i))} use:tip={t('cmd.rotateCw')} aria-label={t('cmd.rotateCw')}><Icon name="rotate-cw" /></button>
         <button class="ib" onclick={(e) => (e.stopPropagation(), void org.duplicate(i))} use:tip={t('cmd.duplicate')} aria-label={t('cmd.duplicate')}><Icon name="copy" /></button>
         <button class="ib" onclick={(e) => (e.stopPropagation(), void org.delete(i))} use:tip={t('action.delete')} aria-label={t('action.delete')}><Icon name="trash-2" /></button>
       </div>
+      {/if}
       <div class="num">{session.pageInfos[i]?.label ?? i + 1}</div>
     </div>
   {/each}

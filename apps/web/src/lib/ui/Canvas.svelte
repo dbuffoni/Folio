@@ -9,7 +9,13 @@
   let { session }: { session: DocumentSession } = $props();
   const m = $derived(models(session));
   const v = $derived(track());
-  const view = $derived(dep(v, session.view));
+  // Primitives: a derived that returns an unchanged number stops the model-change counter from
+  // re-running the layout of every page on each keystroke or click.
+  const viewLayout = $derived(dep(v, session.view.layout));
+  const viewZoom = $derived(dep(v, session.view.zoom));
+  const viewPage = $derived(dep(v, session.view.page));
+  const viewRotation = $derived(dep(v, session.view.rotation));
+  const viewZoomMode = $derived(dep(v, session.view.zoomMode));
   const sv = $derived(dep(v, session.structureVersion));
   const hint = $derived(dep(v, m.tools.hint));
   const snapshot = $derived(['snapshot', 'table'].includes(dep(v, m.tools.tool)));
@@ -22,25 +28,48 @@
   // Single-page layout shows only the current page; the others lay out every page.
   const pages = $derived.by(() => {
     void sv;
-    const all = session.pageInfos.map((p, index) => ({ index, size: p.size, rotation: p.rotation }));
-    return view.layout === 'single' ? all.filter((p) => p.index === view.page) : all;
+    const all = raw(session).pageInfos.map((p, index) => ({ index, size: p.size, rotation: p.rotation }));
+    return viewLayout === 'single' ? all.filter((p) => p.index === viewPage) : all;
   });
-  const layout = $derived(layoutPages(pages, view.zoom, view.layout === 'single' ? 'continuous' : view.layout, view.rotation));
+  const layout = $derived(layoutPages(pages, viewZoom, viewLayout === 'single' ? 'continuous' : viewLayout, viewRotation));
   const boxes = $derived(layout.boxes.map((b) => ({ ...b, index: pages[b.index]!.index })));
   // Pages in the viewport render at once; the margin around it waits until scrolling stops, so a
   // fast scroll does not queue full-resolution renders of pages that are about to leave.
   let win = $state.raw<RenderWindow>({ inView: new Set(), near: new Set(), mounted: new Set(), current: 0 });
   let scrolling = $state(false);
+  // The part of the canvas on screen, published when scrolling stops: pages too large for one bitmap
+  // redraw only this part sharp.
+  let viewWin = $state.raw({ left: 0, top: 0, right: 0, bottom: 0 });
+  function publishWindow(): void {
+    if (!scroller) return;
+    const next = { left: scroller.scrollLeft, top: scroller.scrollTop, right: scroller.scrollLeft + scroller.clientWidth, bottom: scroller.scrollTop + scroller.clientHeight };
+    if (next.left !== viewWin.left || next.top !== viewWin.top || next.right !== viewWin.right || next.bottom !== viewWin.bottom) viewWin = next;
+  }
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let frame = 0;
-  const renders = (i: number): boolean => view.layout === 'single' || win.inView.has(i) || (!scrolling && win.near.has(i));
+  const renders = (i: number): boolean => viewLayout === 'single' || win.inView.has(i) || (!scrolling && win.near.has(i));
   let reported = -1;
+  // Dragging the scrollbar jumps over many pages per frame. Mounting a full page view for each (about
+  // twenty reactive values, engine calls for annotations and links) costs more than a frame, so while
+  // the position moves faster than `FAST` viewports per update, pages not yet mounted stay as plain
+  // white boxes; they become real views when the scroll slows down.
+  const FAST = 0.4;
+  let heavy = $state.raw<ReadonlySet<number>>(new Set());
+  let lastTop = 0;
+  let streak = 0;
+  let lite = false;
   function update(): void {
     frame = 0;
     if (scroller) scrollTop = scroller.scrollTop;
+    // Two fast updates in a row: a single jump (Page Down, a bookmark) is not a drag and mounts at once.
+    streak = Math.abs(scrollTop - lastTop) > viewport.height * FAST ? streak + 1 : 0;
+    lite = streak >= 2;
+    lastTop = scrollTop;
     const next = renderWindow(boxes, scrollTop, viewport.height, win.mounted);
     if (!sameSet(next.mounted, win.mounted) || !sameSet(next.inView, win.inView) || !sameSet(next.near, win.near)) win = next;
-    if (view.layout === 'single') return;
+    const allowed = lite ? new Set([...next.mounted].filter((i) => heavy.has(i))) : next.mounted;
+    if (!sameSet(allowed, heavy)) heavy = allowed;
+    if (viewLayout === 'single') return;
     // Scrolling reports the current page; a page change from elsewhere scrolls to it.
     if (next.current !== raw(session).view.page) {
       reported = next.current;
@@ -50,8 +79,8 @@
   $effect(() => {
     void boxes;
     void viewport;
-    void view.layout;
-    untrack(update);
+    void viewLayout;
+    untrack(() => (update(), publishWindow()));
   });
   $effect(() => () => (clearTimeout(idleTimer), frame && cancelAnimationFrame(frame)));
 
@@ -65,10 +94,10 @@
   });
   // Fit modes follow the viewport and the page being read.
   $effect(() => {
-    void view.zoomMode;
-    void view.layout;
-    void view.page;
-    void view.rotation;
+    void viewZoomMode;
+    void viewLayout;
+    void viewPage;
+    void viewRotation;
     void sv;
     session.fit(viewport);
   });
@@ -77,23 +106,23 @@
     scrollTop = scroller.scrollTop;
     scrolling = true;
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => (scrolling = false), 120);
+    idleTimer = setTimeout(() => ((scrolling = false), (streak = 0), update(), publishWindow()), 80);
     if (!frame) frame = requestAnimationFrame(update);
   }
   $effect(() => {
-    const page = view.page;
-    void view.zoom;
-    void view.layout;
+    const page = viewPage;
+    void viewZoom;
+    void viewLayout;
     if (!scroller || page === reported) return;
     reported = page;
-    scroller.scrollTop = view.layout === 'single' ? 0 : scrollTopFor(boxes, page);
+    scroller.scrollTop = viewLayout === 'single' ? 0 : scrollTopFor(boxes, page);
   });
   // The current search match is brought into view below the floating find bar.
   const findOpen = $derived(dep(v, m.find.open));
   const matchIndex = $derived(dep(v, m.find.open ? m.find.current : -1));
   $effect(() => {
     if (matchIndex < 0 || !scroller) return;
-    void view.zoom;
+    void viewZoom;
     const host = scroller;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -154,8 +183,10 @@
   {/if}
   <div class="pages" style="width:{Math.max(layout.width, viewport.width)}px;height:{layout.height}px">
     {#each boxes as b (`${sv}-${b.index}`)}
-      {#if win.mounted.has(b.index) || view.layout === 'single'}
-        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} />
+      {#if viewLayout !== 'single' && win.mounted.has(b.index) && !heavy.has(b.index)}
+        <div class="pv" style="left:{b.x + Math.max(0, (viewport.width - layout.width) / 2)}px;top:{b.y}px;width:{b.width}px;height:{b.height}px" aria-hidden="true"></div>
+      {:else if heavy.has(b.index) || viewLayout === 'single'}
+        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} urgent={win.inView.has(b.index)} {viewWin} />
       {/if}
     {/each}
   </div>
