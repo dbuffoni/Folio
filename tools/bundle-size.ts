@@ -16,11 +16,13 @@ function walk(dir: string, out: string[] = []): string[] {
 const gz = (files: string[]): number => files.reduce((n, f) => n + gzipSync(readFileSync(f)).length, 0);
 const files = walk(build);
 // The SQLite worker bundle ships with its package but is not loaded: the database runs in-page.
-const js = gz(files.filter((f) => f.endsWith('.js') && !/sqlite3-(worker1|opfs)/.test(f)));
+// The OCR files (worker, WebAssembly cores, language data) load only when text recognition runs.
+const js = gz(files.filter((f) => f.endsWith('.js') && !/sqlite3-(worker1|opfs)/.test(f) && !/\/ocr\//.test(f)));
+const ocr = gz(files.filter((f) => /\/ocr\/core\/tesseract-core-simd-lstm\.wasm\.js$|\/ocr\/worker\.min\.js$|\.traineddata\.gz$/.test(f)));
 const pdfium = gz(files.filter((f) => /pdfium.*\.wasm$/.test(f)));
 const kb = (n: number): string => `${(n / 1024).toFixed(0)} KB`;
-console.warn(`bundle: JavaScript ${kb(js)} gzip (budget 600 KB), PDFium WASM ${kb(pdfium)} gzip (budget 6144 KB)`);
-if (js > 600 * 1024 || pdfium > 6 * 1024 * 1024) {
+console.warn(`bundle: JavaScript ${kb(js)} gzip (budget 600 KB), PDFium WASM ${kb(pdfium)} gzip (budget 6144 KB), OCR (one core + English + Italian) ${kb(ocr)} gzip (budget 12288 KB)`);
+if (js > 600 * 1024 || pdfium > 6 * 1024 * 1024 || ocr > 12 * 1024 * 1024) {
   console.error('bundle: over budget');
   process.exit(1);
 }

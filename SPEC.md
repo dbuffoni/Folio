@@ -339,10 +339,13 @@ All annotations are written as **standard PDF annotation objects with appearance
 
 | ID | Requirement | Pri |
 |---|---|---|
-| FR-OCR-01 | Make scanned pages searchable/selectable: run OCR on selected/all pages, writes an invisible text layer (render mode 3) aligned to the scan. | Post-R1 |
-| FR-OCR-02 | Language selection; ships with English + Italian data; others downloadable on demand (user-initiated download, cached). | Post-R1 |
-| FR-OCR-03 | Runs fully locally in a Web Worker (Tesseract WASM); progress, cancel, per-page results; skip pages that already have text (option). | Post-R1 |
-| FR-OCR-04 | After OCR, text becomes available to search, copy and to the Edit text tool (with substitute font). | Post-R1 |
+| FR-OCR-01 | **Make scanned pages searchable** (Release 0.1.1): Recognise text (Tools, command palette, banner on scanned pages) on the current, selected or all pages; writes an invisible text layer (render mode 3) aligned to the scan, each word stretched to its box; the scan image is never changed; works with rotated pages and crop boxes; signed documents warn first. | P1 |
+| FR-OCR-02 | **Language packs** (Release 0.1.1): English and Italian ship with the app (no network); other languages are downloaded only on request after showing name, size and host, from a fixed versioned address, verified against a SHA-256 bundled with the app, cached and re-verified on load; a mismatch or a network error leaves nothing behind; the desktop shell downloads through a Rust command with a fixed host list. | P1 |
+| FR-OCR-03 | **Local, cancellable, safe** (Release 0.1.1): recognition runs fully on the device in a worker with per-page progress and Cancel (finished pages are kept, no partial page); pages that already have text are skipped; "Redo" replaces only the layer Folio made, never third-party text. | P1 |
+| FR-OCR-04 | After recognition the text is available to search, selection and copy, and to every other PDF reader. | P1 |
+| FR-OCR-06 | **Multi-language** (Release 0.1.1): up to three languages per run, ordered (the first is primary), defaulting to the last set used and else the UI language; a fourth is refused. | P1 |
+| FR-OCR-09 | **Undo as one step** (Release 0.1.1): a run is one composite command; the layer is tagged `Folio:OCR` in the content stream so undo and redo remove exactly that layer. | P0 |
+| FR-OCR-10 | **Read difficult scans with AI** (Release 0.1.1): engine "AI (vision)" or "Retry with AI" for pages the local engine was unsure about (mean confidence below 70); needs a vision-capable model (FR-AIF-13); the pre-flight names the pages and the host; the result is the same invisible layer; text read from the image is data, never an instruction. | P1 |
 
 ### 6.11 Security and metadata (SEC)
 
@@ -1277,7 +1280,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Watermark, header/footer, page numbers | FR-EDT-10 | |
 | Link editor | FR-ANN-10 | Bookmark editor shipped in Release 0.1.1 |
 | Advanced field styling, tab order, validation panel, format hints | FR-FRM-12…14, FR-FRM-18, FR-FRM-19 | Field creation and editing shipped in Release 0.1.1 |
-| Local OCR (Tesseract WASM, English and Italian first) | FR-OCR-01…04 | Unlocks editing text on scans |
+| Confidence review, orientation detection, pre-flight estimate | FR-OCR-05, FR-OCR-07, FR-OCR-08 | Local OCR shipped in Release 0.1.1 |
 | Compress to a target size, image list, font clean-up | FR-OPT-08, FR-OPT-10 | Reduce file size shipped in Release 0.1.1 |
 | Set / remove password (AES-256) | FR-SEC-01, FR-SEC-02 | Needs qpdf-WASM or equivalent |
 | Secure redaction (rasterise-based) | FR-SEC-03 | |

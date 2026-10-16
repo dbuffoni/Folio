@@ -129,7 +129,7 @@ describe('Make scanned pages searchable @FR-OCR-01 @FR-OCR-03 @FR-OCR-09', () =>
     await engine.dispose();
   }, 240_000);
 
-  it('difficult scans with AI: recorded transcription becomes the same invisible layer @FR-OCR-01', async () => {
+  it('difficult scans with AI: recorded transcription becomes the same invisible layer @FR-OCR-01 @FR-OCR-10', async () => {
     const ai = new FakeAiProvider();
     const { svc } = make(ai);
     const { doc } = await open(await fixture('scanned-text'));

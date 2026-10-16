@@ -40,6 +40,10 @@ import {
   tabOrder,
   toggle,
   type AnalysisResult,
+  MAX_OCR_LANGUAGES,
+  defaultOcrLanguages,
+  type OcrLanguagePack,
+  type OcrRun,
   type FieldProposal,
   type FieldTool,
   FIELD_TOOLS,
@@ -905,6 +909,206 @@ export class SignModel extends ViewModel {
   async reorderStamps(ids: string[]): Promise<void> {
     await this.app.services.stampsRepo.reorder(ids);
     await this.load();
+  }
+}
+
+// ---- OCR (FR-OCR-01…03, 06, 09) ----------------------------------------------------------------
+
+export type OcrStage = 'idle' | 'ready' | 'running' | 'done';
+export class OcrModel extends ViewModel {
+  stage: OcrStage = 'idle';
+  languages: string[] = ['eng'];
+  engine: 'local' | 'ai' = 'local';
+  scope: 'current' | 'selected' | 'all' = 'current';
+  redo = false;
+  progress = 0;
+  run: OcrRun | null = null;
+  /** Pages the local engine was unsure about. */
+  retry: PageIndex[] = [];
+  packs: Array<OcrLanguagePack & { installed: boolean }> = [];
+  /** A language being downloaded, for the progress line. */
+  downloading: { code: string; received: number; total: number } | null = null;
+  /** Current page is a scan with no text and no layer of ours: the banner offers "Recognise text". */
+  scannedHere = false;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+  }
+  private get s() {
+    return this.app.services;
+  }
+  get available(): boolean {
+    return this.s.ocr.localAvailable;
+  }
+  /** "AI (vision)" needs AI switched on, configured, and a model that can read images (FR-AIF-13). */
+  async aiAvailable(): Promise<boolean> {
+    const ai = this.app.settings.ai;
+    return ai.enabled && aiGates(ai).vision && (await this.s.ai.isConfigured());
+  }
+  async loadPacks(): Promise<void> {
+    this.packs = await this.s.ocrLanguages.list();
+    this.emit();
+  }
+  /** Opens the dialog state: remembered languages first, else the UI language. */
+  async start(): Promise<void> {
+    await this.loadPacks();
+    const ocr = this.app.settings.ocr.languages;
+    this.languages = defaultOcrLanguages(this.app.settings.language, ocr).filter((c) => this.packs.some((p) => p.code === c));
+    if (this.languages.length === 0) this.languages = ['eng'];
+    this.stage = 'ready';
+    this.run = null;
+    this.retry = [];
+    this.progress = 0;
+    this.emit();
+  }
+  toggleLanguage(code: string): boolean {
+    const at = this.languages.indexOf(code);
+    if (at >= 0) {
+      if (this.languages.length > 1) this.languages = this.languages.filter((c) => c !== code);
+    } else if (this.languages.length < MAX_OCR_LANGUAGES) this.languages = [...this.languages, code];
+    else return false;
+    this.emit();
+    return true;
+  }
+  /** Order matters: the first language is the primary one. */
+  moveLanguage(code: string, direction: -1 | 1): void {
+    const i = this.languages.indexOf(code);
+    const j = i + direction;
+    if (i < 0 || j < 0 || j >= this.languages.length) return;
+    const next = [...this.languages];
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    this.languages = next;
+    this.emit();
+  }
+  get pages(): PageIndex[] {
+    const sel = this.session.selection;
+    if (this.scope === 'all') return Array.from({ length: this.session.pageCount }, (_, i) => i);
+    if (this.scope === 'selected' && sel.kind === 'pages') return [...sel.pages].sort((a, b) => a - b);
+    return [this.session.view.page];
+  }
+
+  /** Downloads a language only after the user confirmed its name and size (FR-OCR-02). */
+  async install(code: string): Promise<boolean> {
+    const pack = this.s.ocrLanguages.pack(code);
+    if (!pack || pack.bundled) return false;
+    if (!(await this.app.prompts.confirm(msg('ocr.confirmDownload', { name: pack.name, size: pack.size, host: new URL(pack.url!).host }), { confirmLabel: msg('ocr.download') }))) return false;
+    this.downloading = { code, received: 0, total: pack.size };
+    this.emit();
+    const ok = await this.app.guard(async () => {
+      await this.s.ocrLanguages.install(code, {
+        onProgress: (received, total) => {
+          this.downloading = { code, received, total };
+          this.emit();
+        },
+      });
+      return true;
+    });
+    this.downloading = null;
+    await this.loadPacks();
+    return !!ok;
+  }
+  async remove(code: string): Promise<void> {
+    await this.app.guard(() => this.s.ocrLanguages.remove(code));
+    this.languages = this.languages.filter((c) => c !== code);
+    if (this.languages.length === 0) this.languages = ['eng'];
+    await this.loadPacks();
+  }
+
+  /** The current page, for the banner: scanned, no text, no layer of Folio's. */
+  async refreshBanner(): Promise<void> {
+    const page = this.session.view.page;
+    if (page < 0 || page >= this.session.pageCount) return;
+    const layer = await this.session.text.layer(page);
+    const scanned = layer.isScanned && !(await this.session.doc.hasOcrLayer(page));
+    // Only a change is announced: the shell calls this on every update and would loop otherwise.
+    if (scanned !== this.scannedHere) {
+      this.scannedHere = scanned;
+      this.emit();
+    }
+  }
+
+  /**
+   * Runs recognition as one undoable step. Languages that are not installed are downloaded first (after
+   * confirmation); signed documents and AI runs ask before anything changes or is sent.
+   */
+  async execute(pagesOverride?: PageIndex[], engineOverride?: 'local' | 'ai'): Promise<OcrRun | null> {
+    const engine = engineOverride ?? this.engine;
+    const pages = pagesOverride ?? this.pages;
+    if (engine === 'local') {
+      if (!this.available) {
+        this.app.toast('warning', msg('ocr.unavailable'));
+        return null;
+      }
+      for (const pack of await this.s.ocrLanguages.missing(this.languages)) if (!(await this.install(pack.code))) return null;
+    } else {
+      if (!(await this.aiAvailable())) {
+        this.app.toast('warning', msg('ai.gate.noVision'));
+        return null;
+      }
+      const host = endpointHost(this.app.settings.ai.baseUrl);
+      if (!(await this.app.prompts.confirm(msg('ocr.aiPreflight', { count: pages.length, host }), { confirmLabel: msg('ocr.aiSend') }))) return null;
+    }
+    if (this.session.meta.hasSignatures && !(await this.app.prompts.confirm(msg('ocr.confirmSigned'), { confirmLabel: msg('action.continue') }))) return null;
+    this.stage = 'running';
+    this.progress = 0;
+    this.abort = new AbortController();
+    this.emit();
+    let result: OcrRun | null = null;
+    const ok = await this.app.guard(async () => {
+      await this.session.settled();
+      await this.session.run(
+        this.s.ocr.command(
+          this.session.doc,
+          {
+            pages,
+            languages: this.s.ocrLanguages.validate(this.languages),
+            engine,
+            redo: this.redo,
+            signal: this.abort!.signal,
+            progress: (done, total) => {
+              this.progress = total ? done / total : 1;
+              this.emit();
+            },
+          },
+          (r) => (result = r),
+        ),
+      );
+      return true;
+    });
+    if (ok && engine === 'local') await this.app.setSetting('ocr', { languages: this.languages });
+    this.stage = ok ? 'done' : 'ready';
+    this.run = result;
+    this.retry = result ? this.s.ocr.lowConfidence(result) : [];
+    if (result) {
+      const done = (result as OcrRun).outcomes.filter((o) => o.status === 'done').length;
+      this.app.toastUndo(msg(done ? 'toast.ocrDone' : 'toast.ocrNothing', { count: done }));
+      if ((result as OcrRun).outcomes.some((o) => o.substituted > 0)) this.app.toast('info', msg('ocr.substituted'));
+    }
+    this.emit();
+    void this.refreshBanner();
+    return result;
+  }
+  /** "Retry with AI" for the pages the local run was unsure about; replaces only Folio's own layer. */
+  async retryWithAi(): Promise<OcrRun | null> {
+    const pages = this.retry;
+    if (pages.length === 0) return null;
+    const keep = this.redo;
+    this.redo = true;
+    const out = await this.execute(pages, 'ai');
+    this.redo = keep;
+    return out;
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+  reset(): void {
+    this.stage = 'idle';
+    this.run = null;
+    this.emit();
   }
 }
 

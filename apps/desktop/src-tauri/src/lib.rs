@@ -180,6 +180,7 @@ pub fn run() {
             http::ai_origin,
             http::set_ai_origin,
             http::http_request,
+            http::download_file,
             db::db_execute,
             db::db_select,
             storage::storage_write,

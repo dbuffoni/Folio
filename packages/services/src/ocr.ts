@@ -173,14 +173,17 @@ export function layerWords(result: OcrPageResult | { lines: OcrLine[] }, info: A
   const toUser = viewToPageMatrix(info.size, info.rotation, 1);
   const out: OcrLayerWord[] = [];
   for (const line of result.lines) {
-    for (const w of line.words) {
+    for (const [n, w] of line.words.entries()) {
       const heightPt = (w.y1 - w.y0) / pxPerPoint;
+      const next = line.words[n + 1];
+      // Words are separate objects, so a trailing space keeps "two words" two words when the text is
+      // searched or copied; the gap it leaves inside the word's box is what poppler uses to split words too.
       const widthPt = (w.x1 - w.x0) / pxPerPoint;
       if (!(heightPt > 0 && widthPt > 0) || w.text.trim() === '') continue;
       // Baseline start: left edge of the word box, a descender above its bottom edge, in the view shown.
       const p = applyToPoint(toUser, { x: w.x0 / pxPerPoint, y: w.y1 / pxPerPoint - heightPt * 0.2 });
       out.push({
-        text: w.text,
+        text: next ? `${w.text} ` : w.text,
         origin: { x: p.x + info.cropBox.x, y: p.y + info.cropBox.y },
         // A page shown rotated by r clockwise reads upright when its text runs at +r in user space.
         angle: info.rotation,

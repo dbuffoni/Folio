@@ -55,6 +55,7 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'task.merge', title: 'cmd.merge', group: 'file', icon: 'combine', keywords: 'combine join pdfs', run: ({ ui }) => ui.openDialog('merge') },
     { id: 'task.split', title: 'cmd.split', group: 'file', icon: 'scissors', when: doc, keywords: 'separate divide', run: ({ ui }) => ui.openDialog('split') },
     { id: 'task.images', title: 'cmd.imagesToPdf', group: 'file', icon: 'images', keywords: 'photos jpg png scan', run: ({ ui }) => ui.openDialog('images') },
+    { id: 'tool.ocr', title: 'cmd.ocr.open', group: 'tool', icon: 'scan-text', when: doc, keywords: 'recognise recognize text scan searchable ocr', run: ({ ui }) => ui.openDialog('ocr') },
     { id: 'export.compress', title: 'cmd.compress', group: 'export', icon: 'file-down', when: doc, keywords: 'reduce shrink smaller size compress optimise', run: ({ ui }) => ui.openDialog('compress') },
     { id: 'export.images', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
     { id: 'export.flatten', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {

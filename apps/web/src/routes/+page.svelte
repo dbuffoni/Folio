@@ -14,6 +14,7 @@
   import SplitDialog from '#lib/ui/dialogs/SplitDialog.svelte';
   import StampsDialog from '#lib/ui/dialogs/StampsDialog.svelte';
   import CompressDialog from '#lib/ui/dialogs/CompressDialog.svelte';
+  import OcrDialog from '#lib/ui/dialogs/OcrDialog.svelte';
   import Dialog from '#lib/ui/Dialog.svelte';
   import FindBar from '#lib/ui/FindBar.svelte';
   import Home from '#lib/ui/Home.svelte';
@@ -28,6 +29,7 @@
   import Toasts from '#lib/ui/Toasts.svelte';
   import Toolbar from '#lib/ui/Toolbar.svelte';
 
+  import { untrack } from 'svelte';
   void start();
   const v = $derived(track());
   const session = $derived(dep(v, boot.ready ? app.active : null));
@@ -35,6 +37,14 @@
   const m = $derived(session ? models(session) : null);
   const banner = $derived(dep(v, m && session?.mode === 'fill' ? m.form.banner : null));
   let bannerOff = $state<string | null>(null);
+  let ocrBannerOff = $state<string | null>(null);
+  const scanBanner = $derived(dep(v, !!m && m.ocr.available && m.ocr.scannedHere));
+  $effect(() => {
+    void v;
+    const model = m?.ocr;
+    const page = session?.view.page;
+    if (model && page !== undefined) untrack(() => void model.refreshBanner());
+  });
   let dropping = $state(false);
 
   // Theme, accent colour, UI scale and motion follow the settings (FR-APP-10, §7.1).
@@ -137,6 +147,15 @@
                 <button class="ib" onclick={() => (bannerOff = session.id)} aria-label={t('action.dismiss')}><Icon name="x" /></button>
               </div>
             {/if}
+            {#if scanBanner && ocrBannerOff !== session.id}
+              <div id="ocrbanner" role="status">
+                <Icon name="scan-text" />
+                <b>{t('ocr.banner')}</b>
+                <span class="grow"></span>
+                <button class="btn sm primary" onclick={() => ui.openDialog('ocr')}>{t('ocr.bannerAction')}</button>
+                <button class="ib" onclick={() => (ocrBannerOff = session.id)} aria-label={t('action.dismiss')}><Icon name="x" /></button>
+              </div>
+            {/if}
             <FindBar {session} />
             {#if session.mode === 'organise'}<Organise {session} />{:else}<Canvas {session} />{/if}
           </div>
@@ -154,6 +173,7 @@
   {:else if dialog === 'images'}<ImagesDialog />
   {:else if dialog === 'exportImages' && session}<ExportDialog {session} />
   {:else if dialog === 'compress' && session}<CompressDialog {session} />
+  {:else if dialog === 'ocr' && session}<OcrDialog {session} />
   {:else if dialog === 'signature'}<SignatureDialog />
   {:else if dialog === 'stampEditor'}<StampsDialog />
   {:else if (dialog === 'properties' || dialog === 'metadata') && session}<PropertiesDialog {session} />

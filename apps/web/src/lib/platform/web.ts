@@ -1,8 +1,9 @@
 // Browser adapters (SPEC §8.10): File System Access API where available, plain inputs and downloads
 // otherwise; SQLite WASM on OPFS; secrets in memory or passphrase-encrypted.
-import { IoError, NetworkError, fromBase64, toBase64, utf8 } from '@folio/core';
+import { InvalidArgumentError, IoError, NetworkError, fromBase64, toBase64, utf8 } from '@folio/core';
 import { Oo1Database, type Oo1Db } from '@folio/db';
-import type { AppStorage, CryptoService, Database, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
+import { OCR_DOWNLOAD_HOSTS } from '@folio/services';
+import type { AppStorage, CryptoService, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
 import { BrowserClipboard, CanvasImageCodec, IframePrinting, RingLogger, SystemClock, WebCryptoService } from './common.ts';
 
 const TYPES: Record<FileKind, { description: string; accept: Record<string, string[]> } | null> = {
@@ -396,6 +397,45 @@ export class WebHttpClient implements HttpClient {
   }
 }
 
+/** Language data downloads (FR-OCR-02): fixed host, checksum checked, never without a user action. */
+export class WebDownloader implements Downloader {
+  constructor(private readonly crypto: CryptoService) {}
+  async download(req: Parameters<Downloader['download']>[0]): Promise<Uint8Array> {
+    const url = new URL(req.url);
+    if (url.protocol !== 'https:' || !OCR_DOWNLOAD_HOSTS.includes(url.host) || url.username || url.password) throw new InvalidArgumentError('Downloads are only allowed from the OCR language host', { reason: 'ocrHost' });
+    let res: Response;
+    try {
+      res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: req.signal });
+    } catch (e) {
+      throw new NetworkError(String((e as Error).message ?? e), e);
+    }
+    if (!res.ok) throw new NetworkError(`HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length') ?? 0);
+    if (total > req.maxBytes) throw new NetworkError('The file is larger than expected');
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    const reader = res.body?.getReader();
+    if (!reader) throw new NetworkError('No data');
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > req.maxBytes) throw new NetworkError('The file is larger than expected');
+      chunks.push(value);
+      req.onProgress?.(received, total || received);
+    }
+    const out = new Uint8Array(received);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    const hex = Array.from(await this.crypto.sha256(out), (b) => b.toString(16).padStart(2, '0')).join('');
+    if (hex !== req.sha256) throw new IoError('checksum');
+    return out;
+  }
+}
+
 class WebShell implements Shell {
   async openExternal(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -434,6 +474,7 @@ export async function createWebPlatform(version: string): Promise<Platform> {
     db: await openWebDatabase(storage),
     secrets,
     http: new WebHttpClient(secrets),
+    downloader: new WebDownloader(crypto),
     shell: new WebShell(),
     clipboard: new BrowserClipboard(),
     window: new WebWindow(),

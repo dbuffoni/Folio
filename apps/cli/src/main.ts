@@ -40,6 +40,7 @@ const USAGE = `folio-cli <command>
   fill <file> --set name=value [--set …] -o out.pdf   (repeat --set by comma: a=1,b=2)
   edit-text <file> --page=1 --find=Invoce --replace=Invoice -o out.pdf
   flatten <file> -o out.pdf
+  ocr <file> [--pages=1-3] [--lang=eng+ita] [--redo] -o out.pdf   invisible text layer (local Tesseract)
   compress <file> --preset=light|balanced|strong [--color-dpi=N --gray-dpi=N --quality=0.7] -o out.pdf
   fixtures [-o fixtures/generated]                write every generated fixture
 `;
@@ -152,6 +153,22 @@ async function main(): Promise<number> {
         const doc = await open(args[0]!);
         await doc.flattenForm();
         await doc.flattenAnnotations();
+        await save(need(flags, 'out'), await doc.save());
+        break;
+      }
+      case 'ocr': {
+        const { createNodeOcrEngine } = await import('@folio/ocr-tesseract/node');
+        const { OcrService } = await import('@folio/services');
+        const doc = await open(args[0]!);
+        const pages = typeof flags.pages === 'string' ? parsePageRanges(flags.pages, doc.pageCount) : Array.from({ length: doc.pageCount }, (_, i) => i);
+        const languages = (typeof flags.lang === 'string' ? flags.lang : 'eng').split(/[+,]/);
+        const ocr = createNodeOcrEngine((img) => images.encode(img, 'png'));
+        try {
+          const run = await new OcrService({ engine: ocr, images }).run(doc, { pages, languages, engine: 'local', redo: !!flags.redo });
+          for (const o of run.outcomes) process.stdout.write(`page ${o.page + 1}: ${o.status}${o.status === 'done' ? `, ${o.words} words, confidence ${Math.round(o.confidence)}` : ''}\n`);
+        } finally {
+          await ocr.dispose();
+        }
         await save(need(flags, 'out'), await doc.save());
         break;
       }

@@ -15,6 +15,7 @@
     "@folio/engine-pdfium": "workspace:*",
     "@folio/ports": "workspace:*",
     "@folio/services": "workspace:*",
-    "@folio/testkit": "workspace:*"
+    "@folio/testkit": "workspace:*",
+    "@folio/ocr-tesseract": "workspace:*"
   }
 }

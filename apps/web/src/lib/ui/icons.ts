@@ -70,6 +70,7 @@ import CircleDot from '@lucide/svelte/icons/circle-dot';
 import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 import List from '@lucide/svelte/icons/list';
 import RectangleHorizontal from '@lucide/svelte/icons/rectangle-horizontal';
+import ScanText from '@lucide/svelte/icons/scan-text';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import Lock from '@lucide/svelte/icons/lock';
 import LockOpen from '@lucide/svelte/icons/lock-open';
@@ -209,6 +210,7 @@ export const ICONS: Record<string, Component<{ size?: number | string; class?: s
   'chevrons-up-down': ChevronsUpDown,
   'list': List,
   'rectangle-horizontal': RectangleHorizontal,
+  'scan-text': ScanText,
   'list-tree': ListTree,
   'lock': Lock,
   'lock-open': LockOpen,

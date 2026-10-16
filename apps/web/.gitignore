@@ -2,3 +2,4 @@ static/fonts/
 .svelte-kit/
 build/
 test-results/
+static/ocr/

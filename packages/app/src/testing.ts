@@ -7,7 +7,7 @@ import {
   NodeCrypto, NodeImageCodec, fixture, sharedEngine,
 } from '@folio/testkit';
 import { AppModel } from './app.ts';
-import { CompressModel, ExportImagesModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, ProfilesModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
+import { CompressModel, ExportImagesModel, OcrModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, ProfilesModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
 import type { Prompts } from './prompts.ts';
 import { createRegistry, type CommandContext } from './registry.ts';
 import { Services } from './services.ts';
@@ -83,6 +83,7 @@ export interface TestApp {
   split(session: DocumentSession): SplitWizard;
   exportImages(session: DocumentSession): ExportImagesModel;
   compress(session: DocumentSession): CompressModel;
+  ocr(session: DocumentSession): OcrModel;
   profiles(): ProfilesModel;
   merge(): MergeWizard;
   images(): ImagesWizard;
@@ -92,6 +93,10 @@ export interface TestApp {
 }
 
 export interface TestAppOptions {
+  /** Text recognition engine and bundled language data for OCR tests. */
+  ocr?: import('@folio/ports').OcrEngine;
+  loadOcrLanguage?: (code: string) => Promise<Uint8Array>;
+  downloader?: import('@folio/ports').Downloader;
   /** Reuse storage/database/files from a previous instance to simulate a restart. */
   from?: Pick<TestApp, 'storage' | 'db' | 'files' | 'secrets' | 'clock'>;
   ai?: AiProvider;
@@ -117,9 +122,10 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     log: new MemoryLogger(),
     crypto: new NodeCrypto(),
     images: new NodeImageCodec(),
+    downloader: opts.downloader,
   };
   let seq = 0;
-  const services = new Services({ platform, engine, ai: opts.ai, newId: () => `id-${++seq}`, loadFont: (name) => readFile(new URL(`../../../assets/fonts/handwriting/${name}.ttf`, import.meta.url)) });
+  const services = new Services({ platform, engine, ai: opts.ai, ocr: opts.ocr, loadOcrLanguage: opts.loadOcrLanguage, newId: () => `id-${++seq}`, loadFont: (name) => readFile(new URL(`../../../assets/fonts/handwriting/${name}.ttf`, import.meta.url)) });
   const prompts = new ScriptedPrompts();
   const app = new AppModel(services, prompts, ticker);
   await app.start();
@@ -155,6 +161,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     split: (s) => new SplitWizard(app, s),
     exportImages: (s) => new ExportImagesModel(app, s),
     compress: (s) => new CompressModel(app, s),
+    ocr: (s) => new OcrModel(app, s),
     profiles: () => new ProfilesModel(app),
     merge: () => new MergeWizard(app),
     images: () => new ImagesWizard(app),

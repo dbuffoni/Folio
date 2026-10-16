@@ -168,6 +168,43 @@ pub async fn http_request(req: HttpRequest, allowed: State<'_, AllowedOrigin>, s
     Ok(HttpResponse { status, headers, body: String::from_utf8_lossy(&bytes).to_string() })
 }
 
+/// Hosts OCR language data may come from (FR-OCR-02). Fixed in the binary: page content cannot extend it.
+pub const DOWNLOAD_HOSTS: &[&str] = &["raw.githubusercontent.com"];
+
+/// Checks a download request: https only, host on the allow-list, no credentials, no custom port.
+pub fn download_allowed(url: &str) -> Result<url::Url> {
+    let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
+    let host_ok = u.host_str().map(|h| DOWNLOAD_HOSTS.contains(&h)).unwrap_or(false);
+    if u.scheme() != "https" || !host_ok || !u.username().is_empty() || u.password().is_some() || u.port().is_some() {
+        return Err(Error::Invalid("downloads are only allowed from the OCR language host".into()));
+    }
+    Ok(u)
+}
+
+/// Downloads a file for the OCR language manager. The caller verifies the SHA-256 against the manifest
+/// bundled with the app; this command only enforces where the bytes may come from and how big they are.
+#[tauri::command]
+pub async fn download_file(url: String, max_bytes: u64) -> Result<tauri::ipc::Response> {
+    let u = download_allowed(&url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| Error::Network(e.to_string()))?;
+    let res = client.get(u).send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if !res.status().is_success() {
+        return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
+    }
+    if res.content_length().map(|n| n > max_bytes).unwrap_or(false) {
+        return Err(Error::Network("the file is larger than expected".into()));
+    }
+    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Error::Network("the file is larger than expected".into()));
+    }
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +244,17 @@ mod tests {
         assert!(secret_header_value("https://api.openai.com/v1/models", None, Some("Bearer {secret}")).is_err());
         assert!(!is_loopback("https://localhost.evil.example/v1"));
         assert!(MAX_TIMEOUT_MS >= 180_000);
+    }
+
+    #[test]
+    fn downloads_are_limited_to_the_language_host() {
+        assert!(download_allowed("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/deu.traineddata").is_ok());
+        assert!(download_allowed("http://raw.githubusercontent.com/x").is_err());
+        assert!(download_allowed("https://raw.githubusercontent.com.evil.example/x").is_err());
+        assert!(download_allowed("https://evil.example/raw.githubusercontent.com").is_err());
+        assert!(download_allowed("https://user:pw@raw.githubusercontent.com/x").is_err());
+        assert!(download_allowed("https://raw.githubusercontent.com:8443/x").is_err());
+        assert!(download_allowed("file:///etc/passwd").is_err());
     }
 
     #[test]

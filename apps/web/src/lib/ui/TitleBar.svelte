@@ -44,6 +44,7 @@
       { icon: 'scissors', label: t('cmd.split'), disabled: !has, run: () => void run('task.split') },
       { icon: 'images', label: t('cmd.imagesToPdf'), run: () => void run('task.images') },
       { icon: 'file-image', label: t('cmd.exportImages'), disabled: !has, run: () => void run('export.images') },
+      { icon: 'scan-text', label: t('cmd.ocr.open'), disabled: !has, run: () => void run('tool.ocr') },
       { icon: 'file-down', label: t('cmd.compress'), disabled: !has, run: () => void run('export.compress') },
       { kind: 'sep' },
       { icon: 'info', label: t('cmd.properties'), disabled: !has, run: () => void run('file.properties') },

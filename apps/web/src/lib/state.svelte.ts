@@ -1,7 +1,7 @@
 // Wires the UI-less application layer to Svelte. Models stay plain classes; any `changed` event bumps
 // one reactive counter, and components read it through `track()` to re-evaluate.
 import {
-  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, ProfilesModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
+  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OcrModel, OrganiseModel, OutlineModel, ProfilesModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
   type CommandContext, type DocumentSession, type Prompts,
 } from '@folio/app';
 import type { Emitter, Msg } from '@folio/core';
@@ -9,6 +9,7 @@ import type { HandwritingFont } from '@folio/services';
 import { createWorkerEngine, loadHandwritingFont } from './engine/index.ts';
 import { setLocale } from './i18n/index.ts';
 import { bridge, bump, bumpPage, live, raw, track, trackPage } from './live.svelte.ts';
+import { createBrowserOcr, loadBundledLanguage } from './ocr/index.ts';
 import { createPlatform, isTauri } from './platform/index.ts';
 
 export const VERSION = '0.1.0';
@@ -69,6 +70,7 @@ interface PerSession {
   form: FormModel;
   author: FormAuthoringModel;
   outline: OutlineModel;
+  ocr: OcrModel;
   find: FindModel;
   smart: SmartFillModel;
 }
@@ -84,6 +86,7 @@ export function models(view: DocumentSession): PerSession {
       form: new FormModel(raw(app), session),
       author: new FormAuthoringModel(raw(app), session),
       outline: new OutlineModel(raw(app), session),
+      ocr: new OcrModel(raw(app), session),
       find: new FindModel(session),
       smart: new SmartFillModel(raw(app), session),
     };
@@ -109,6 +112,7 @@ export const wizards = {
   merge: (): MergeWizard => observe(new MergeWizard(raw(app))),
   split: (s: DocumentSession): SplitWizard => observe(new SplitWizard(raw(app), raw(s))),
   images: (): ImagesWizard => observe(new ImagesWizard(raw(app))),
+  ocr: (s: DocumentSession): OcrModel => observe(new OcrModel(raw(app), raw(s))),
   compress: (s: DocumentSession): CompressModel => observe(new CompressModel(raw(app), raw(s))),
   exportImages: (s: DocumentSession): ExportImagesModel => observe(new ExportImagesModel(raw(app), raw(s))),
   profiles: (): ProfilesModel => observe(new ProfilesModel(raw(app))),
@@ -128,7 +132,11 @@ export async function start(): Promise<void> {
     const platform = await createPlatform(VERSION);
     setLocale('en'); // English only in Release 1; dates and numbers still follow the platform locale
     const engine = createWorkerEngine();
-    const rawServices = new Services({ platform, engine, loadFont: (name: HandwritingFont) => loadHandwritingFont(name) });
+    // Recognition reads language data through the services (bundled or downloaded and verified).
+    let languageData: (code: string) => Promise<Uint8Array> = loadBundledLanguage;
+    const ocr = createBrowserOcr(platform.images, (code) => languageData(code));
+    const rawServices = new Services({ platform, engine, ocr, loadOcrLanguage: loadBundledLanguage, loadFont: (name: HandwritingFont) => loadHandwritingFont(name) });
+    languageData = (code) => rawServices.ocrLanguages.data(code);
     const rawApp = new AppModel(rawServices, prompts, { every: (ms, fn) => {
       const id = setInterval(fn, ms);
       return () => clearInterval(id);

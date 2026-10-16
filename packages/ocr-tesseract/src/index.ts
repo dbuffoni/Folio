@@ -62,6 +62,8 @@ export class TesseractOcrEngine implements OcrEngine {
       ...(corePath ? { corePath } : {}),
       ...(cachePath ? { cachePath } : {}),
       cacheMethod: 'readOnly',
+      // A worker loaded from its own URL: no blob workers, which the desktop CSP does not allow.
+      workerBlobURL: false,
       gzip: false,
       logger: () => undefined,
       errorHandler: () => undefined,

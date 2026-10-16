@@ -10,9 +10,10 @@
   import Dialog from '../Dialog.svelte';
   import Icon from '../Icon.svelte';
   import ProfilesPane from '../ProfilesPane.svelte';
+  import OcrLanguagesPane from '../OcrLanguagesPane.svelte';
 
   let { initial = 'appearance' }: { initial?: string } = $props();
-  const PANES = ['appearance', 'smartFill', 'profiles', 'general', 'privacy', 'about'] as const;
+  const PANES = ['appearance', 'smartFill', 'profiles', 'ocr', 'general', 'privacy', 'about'] as const;
   // svelte-ignore state_referenced_locally
   let pane = $state<(typeof PANES)[number]>(initial === 'profiles' ? 'profiles' : initial === 'privacy' ? 'privacy' : initial === 'about' ? 'about' : 'appearance');
   const v = $derived(track());
@@ -190,6 +191,8 @@
         <div class="togrow"><div>{t('settings.ai.image')}<small>{visionGate.ok ? t('settings.ai.imageHint') : tm(visionGate.reason)}</small></div><input type="checkbox" class="tog" aria-label={t('settings.ai.image')} disabled={!visionGate.ok} checked={s.ai.includeImage && visionGate.ok} onchange={(e) => ai({ includeImage: e.currentTarget.checked })} /></div>
       {:else if pane === 'profiles'}
         <ProfilesPane />
+      {:else if pane === 'ocr'}
+        <OcrLanguagesPane />
       {:else if pane === 'general'}
         <div class="g2">
           <div class="field"><label for="un">{t('settings.units')}</label><select id="un" value={s.units} onchange={(e) => set('units', e.currentTarget.value as 'mm')}><option value="mm">{t('settings.units.mm')}</option><option value="in">{t('settings.units.in')}</option><option value="pt">{t('settings.units.pt')}</option></select></div>
