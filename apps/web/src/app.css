@@ -511,7 +511,24 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .hist button:hover{background:var(--color-surface-2)}
   .hist li.cur button{background:var(--color-accent-soft);color:var(--color-accent-text);font-weight:500}
   .hist li.undone button{color:var(--color-fg-3)}
-  .ptable{display:grid;grid-template-columns:1fr 1.4fr auto auto;gap:6px 8px;align-items:center}
+  .ptable{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto auto;gap:6px 8px;align-items:center}
+  .pfields{display:flex;flex-direction:column;gap:8px}
+  .pfield{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-surface-2)}
+  .pmain{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:6px 8px}
+  .pmain input,.pbar select{min-width:0;width:100%}
+  .pbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .pbar select{width:auto;flex:0 1 120px}
+  .psens{display:flex;align-items:center;gap:5px;width:auto;font-size:12px;white-space:nowrap}
+  .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px}
+  .pkey{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+  .pnames{display:flex;align-items:center;gap:6px;flex:1 1 220px;min-width:0}
+  .pnames label{width:auto;flex:none}
+  .pnames input{flex:1;min-width:0}
+  .psign{flex-wrap:wrap}
+  .psign label{width:auto;flex:none}
+  .psign select{flex:1 1 160px;min-width:0}
+  .pheader{flex-wrap:wrap}
+  .pheader input{flex:1 1 140px;min-width:0}
   .dropveil{position:fixed;inset:0;z-index:70;background:color-mix(in srgb,var(--color-accent) 18%,transparent);border:3px dashed var(--color-accent);display:grid;place-items:center;font-size:18px;font-weight:600;color:var(--color-accent);pointer-events:none}
   .progress{height:4px;border-radius:2px;background:var(--color-surface-2);overflow:hidden}
   .progress i{display:block;height:100%;background:var(--color-accent);transition:width .15s}

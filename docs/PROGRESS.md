@@ -33,6 +33,7 @@ tests (qpdf, pdfcpu, poppler) where PDFs are written, and Playwright scenarios.
 | Field templates | FR-FRM-20 | migration 0002, `FieldTemplateRepo`, `ProfilesModel`, profiles editor |
 | Make scanned pages searchable, Multi-language OCR, OCR language packs, Read difficult scans with AI | FR-OCR-01…04, 06, 09, 10 | `packages/ocr-tesseract`, `OcrService`, `OcrLanguageRepo`, `addOcrLayer`, Rust `download_file` |
 | Extract tables | FR-OPT-12 | `core/src/tables.ts`, `TableService`, `TablesModel` |
+| Bugs and small features 130, 132, 133, 134 | FR-APP-03, FR-FRM-20, FR-STM-01, FR-STM-05, FR-AIF-04 | `Home.svelte` menu, `ProfilesPane.svelte`, `SignModel.placeDate/dateChoices`, migration 0003, `SmartFillService.signFields` |
 
 Known limits of this release: moved bookmarks keep page/position/zoom and web addresses but not named,
 script or launch actions (PDFium cannot re-attach them); field authoring rewrites the file through pdf-lib

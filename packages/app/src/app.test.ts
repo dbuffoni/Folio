@@ -185,6 +185,20 @@ describe('saving', () => {
     expect(t.prompts.asked.filter((a) => a === 'signed:s.pdf').length).toBe(2);
   });
 
+  it('places a date stamp in a format chosen at the tool, not only the setting @FR-STM-05', async () => {
+    const t = await createTestApp();
+    const s = await t.open('text', '/a.pdf');
+    const choices = t.sign.dateChoices();
+    expect(choices.map((c) => c.format)).toEqual(['iso', 'dmy', 'mdy', 'long']);
+    expect(choices.filter((c) => c.isDefault).map((c) => c.format)).toEqual(['iso']);
+    t.sign.placeDate(t.tools(s), 'dmy');
+    await t.tools(s).pointerMove(0, { x: 300, y: 300 });
+    await t.tools(s).pointerDown(0, { x: 300, y: 300 });
+    const [stamp] = await s.doc.listAnnotations(0);
+    expect(stamp?.contents).toBe(choices.find((c) => c.format === 'dmy')!.text);
+    expect(stamp?.contents).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+  });
+
   it('can flatten stamps when saving (setting) @FR-STM-08', async () => {
     const t = await createTestApp();
     const s = await t.open('text', '/a.pdf');

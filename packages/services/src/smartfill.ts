@@ -12,6 +12,7 @@ import {
 } from '@folio/core';
 import type {
   AiProvider,
+  Annotation,
   CryptoService,
   FieldMapping,
   FieldSpec,
@@ -23,6 +24,7 @@ import type {
   PageIndex,
   PdfDocument,
   ProfileKeyInfo,
+  RasterImage,
   Rect,
   SmartFieldType,
   TextLayer,
@@ -32,6 +34,7 @@ import type { AnnotationService } from './annotation.ts';
 import { label } from './commands.ts';
 import { detectAreas, isFillable, type DetectedArea, type FormService } from './form.ts';
 import { FormAuthoringService } from './form-author.ts';
+import type { SignatureService } from './signature.ts';
 import type { StampService } from './stamp.ts';
 
 // ---- data the service works with (kept structural so it does not depend on the db package) ------
@@ -47,6 +50,8 @@ export interface SmartProfileField {
 export interface SmartProfile {
   id: string;
   name: string;
+  /** Saved signature to put into signature fields (not sent to any AI provider). */
+  signatureId?: string | null;
   fields: SmartProfileField[];
 }
 export interface MappingEntry {
@@ -291,6 +296,13 @@ function typeOfCandidate(field: FormField): SmartFieldType {
   }
 }
 /** "person.firstName" / "txt_first_name" → "first name". */
+/** Largest rectangle with the aspect of `size` that fits in `box` minus `margin`, centred in it. */
+export function fitInside(size: { width: number; height: number }, box: Rect, margin = 0): Rect {
+  const scale = Math.min(Math.max(1, box.width - 2 * margin) / size.width, Math.max(1, box.height - 2 * margin) / size.height);
+  const width = size.width * scale;
+  const height = size.height * scale;
+  return { x: box.x + (box.width - width) / 2, y: box.y + (box.height - height) / 2, width, height };
+}
 const humanize = (name: string): string => tokens(name.split('.').pop() ?? name).join(' ');
 
 /** Nearest label to the left of or above a rectangle (same rule family as the area detector). */
@@ -325,6 +337,7 @@ export class SmartFillService {
       forms: FormService;
       annotations: AnnotationService;
       stamps: StampService;
+      signatures?: SignatureService;
       mappings: MappingStore;
       /** Absent or unconfigured → local heuristic only. */
       ai?: AiProvider;
@@ -846,7 +859,29 @@ export class SmartFillService {
    * FR-AIF-06, FR-AIF-14: one undoable step. AcroForm fields get values; detected areas become real
    * fields (created and filled together), so there is one way to create fields and one way to fill them.
    */
-  apply(suggestions: Suggestion[], _pageSizes?: Map<PageIndex, { width: number; height: number }>, opts: { taken?: ReadonlySet<string>; flatten?: boolean } = {}): Command | null {
+  /**
+   * Puts the profile's signature into every signature field of the pages that is still empty, fitted inside
+   * the field with a small margin. Null when there is nothing to sign (no signature, no field, all signed).
+   */
+  async signFields(doc: PdfDocument, pages: PageIndex[], sig: { kind: 'signature' | 'initials'; svg?: string | null; raster: RasterImage; width: number; height: number } | null): Promise<{ command: Command; count: number } | null> {
+    const signatures = this.deps.signatures;
+    if (!sig || !signatures) return null;
+    const wanted = new Set(pages);
+    const widgets = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
+    const items: Array<{ page: PageIndex; annotation: Annotation }> = [];
+    const existing = new Map<PageIndex, Annotation[]>();
+    for (const w of widgets) {
+      if (!existing.has(w.page)) existing.set(w.page, await doc.listAnnotations(w.page));
+      const centre = { x: w.rect.x + w.rect.width / 2, y: w.rect.y + w.rect.height / 2 };
+      const signed = existing.get(w.page)!.some((a) => a.type === 'stamp' && a.name === 'Signature' && centre.x >= a.rect.x && centre.x <= a.rect.x + a.rect.width && centre.y >= a.rect.y && centre.y <= a.rect.y + a.rect.height);
+      if (signed) continue;
+      const rect = fitInside(sig, w.rect, 3);
+      items.push({ page: w.page, annotation: this.deps.stamps.signatureAnnotation(signatures, sig, { x: rect.x, y: rect.y }, { width: 0, height: 0 }, rect) });
+    }
+    return items.length ? { command: this.deps.annotations.addMany(items, 'cmd.signFields'), count: items.length } : null;
+  }
+
+  apply(suggestions: Suggestion[], _pageSizes?: Map<PageIndex, { width: number; height: number }>, opts: { taken?: ReadonlySet<string>; flatten?: boolean; extra?: Command } = {}): Command | null {
     const accepted = suggestions.filter((s) => s.accepted && s.value !== '');
     const commands: Command[] = [];
     const fills: Array<{ field: FormField; value: FieldValue }> = [];
@@ -860,8 +895,9 @@ export class SmartFillService {
     if (fill) commands.push(fill);
     const { specs } = this.plan(suggestions, opts.taken);
     if (specs.length) commands.push(this.authoring.create(specs, 'cmd.smartFill.create'));
+    if (opts.extra) commands.push(opts.extra);
     if (opts.flatten && commands.length) commands.push(this.deps.forms.flatten());
-    return commands.length ? new CompositeCommand(label('cmd.smartFill', { count: accepted.length }), commands) : null;
+    return commands.length ? new CompositeCommand(label('cmd.smartFill', { count: accepted.length + (opts.extra ? 1 : 0) }), commands) : null;
   }
 
   /**

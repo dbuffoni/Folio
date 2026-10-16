@@ -286,6 +286,8 @@ export interface Profile {
   id: string;
   name: string;
   isDefault: boolean;
+  /** Saved signature put into signature fields when this profile fills a form; null when none. */
+  signatureId: string | null;
   fields: ProfileField[];
 }
 export interface ProfileExport {
@@ -388,8 +390,8 @@ export class ProfileRepo {
     return out;
   }
   async list(): Promise<Profile[]> {
-    const rows = await this.db.select<{ id: string; name: string; is_default: number }>('SELECT * FROM profiles ORDER BY is_default DESC, created_at');
-    return Promise.all(rows.map(async (r) => ({ id: r.id, name: r.name, isDefault: bool(r.is_default), fields: await this.fields(r.id) })));
+    const rows = await this.db.select<{ id: string; name: string; is_default: number; signature_id: string | null }>('SELECT * FROM profiles ORDER BY is_default DESC, created_at');
+    return Promise.all(rows.map(async (r) => ({ id: r.id, name: r.name, isDefault: bool(r.is_default), signatureId: r.signature_id ?? null, fields: await this.fields(r.id) })));
   }
   async get(id: string): Promise<Profile | null> {
     return (await this.list()).find((p) => p.id === id) ?? null;
@@ -411,6 +413,12 @@ export class ProfileRepo {
   async rename(id: string, name: string): Promise<void> {
     if (!name.trim()) throw new InvalidArgumentError('Give the profile a name', { reason: 'emptyName' });
     await this.db.execute('UPDATE profiles SET name = ? WHERE id = ?', [name.trim().slice(0, PROFILE_NAME_MAX), id]);
+  }
+  /** Associates a saved signature (or none) with the profile. */
+  async setSignature(id: string, signatureId: string | null): Promise<void> {
+    if ((await this.db.select('SELECT 1 FROM profiles WHERE id = ?', [id])).length === 0) throw new InvalidArgumentError('Unknown profile');
+    if (signatureId !== null && (await this.db.select('SELECT 1 FROM signatures WHERE id = ?', [signatureId])).length === 0) throw new InvalidArgumentError('Unknown signature');
+    await this.db.execute('UPDATE profiles SET signature_id = ? WHERE id = ?', [signatureId, id]);
   }
   async setDefault(id: string): Promise<void> {
     if ((await this.db.select('SELECT 1 FROM profiles WHERE id = ?', [id])).length === 0) throw new InvalidArgumentError('Unknown profile');
@@ -457,6 +465,7 @@ export class ProfileRepo {
     return this.db.transaction(async () => {
       const copy = await this.create(name ?? `${src.name} copy`);
       for (const f of src.fields) await this.setField(copy.id, { ...f, options: f.options });
+      if (src.signatureId) await this.setSignature(copy.id, src.signatureId);
       return (await this.get(copy.id))!;
     });
   }

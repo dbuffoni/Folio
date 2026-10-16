@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
-import { scannedFormDoc } from '@folio/testkit';
+import { samplePng, scannedFormDoc } from '@folio/testkit';
 import { createTestApp } from './testing.ts';
 
 describe('Profiles and field templates editor @FR-FRM-20', () => {
@@ -155,5 +155,48 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await sf2.start();
     expect(sf2.result!.source).toBe('remembered');
     expect(ai.requests.length).toBe(requests);
+  });
+
+  it('a profile carries a signature that Smart Fill puts into empty signature fields, once, as one undo step @FR-STM-01 @FR-AIF-04', async () => {
+    const t = await createTestApp();
+    const s = await t.open('acroform', '/sig.pdf');
+    const rect = { x: 72, y: 100, width: 200, height: 50 };
+    await s.run(t.services.authoring.create([t.services.authoring.spec('signature', 'Applicant signature', 0, rect)]));
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    expect(m.signatures.map((x) => x.name)).toEqual(['Formal']);
+    const p = (await m.create('Personal'))!;
+    await m.setSignature(p.id, sig.id);
+    expect(m.current!.signatureId).toBe(sig.id);
+
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.stage).toBe('review');
+    expect(sf.signFields).toBe(1);
+    expect(sf.signWith!.name).toBe('Formal');
+    const count = await sf.apply(false);
+    expect(count).toBeGreaterThanOrEqual(1);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.map((a) => (a.type === 'stamp' ? a.name : ''))).toEqual(['Signature']);
+    const placed = stamps[0]!.rect;
+    // Fitted inside the field with its aspect ratio (3:1), centred.
+    expect(placed.x).toBeGreaterThanOrEqual(rect.x);
+    expect(placed.x + placed.width).toBeLessThanOrEqual(rect.x + rect.width);
+    expect(placed.y).toBeGreaterThanOrEqual(rect.y);
+    expect(placed.y + placed.height).toBeLessThanOrEqual(rect.y + rect.height);
+    expect(placed.width / placed.height).toBeCloseTo(3, 1);
+    // A second run finds it already signed.
+    const again = t.smartFill(s);
+    await again.start();
+    expect(again.signFields).toBe(0);
+    // One undo removes the signature again.
+    await s.undo();
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp')).toEqual([]);
+    // A profile without a signature offers nothing.
+    await m.setSignature(p.id, null);
+    const none = t.smartFill(s);
+    await none.start();
+    expect(none.signFields).toBe(0);
   });
 });

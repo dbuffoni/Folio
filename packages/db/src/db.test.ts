@@ -42,15 +42,15 @@ describe.each(drivers)('database on %s', (_name, open) => {
 
   it('applies migrations once, in order, transactionally @FR-APP-10', async () => {
     const db = await open();
-    expect(await migrate(db)).toEqual([1, 2]);
+    expect(await migrate(db)).toEqual([1, 2, 3]);
     expect(await migrate(db)).toEqual([]);
     const tables = (await db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
     expect(tables).toEqual(['ai_runs', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
     expect(splitStatements(MIGRATIONS[0]!.sql).length).toBe(10);
-    const bad = [...MIGRATIONS, { version: 3, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
+    const bad = [...MIGRATIONS, { version: 4, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
     await expect(migrate(db, bad)).rejects.toThrow();
     expect((await db.select("SELECT name FROM sqlite_master WHERE name='x'")).length).toBe(0);
-    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(2);
+    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(3);
   });
 
   it('stores settings per key, validates them and resets to defaults @FR-APP-10', async () => {
@@ -212,6 +212,22 @@ describe.each(drivers)('database on %s', (_name, open) => {
     await repo.remove(company.id);
     expect((await repo.list()).map((x) => [x.name, x.isDefault])).toEqual([['Personal', true], ['Imported', false]]);
     expect((await db.select('SELECT id FROM profile_fields WHERE profile_id = ?', [company.id])).length).toBe(0);
+  });
+
+  it('associates a saved signature with a profile; deleting the signature clears it @FR-STM-01 @FR-AIF-01', async () => {
+    const { db, clock, newId, cipher } = await setup();
+    const sigs = new SignatureRepo(db, clock, newId, cipher);
+    const profiles = new ProfileRepo(db, clock, newId, cipher);
+    const sig = await sigs.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(30, 10), width: 120, height: 48 }, { encrypt: false });
+    const p = await profiles.create('Personal');
+    expect(p.signatureId).toBeNull();
+    await profiles.setSignature(p.id, sig.id);
+    expect((await profiles.get(p.id))!.signatureId).toBe(sig.id);
+    expect((await profiles.duplicate(p.id)).signatureId).toBe(sig.id);
+    await expect(profiles.setSignature(p.id, 'nope')).rejects.toThrow('Unknown signature');
+    await sigs.remove(sig.id);
+    expect((await profiles.get(p.id))!.signatureId).toBeNull();
+    await profiles.setSignature(p.id, null);
   });
 
   it('remembers form mappings per form and profile, and logs AI runs without content @FR-AIF-08', async () => {
