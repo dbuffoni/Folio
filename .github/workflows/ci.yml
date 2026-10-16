@@ -20,9 +20,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -40,7 +40,7 @@ jobs:
       - run: pnpm trace
       # `pnpm licenses` alone is pnpm's own command; the repo's checker is the script of that name.
       - run: pnpm exec tsx tools/licenses.ts --check
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: coverage-and-diffs
@@ -54,20 +54,20 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
-      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils
+      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils mupdf-tools
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/web exec playwright install --with-deps chromium firefox webkit
       # Visual baselines are rendered with the fonts of the reference machine; they are compared
       # in the release checklist, not on shared runners.
       - run: pnpm test:e2e --grep-invert "screens in the"
       - run: pnpm exec tsx tools/bundle-size.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: playwright-results
@@ -78,9 +78,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -98,7 +98,7 @@ jobs:
       - run: pnpm appimage:smoke
       - name: Checksums
         run: cd apps/desktop/src-tauri/target/release/bundle/appimage && sha256sum *.AppImage > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: folio-appimage
           path: |
@@ -126,9 +126,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -139,7 +139,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/desktop check
       - run: pnpm --filter @folio/desktop ${{ matrix.bundle }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
@@ -156,9 +156,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm

@@ -2,7 +2,7 @@
 // application layer, with the produced files checked by independent tools.
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
-import type { FreeTextAnnotation, StampAnnotation } from '@folio/ports';
+import type { StampAnnotation } from '@folio/ports';
 import {
   FIXTURE_PASSWORD,
   PERSON,
@@ -800,12 +800,12 @@ describe('E5 Smart Fill', () => {
     expect(sf.acceptedCount).toBe(4);
     expect(await sf.apply()).toBe(4);
     await settle();
-    const boxes = (await s.doc.listAnnotations(0)) as FreeTextAnnotation[];
-    expect(boxes.map((b) => b.contents)).toEqual(['Marta', '1988-04-23', 'other@example.com', PERSON.taxId]);
+    const boxes = await s.doc.listFormFields();
+    expect(boxes.map((b) => b.value)).toEqual(['Marta', '1988-04-23', 'other@example.com', PERSON.taxId]);
     for (const [k, b] of boxes.entries()) {
       const truth = areas[[0, 2, 3, 4][k]!]!.rect;
-      expect(Math.abs(b.rect.x - truth.x)).toBeLessThanOrEqual(3);
-      expect(Math.abs(b.rect.y - truth.y)).toBeLessThanOrEqual(3);
+      expect(Math.abs(b.widgets[0]!.rect.x - truth.x)).toBeLessThanOrEqual(3);
+      expect(Math.abs(b.widgets[0]!.rect.y - truth.y)).toBeLessThanOrEqual(3);
     }
     expect(t.app.toasts.at(-1)).toMatchObject({
       message: { key: 'toast.smartFillApplied', params: { count: 4 } },
@@ -813,7 +813,7 @@ describe('E5 Smart Fill', () => {
     expect(sf.stage).toBe('idle');
     await s.undo();
     await settle();
-    expect(await s.doc.listAnnotations(0)).toEqual([]);
+    expect(await s.doc.listFormFields()).toEqual([]);
 
     // Key removed: the same button runs the local heuristic, with no request at all.
     ai.configured = false;
@@ -1273,6 +1273,21 @@ describe('other everyday flows', () => {
     await tools.pointerUp(0, { x: 260, y: 740 });
     expect(t.clipboard.image![1]).toBe(0x50);
     expect(t.toastKeys()).toContain('toast.snapshotCopied');
+    // The clipboard write is requested before the render finishes and a refusal is explained.
+    const seen: unknown[] = [];
+    const write = t.clipboard.writeImage.bind(t.clipboard);
+    t.clipboard.writeImage = (png) => (seen.push(png), write(png));
+    tools.setTool('snapshot');
+    await tools.pointerDown(0, { x: 60, y: 690 });
+    await tools.pointerMove(0, { x: 260, y: 740 });
+    await tools.pointerUp(0, { x: 260, y: 740 });
+    expect(seen[0]).toBeInstanceOf(Promise);
+    t.clipboard.writeImage = () => Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
+    tools.setTool('snapshot');
+    await tools.pointerDown(0, { x: 60, y: 690 });
+    await tools.pointerMove(0, { x: 260, y: 740 });
+    await tools.pointerUp(0, { x: 260, y: 740 });
+    expect(t.toastKeys()).toContain('toast.snapshotRefused');
     await s.run(t.services.documents.setMetadata(s.meta, { title: 'New title' }));
     await settle();
     expect(s.meta.title).toBe('New title');

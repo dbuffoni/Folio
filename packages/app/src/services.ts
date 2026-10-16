@@ -1,20 +1,27 @@
 import { OpenAiProvider } from '@folio/ai';
-import { DEFAULT_SETTINGS, uuid, type Settings } from '@folio/core';
-import { AiRunsRepo, DataCipher, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
-import type { AiProvider, PdfEngine, Platform } from '@folio/ports';
+import { DEFAULT_SETTINGS, aiCapabilities, uuid, type Settings } from '@folio/core';
+import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
+import type { AiProvider, OcrEngine, PdfEngine, Platform } from '@folio/ports';
 import {
   AnnotationService,
+  CompressService,
   DocumentService,
   ExportService,
+  FormAuthoringService,
+  FieldDetectionService,
   FormService,
+  OcrLanguageRepo,
+  OcrService,
   ImageToPdfService,
   MergeService,
   ObjectEditService,
+  OutlineService,
   PageService,
   RecoveryService,
   SignatureService,
   SmartFillService,
   SplitService,
+  TableService,
   StampService,
   TextEditService,
   type HandwritingFont,
@@ -27,6 +34,10 @@ export interface ServicesOptions {
   loadFont: (name: HandwritingFont) => Promise<Uint8Array>;
   /** Overrides the OpenAI provider (tests). */
   ai?: AiProvider;
+  /** Text recognition (FR-OCR-01); absent where it cannot run. */
+  ocr?: OcrEngine;
+  /** Reads the data of an OCR language that ships with the app. */
+  loadOcrLanguage?: (code: string) => Promise<Uint8Array>;
   newId?: () => string;
 }
 
@@ -39,6 +50,7 @@ export class Services {
   readonly signaturesRepo: SignatureRepo;
   readonly stampsRepo: StampRepo;
   readonly profiles: ProfileRepo;
+  readonly templates: FieldTemplateRepo;
   readonly mappings: FormMappingRepo;
   readonly aiRuns: AiRunsRepo;
   readonly documents: DocumentService;
@@ -47,14 +59,21 @@ export class Services {
   readonly split: SplitService;
   readonly imagesToPdf: ImageToPdfService;
   readonly exporter: ExportService;
+  readonly compress: CompressService;
   readonly annotations: AnnotationService;
   readonly signatures: SignatureService;
   readonly stamps: StampService;
   readonly forms: FormService;
+  readonly authoring: FormAuthoringService;
+  readonly detection: FieldDetectionService;
   readonly textEdit: TextEditService;
   readonly objects: ObjectEditService;
+  readonly outline: OutlineService;
   readonly recovery: RecoveryService;
   readonly smartFill: SmartFillService;
+  readonly ocr: OcrService;
+  readonly tables: TableService;
+  readonly ocrLanguages: OcrLanguageRepo;
   readonly ai: AiProvider;
   readonly openAi?: OpenAiProvider;
 
@@ -68,6 +87,7 @@ export class Services {
     this.signaturesRepo = new SignatureRepo(platform.db, clock, newId, cipher);
     this.stampsRepo = new StampRepo(platform.db, clock, newId);
     this.profiles = new ProfileRepo(platform.db, clock, newId, cipher);
+    this.templates = new FieldTemplateRepo(platform.db, clock, newId);
     this.mappings = new FormMappingRepo(platform.db, clock, newId);
     this.aiRuns = new AiRunsRepo(platform.db, clock, newId);
     this.documents = new DocumentService({ engine, files: platform.files, crypto: platform.crypto });
@@ -76,21 +96,33 @@ export class Services {
     this.split = new SplitService(engine);
     this.imagesToPdf = new ImageToPdfService({ engine, images: platform.images });
     this.exporter = new ExportService(platform.images);
+    this.compress = new CompressService({ engine, images: platform.images });
     // The author name setting wins; the OS user name is the default (FR-ANN-08).
     this.annotations = new AnnotationService({ author: () => this.settings.authorName || platform.app.userName || '', now: () => clock.now(), newId });
     this.signatures = new SignatureService({ engine, images: platform.images, font: opts.loadFont });
     this.stamps = new StampService({ now: () => clock.now(), locale: () => platform.app.locale });
     this.forms = new FormService({ newId });
+    this.authoring = new FormAuthoringService();
     this.textEdit = new TextEditService();
     this.objects = new ObjectEditService(platform.images);
+    this.outline = new OutlineService();
     this.recovery = new RecoveryService({ storage: platform.storage, clock });
     if (opts.ai) {
       this.ai = opts.ai;
     } else {
-      this.openAi = new OpenAiProvider({ http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model }) });
+      this.openAi = new OpenAiProvider({ http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model, structured: aiCapabilities(this.settings.ai).structured }) });
       this.ai = this.openAi;
     }
-    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images });
+    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });
+    this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images });
+    this.tables = new TableService({ ai: this.ai, images: platform.images });
+    this.ocr = new OcrService({ engine: opts.ocr, ai: this.ai, images: platform.images });
+    this.ocrLanguages = new OcrLanguageRepo({
+      storage: platform.storage,
+      crypto: platform.crypto,
+      downloader: platform.downloader,
+      bundled: opts.loadOcrLanguage ?? (async (code) => Promise.reject(new Error(`No bundled OCR data for ${code}`))),
+    });
   }
 
   get platform(): Platform {

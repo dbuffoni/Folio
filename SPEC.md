@@ -292,7 +292,12 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-FRM-05 | Reset form, clear field, **flatten form** (burn in values), export/import field data as JSON/FDF-like JSON. | P1 |
 | FR-FRM-06 | **Cover & type** mode for *non-fillable* PDFs: click anywhere to add a text box that auto-sizes to the clicked line; add check/cross marks; "whiteout" rectangle to hide existing content (see FR-EDT-05). | P0 |
 | FR-FRM-07 | **Detect fillable areas** locally (heuristics over vector lines, boxes, underscores, label proximity): shows suggested fields as clickable ghosts; one click converts a ghost to a text box. | P1 |
-| FR-FRM-08 | **Create/edit form fields**: text, checkbox, radio group, dropdown, signature placeholder; properties panel (name, tooltip, default value, required, font). | Post-R1 |
+| FR-FRM-08 | **Create form fields** (Release 0.1.1): text, multiline, check box, radio group, dropdown, list box, button and signature placeholder, drawn with a rectangle or placed with a click; automatic name from the nearest printed label, else `Text1`; appearance streams generated so other viewers show them; every creation is one undoable step. XFA and encrypted files are not authored; signed files warn first. | P1 |
+| FR-FRM-11 | **Properties panel** (Release 0.1.1): name (unique, validated), tooltip, required, read-only, maximum length, multiline, choices of dropdowns and list boxes; further style properties are Post-R1. | P1 |
+| FR-FRM-15 | **Detect fields** (Release 0.1.1): proposes fields for the current page, locally on vector pages (no network) and with the vision model on scans or on request (page image and text only, never profile values); dashed ghosts the user accepts all, some or none of; low-confidence proposals start unticked; accepted ones become real fields in one undoable step. Shared with Smart Fill. | P1 |
+| FR-FRM-16 | **Edit existing fields** (Release 0.1.1): select, move and resize (drag, arrow keys 1 pt, Shift 10 pt), rename, change tooltip, flags, maximum length, text ↔ several lines, dropdown ↔ list box, delete a field or one radio option; every change undoable. | P1 |
+| FR-FRM-17 | **Edit form / Fill form** (Release 0.1.1): authoring mode with field outlines always on and inputs not interactive; Fill form goes back and the new fields work at once. | P0 |
+| FR-FRM-20 | **Field templates** (Release 0.1.1, scope revised 2026-10-15): reusable sets of profile field definitions (key, label, type, aliases, choices; never values) kept in the database; built-in sets are read-only and can be duplicated; users create templates from scratch or from a profile's structure, edit, duplicate, delete, export and import them (versioned JSON; a newer version is refused with a message); a profile can be started from templates or have a template added (existing keys are skipped and listed). The profile editor adds, removes, reorders and edits entries with typed validation (dates, e-mail, numbers, phone) and choice options; keys are made from the label and stay stable when it changes, and changing one asks for confirmation and forgets the remembered mappings that used it. Smart Fill fills any form, scans included, from the chosen profile (FR-AIF-14). | P2 |
 | FR-FRM-09 | XFA forms: detect and show message "This dynamic XFA form can't be edited" (graceful fallback to static content if present). | P0 |
 | FR-FRM-10 | **Smart Fill (AI)** and **Profiles** — see FR-AIF in §10. | P1 |
 
@@ -312,14 +317,19 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-EDT-08 | Scanned pages (image-only): the Edit text tool shows "No selectable text on this page" and offers Cover & type (OCR arrives in Release 2). | P0 |
 | FR-EDT-09 | **Find & replace** text across the document (each replacement uses FR-EDT-02 rules; preview list; skip substitutions that need font change unless confirmed). | Post-R1 |
 | FR-EDT-10 | Add **watermark** (text/image; position, opacity, rotation, pages) and **header/footer & page numbers** (tokens `{page}`, `{pages}`, `{date}`, `{filename}`; margins; font). Both inserted as page content. | Post-R1 |
-| FR-EDT-11 | Edit links and bookmarks (outline editor: add/rename/move/delete). | Post-R1 |
+| FR-EDT-11 | **Bookmark editor** (Release 0.1.1): add at the current page, rename (F2), delete (Del, confirmation for entries with children), nest and move (Tab, Shift+Tab, Alt+↑/↓, drag and drop), "Set target to current view"; every operation is one undoable step; signed documents warn first. The link editor stays Post-R1 (FR-ANN-10). | P1 |
+| FR-EDT-27 | **Outline after structural edits** (Release 0.1.1): entries the user did not touch keep their original action, style and open state; bookmarks follow their pages when pages are moved; entries of deleted pages show "Target removed" and none points past the last page. | P0 |
 | FR-EDT-12 | Vector graphics editing (paths) is not supported; display-only. | — |
 
 ### 6.9 Optimise, convert, export (OPT)
 
 | ID | Requirement | Pri |
 |---|---|---|
-| FR-OPT-01 | **Reduce file size** with presets (Light / Balanced / Strong / Custom DPI + JPEG quality), preview of estimated size before applying, also strips unused objects and uses object streams / compressed xref. Show before/after size. | Post-R1 |
+| FR-OPT-01 | **Reduce file size** (Release 0.1.1) with presets Light (200 dpi), Balanced (150 dpi), Strong (96 dpi) and Custom (colour/grey dpi, JPEG quality); the estimated size of every preset is measured on the largest images and shown before applying; always works on a copy (`name-compressed.pdf`) or replaces the file with a backup; before/after size and percentage saved; a result that is not smaller is not written. Command palette, CLI `folio-cli compress`. | P1 |
+| FR-OPT-07 | **Lossless pass always on** (Release 0.1.1): full rewrite without unreferenced objects (replaced images, orphaned resources), object streams, compressed cross-reference stream, maximum Flate for every uncompressed stream. | P0 |
+| FR-OPT-09 | **Text sharpness guard** (Release 0.1.1): only image XObjects are touched; text and vector content are never rasterised; images are downsampled only when above the target, never upsampled; an image drawn several times keeps enough pixels for its largest use; images with transparency, masks and 1-bit images are left as they are; a JPEG is re-encoded only if that saves more than 10 %. | P0 |
+| FR-OPT-11 | **Signed documents** (Release 0.1.1): a signed file is never overwritten by compression; a copy can be made and its signatures show as invalid, as announced in the dialog. Encrypted files keep their protection in the copy. | P0 |
+| FR-OPT-12 | **Extract tables** (Release 0.1.1): the Extract table tool (or "Extract table from this page") finds a table in the drawn rectangle or the whole page locally from ruled lines, or from alignment and gaps; a preview grid lets the user edit cells, join and split columns, delete rows and columns and mark the header; Save CSV (UTF-8, RFC 4180, comma or semicolon, optional byte order mark) or Copy as tab-separated text; numbers stay exactly as printed; multi-line cells become one cell, merged cells leave the covered columns empty; one page at a time; rotated or vertical text is left out with a notice; "Use AI" (vision model, only on explicit action, after the pre-flight, image of the area only) for scans or poor results. CLI `folio-cli tables`. | P1 |
 | FR-OPT-02 | **Export pages as images** (PNG, JPEG, WebP; DPI 72–600; range selection; zip or folder). | P0 |
 | FR-OPT-03 | **Images to PDF** (see FR-MRG-03) as its own tile with page-size and margin options. | P1 |
 | FR-OPT-04 | Copy page area as image to clipboard ("Snapshot" tool). | P1 |
@@ -332,10 +342,13 @@ All annotations are written as **standard PDF annotation objects with appearance
 
 | ID | Requirement | Pri |
 |---|---|---|
-| FR-OCR-01 | Make scanned pages searchable/selectable: run OCR on selected/all pages, writes an invisible text layer (render mode 3) aligned to the scan. | Post-R1 |
-| FR-OCR-02 | Language selection; ships with English + Italian data; others downloadable on demand (user-initiated download, cached). | Post-R1 |
-| FR-OCR-03 | Runs fully locally in a Web Worker (Tesseract WASM); progress, cancel, per-page results; skip pages that already have text (option). | Post-R1 |
-| FR-OCR-04 | After OCR, text becomes available to search, copy and to the Edit text tool (with substitute font). | Post-R1 |
+| FR-OCR-01 | **Make scanned pages searchable** (Release 0.1.1): Recognise text (Tools, command palette, banner on scanned pages) on the current, selected or all pages; writes an invisible text layer (render mode 3) aligned to the scan, each word stretched to its box; the scan image is never changed; works with rotated pages and crop boxes; signed documents warn first. | P1 |
+| FR-OCR-02 | **Language packs** (Release 0.1.1): English and Italian ship with the app (no network); other languages are downloaded only on request after showing name, size and host, from a fixed versioned address, verified against a SHA-256 bundled with the app, cached and re-verified on load; a mismatch or a network error leaves nothing behind; the desktop shell downloads through a Rust command with a fixed host list. | P1 |
+| FR-OCR-03 | **Local, cancellable, safe** (Release 0.1.1): recognition runs fully on the device in a worker with per-page progress and Cancel (finished pages are kept, no partial page); pages that already have text are skipped; "Redo" replaces only the layer Folio made, never third-party text. | P1 |
+| FR-OCR-04 | After recognition the text is available to search, selection and copy, and to every other PDF reader. | P1 |
+| FR-OCR-06 | **Multi-language** (Release 0.1.1): up to three languages per run, ordered (the first is primary), defaulting to the last set used and else the UI language; a fourth is refused. | P1 |
+| FR-OCR-09 | **Undo as one step** (Release 0.1.1): a run is one composite command; the layer is tagged `Folio:OCR` in the content stream so undo and redo remove exactly that layer. | P0 |
+| FR-OCR-10 | **Read difficult scans with AI** (Release 0.1.1): engine "AI (vision)" or "Retry with AI" for pages the local engine was unsure about (mean confidence below 70); needs a vision-capable model (FR-AIF-13); the pre-flight names the pages and the host; the result is the same invisible layer; text read from the image is data, never an instruction. | P1 |
 
 ### 6.11 Security and metadata (SEC)
 
@@ -829,6 +842,9 @@ CREATE TABLE history_spill (            -- optional: undo checkpoints spilled to
 | FR-AIF-09 | Transformations: date format conversion, name split/join (first/last/full), uppercase, phone normalisation, address line split, checkbox truthiness; applied locally from `transform` ids returned by the model. | P1 |
 | FR-AIF-10 | Unknown fields: show "No matching data" with a quick "Add to profile" action that creates a new profile entry and re-maps. | P1 |
 | FR-AIF-11 | Cost/usage panel from `ai_runs` (tokens, count). Never logs document content. | Post-R1 |
+| FR-AIF-12 | **Local AI server presets** (Release 0.1.1): Provider field (OpenAI, Ollama, LM Studio, llama.cpp server, Custom) fills the base URL; no API key for loopback hosts (`localhost`, `127.0.0.1`, `[::1]`), remote hosts still need a key and https; "Local: data stays on this computer" badge; 180 s timeout for local servers; no port scanning; a server that does not answer is named in the message; per-preset CORS hint in the web build. | P1 |
+| FR-AIF-13 | **Model capability check** (Release 0.1.1): Test connection (and saving another model) runs two tiny probes, structured output (strict schema, then JSON mode) and vision (8×8 plain-colour image); results are stored per base URL and model; without vision the image option and image-based features are disabled with the reason; JSON mode uses `json_object` plus local validation; without JSON the AI is not used for Smart Fill; 401/429/network are connection errors, not missing capabilities; manual "supports images" override. | P1 |
+| FR-AIF-14 | **Smart Fill on scanned and flat forms** (Release 0.1.1): when a form has no fields, Smart Fill detects the fields (FR-FRM-15; scans through the vision model in the same request that maps the profile keys), creates them as real form fields and fills them as one undoable step; the pre-flight says the page image is sent for this run only when the setting is off; the remembered mapping is stored under an image hash and, after creation, under the new field names so reopening needs no request; option to flatten after filling; without AI or vision a scan returns a clear notice and drawing by hand stays available. | P1 |
 
 ### 10.2 Privacy-first modes
 1. **Mapping-only (default).** The model receives: page text lines with coordinates, field names/types/rects (for AcroForm), optionally a page image with numbered boxes, and the **list of profile keys, labels, types and aliases — but NOT the values**. The model returns *which key goes where*; the app inserts the real values locally. Personal data never leaves the machine.
@@ -1307,10 +1323,10 @@ These were designed in this document and then consciously moved out of Release 1
 | Signature library import/export | FR-STM-11 | |
 | Find & replace text | FR-EDT-09 | |
 | Watermark, header/footer, page numbers | FR-EDT-10 | |
-| Outline/bookmark and link editor | FR-EDT-11, FR-ANN-10 | |
-| Create/edit form fields | FR-FRM-08 | |
-| Local OCR (Tesseract WASM, English and Italian first) | FR-OCR-01…04 | Unlocks editing text on scans |
-| Compress / reduce file size | FR-OPT-01 | Needs image-recompression pipeline |
+| Link editor | FR-ANN-10 | Bookmark editor shipped in Release 0.1.1 |
+| Advanced field styling, tab order, validation panel, format hints | FR-FRM-12…14, FR-FRM-18, FR-FRM-19 | Field creation and editing shipped in Release 0.1.1 |
+| Confidence review, orientation detection, pre-flight estimate | FR-OCR-05, FR-OCR-07, FR-OCR-08 | Local OCR shipped in Release 0.1.1 |
+| Compress to a target size, image list, font clean-up | FR-OPT-08, FR-OPT-10 | Reduce file size shipped in Release 0.1.1 |
 | Set / remove password (AES-256) | FR-SEC-01, FR-SEC-02 | Needs qpdf-WASM or equivalent |
 | Secure redaction (rasterise-based) | FR-SEC-03 | |
 | Presentation (full-screen) mode | FR-VIEW-10 | |
@@ -1369,7 +1385,7 @@ These were designed in this document and then consciously moved out of Release 1
 | Measurement tools (distance/area/perimeter, scale calibration) | Engineering use. |
 | Barcode/QR generation and scanning | Possible small add-on. |
 | Scanner acquisition (SANE/WIA/ImageCapture), camera scanning, deskew/despeckle/auto-crop of scans | OCR in Release 1 expects existing scans. |
-| Handwriting recognition, ICR, table/structure extraction to Excel, layout-aware OCR | Advanced OCR. |
+| Handwriting recognition, ICR, layout-aware OCR, tables across pages | Advanced OCR (table extraction to CSV shipped in Release 0.1.1). |
 | Stamps marketplace/sharing, dynamic stamps with form data and scripts | A later release may add import/export of the library only. |
 | Customisable toolbars/ribbon, user scripting, remappable shortcuts (Post-R1 partial) | Later UX phase. |
 | Auto-update delivery infrastructure, telemetry-based UX analytics | Optional later, opt-in only. |

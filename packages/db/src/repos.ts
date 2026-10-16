@@ -279,6 +279,8 @@ export interface ProfileField {
   sensitive: boolean;
   aliases: string[];
   sortOrder: number;
+  /** Choices of a `choice` field; empty for every other type. */
+  options: string[];
 }
 export interface Profile {
   id: string;
@@ -289,13 +291,14 @@ export interface Profile {
 export interface ProfileExport {
   version: 1;
   name: string;
-  fields: Array<Pick<ProfileField, 'key' | 'label' | 'type' | 'value' | 'sensitive' | 'aliases'>>;
+  fields: Array<Pick<ProfileField, 'key' | 'label' | 'type' | 'value' | 'sensitive' | 'aliases'> & { options?: string[] }>;
 }
-type PFRow = { id: string; profile_id: string; key: string; label: string; type: ProfileFieldType; value: string | null; sensitive: number; aliases_json: string; sort_order: number };
+type PFRow = { id: string; profile_id: string; key: string; label: string; type: ProfileFieldType; value: string | null; sensitive: number; aliases_json: string; sort_order: number; options_json?: string };
 
-const t = (key: string, label: string, type: ProfileFieldType, aliases: string[], sensitive = false): Omit<ProfileField, 'id' | 'value' | 'sortOrder'> => ({ key, label, type, aliases, sensitive });
+const t = (key: string, label: string, type: ProfileFieldType, aliases: string[], sensitive = false): Omit<ProfileField, 'id' | 'value' | 'sortOrder'> => ({ key, label, type, aliases, sensitive, options: [] });
 /** Templates for common reference data sets, with aliases in English and Italian (FR-AIF-01). */
-export const PROFILE_TEMPLATES: Record<string, Array<Omit<ProfileField, 'id' | 'value' | 'sortOrder'>>> = {
+export type FieldDefinition = Omit<ProfileField, 'id' | 'value' | 'sortOrder'>;
+export const PROFILE_TEMPLATES: Record<string, FieldDefinition[]> = {
   identity: [
     t('first_name', 'First name', 'text', ['given name', 'forename', 'nome']),
     t('last_name', 'Last name', 'text', ['surname', 'family name', 'cognome']),
@@ -330,6 +333,42 @@ export const PROFILE_TEMPLATES: Record<string, Array<Omit<ProfileField, 'id' | '
   dates: [t('today', "Today's date", 'date', ['date', 'data', 'date of signature', 'data odierna', 'signed on', 'lì'])],
 };
 
+/** The stable key of an entry: lower-case words joined by underscores. */
+export function slugKey(raw: string): string {
+  return raw.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+/** A free key derived from a label: "Date of birth" → date_of_birth, then date_of_birth_2… */
+export function uniqueKey(label: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const base = slugKey(label) || 'field';
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) if (!used.has(`${base}_${n}`)) return `${base}_${n}`;
+}
+/**
+ * Validation of a typed value (FR-FRM-20 editor): empty is always allowed; returns the reason key of the
+ * problem, or null. Dates are ISO (YYYY-MM-DD) and must exist.
+ */
+export function validateProfileValue(type: ProfileFieldType, value: string): 'badDate' | 'badEmail' | 'badNumber' | 'badPhone' | null {
+  const v = value.trim();
+  if (v === '') return null;
+  switch (type) {
+    case 'date': {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+      if (!m) return 'badDate';
+      const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]) ? null : 'badDate';
+    }
+    case 'email':
+      return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) ? null : 'badEmail';
+    case 'number':
+      return /^[-+]?\d+([.,]\d+)?$/.test(v) ? null : 'badNumber';
+    case 'phone':
+      return /^[+()\d][\d\s().-]{3,}$/.test(v) ? null : 'badPhone';
+    default:
+      return null;
+  }
+}
+
 /** FR-AIF-01 reference data for auto-fill. */
 /** Longer names do not fit any list or dialog; they are cut when stored. */
 export const PROFILE_NAME_MAX = 60;
@@ -344,7 +383,7 @@ export class ProfileRepo {
       const sensitive = bool(r.sensitive);
       let value = r.value ?? '';
       if (sensitive && value.startsWith('enc:')) value = await this.cipher.decryptText(value.slice(4));
-      out.push({ id: r.id, key: r.key, label: r.label, type: r.type, value, sensitive, aliases: JSON.parse(r.aliases_json) as string[], sortOrder: r.sort_order });
+      out.push({ id: r.id, key: r.key, label: r.label, type: r.type, value, sensitive, aliases: JSON.parse(r.aliases_json) as string[], sortOrder: r.sort_order, options: JSON.parse(r.options_json ?? '[]') as string[] });
     }
     return out;
   }
@@ -391,27 +430,82 @@ export class ProfileRepo {
   }
 
   /** Adds or updates one entry by key. Sensitive values are encrypted at rest. */
-  async setField(profileId: string, field: { key: string; label: string; type: ProfileFieldType; value: string; sensitive?: boolean; aliases?: string[] }): Promise<void> {
-    const key = field.key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  async setField(profileId: string, field: { key: string; label: string; type: ProfileFieldType; value: string; sensitive?: boolean; aliases?: string[]; options?: string[] }): Promise<void> {
+    const key = slugKey(field.key);
     if (!key) throw new InvalidArgumentError('The key needs at least one letter or digit', { reason: 'badKey' });
+    const problem = validateProfileValue(field.type, field.value);
+    if (problem) throw new InvalidArgumentError(`Not a valid ${field.type}`, { reason: problem, key });
+    const options = JSON.stringify(field.type === 'choice' ? [...new Set((field.options ?? []).map((o) => o.trim()).filter(Boolean))] : []);
     const sensitive = !!field.sensitive;
     const value = sensitive && field.value !== '' ? `enc:${await this.cipher.encryptText(field.value)}` : field.value;
     const existing = await this.db.select<{ id: string }>('SELECT id FROM profile_fields WHERE profile_id = ? AND key = ?', [profileId, key]);
     if (existing[0]) {
-      await this.db.execute('UPDATE profile_fields SET label = ?, type = ?, value = ?, sensitive = ?, aliases_json = ? WHERE id = ?', [field.label, field.type, value, sensitive ? 1 : 0, JSON.stringify(field.aliases ?? []), existing[0].id]);
+      await this.db.execute('UPDATE profile_fields SET label = ?, type = ?, value = ?, sensitive = ?, aliases_json = ?, options_json = ? WHERE id = ?', [field.label, field.type, value, sensitive ? 1 : 0, JSON.stringify(field.aliases ?? []), options, existing[0].id]);
     } else {
       const order = (await this.db.select<{ m: number | null }>('SELECT MAX(sort_order) AS m FROM profile_fields WHERE profile_id = ?', [profileId]))[0]!.m ?? -1;
-      await this.db.execute('INSERT INTO profile_fields (id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [this.newId(), profileId, key, field.label, field.type, value, sensitive ? 1 : 0, JSON.stringify(field.aliases ?? []), Number(order) + 1]);
+      await this.db.execute('INSERT INTO profile_fields (id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [this.newId(), profileId, key, field.label, field.type, value, sensitive ? 1 : 0, JSON.stringify(field.aliases ?? []), Number(order) + 1, options]);
     }
   }
   async removeField(profileId: string, key: string): Promise<void> {
     await this.db.execute('DELETE FROM profile_fields WHERE profile_id = ? AND key = ?', [profileId, key]);
   }
 
+  /** A copy with every field and value, as the new default-less profile "<name> copy". */
+  async duplicate(id: string, name?: string): Promise<Profile> {
+    const src = await this.get(id);
+    if (!src) throw new InvalidArgumentError('Unknown profile');
+    return this.db.transaction(async () => {
+      const copy = await this.create(name ?? `${src.name} copy`);
+      for (const f of src.fields) await this.setField(copy.id, { ...f, options: f.options });
+      return (await this.get(copy.id))!;
+    });
+  }
+  /** Puts the entries in the given key order; keys not listed keep their relative order after the listed ones. */
+  async reorder(profileId: string, keys: string[]): Promise<void> {
+    const rows = await this.db.select<{ key: string }>('SELECT key FROM profile_fields WHERE profile_id = ? ORDER BY sort_order, key', [profileId]);
+    const existing = rows.map((r) => r.key);
+    const order = [...keys.filter((k) => existing.includes(k)), ...existing.filter((k) => !keys.includes(k))];
+    await this.db.transaction(async (tx) => {
+      for (const [i, key] of order.entries()) await tx.execute('UPDATE profile_fields SET sort_order = ? WHERE profile_id = ? AND key = ?', [i, profileId, key]);
+    });
+  }
+  /**
+   * Appends a template's fields (no values). Keys the profile already has are skipped and returned, so the
+   * editor can list them in a notice.
+   */
+  async addTemplate(profileId: string, fields: FieldDefinition[]): Promise<{ added: string[]; skipped: string[] }> {
+    const have = new Set((await this.db.select<{ key: string }>('SELECT key FROM profile_fields WHERE profile_id = ?', [profileId])).map((r) => r.key));
+    const added: string[] = [];
+    const skipped: string[] = [];
+    for (const f of fields) {
+      const key = slugKey(f.key);
+      if (have.has(key)) {
+        skipped.push(key);
+        continue;
+      }
+      await this.setField(profileId, { ...f, value: '', sensitive: f.sensitive, options: f.options });
+      have.add(key);
+      added.push(key);
+    }
+    return { added, skipped };
+  }
+  /**
+   * Changes the key of an entry. Remembered mappings that used the old key are rewritten by the caller
+   * (`FormMappingRepo.dropKey`); a key already in use is refused.
+   */
+  async renameKey(profileId: string, oldKey: string, newKey: string): Promise<string> {
+    const key = slugKey(newKey);
+    if (!key) throw new InvalidArgumentError('The key needs at least one letter or digit', { reason: 'badKey' });
+    if (key === oldKey) return key;
+    if ((await this.db.select('SELECT 1 FROM profile_fields WHERE profile_id = ? AND key = ?', [profileId, key])).length) throw new InvalidArgumentError('That key is already used in this profile', { reason: 'keyTaken', key });
+    await this.db.execute('UPDATE profile_fields SET key = ? WHERE profile_id = ? AND key = ?', [key, profileId, oldKey]);
+    return key;
+  }
+
   async exportJson(id: string): Promise<ProfileExport> {
     const p = await this.get(id);
     if (!p) throw new InvalidArgumentError('Unknown profile');
-    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases }) => ({ key, label, type, value, sensitive, aliases })) };
+    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value, sensitive, aliases, ...(options.length ? { options } : {}) })) };
   }
   async importJson(data: unknown): Promise<Profile> {
     const d = data as Partial<ProfileExport> | null;
@@ -420,9 +514,120 @@ export class ProfileRepo {
     const fields = d.fields.filter((f) => f && typeof f.key === 'string' && typeof f.label === 'string' && types.includes(f.type) && typeof f.value === 'string');
     return this.db.transaction(async () => {
       const profile = await this.create(d.name!);
-      for (const f of fields) await this.setField(profile.id, { ...f, aliases: Array.isArray(f.aliases) ? f.aliases.filter((a) => typeof a === 'string') : [] });
+      for (const f of fields) await this.setField(profile.id, { ...f, aliases: Array.isArray(f.aliases) ? f.aliases.filter((a) => typeof a === 'string') : [], options: Array.isArray(f.options) ? f.options.filter((o) => typeof o === 'string') : [] });
       return (await this.get(profile.id))!;
     });
+  }
+}
+
+// ---- field templates (FR-FRM-20) -------------------------------------------------------------
+
+export interface FieldTemplate {
+  id: string;
+  name: string;
+  builtIn: boolean;
+  /** Definitions only: never a value (a template holds nothing sensitive). */
+  fields: FieldDefinition[];
+}
+export interface FieldTemplateExport {
+  version: 1;
+  kind: 'folio-field-template';
+  name: string;
+  fields: FieldDefinition[];
+}
+export const TEMPLATE_EXPORT_VERSION = 1;
+const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+
+/** Cleans a definition list read from storage or a file: known types, unique slugs, no values. */
+export function cleanDefinitions(raw: unknown): FieldDefinition[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: FieldDefinition[] = [];
+  for (const f of raw as Array<Partial<FieldDefinition>>) {
+    if (!f || typeof f.label !== 'string' || !f.label.trim()) continue;
+    const key = slugKey(typeof f.key === 'string' && f.key ? f.key : f.label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const type = TYPES.includes(f.type as ProfileFieldType) ? (f.type as ProfileFieldType) : 'text';
+    out.push({
+      key,
+      label: f.label.trim(),
+      type,
+      aliases: Array.isArray(f.aliases) ? f.aliases.filter((a): a is string => typeof a === 'string' && a.trim() !== '') : [],
+      sensitive: !!f.sensitive,
+      options: type === 'choice' && Array.isArray(f.options) ? f.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [],
+    });
+  }
+  return out;
+}
+
+export class FieldTemplateRepo {
+  constructor(private readonly db: Database, private readonly clock: Clock, private readonly newId: () => string) {}
+
+  /** The built-in sets are rows too, written on first use, so users can duplicate and list them like their own. */
+  private async seed(): Promise<void> {
+    const have = new Set((await this.db.select<{ id: string }>('SELECT id FROM field_templates WHERE built_in = 1')).map((r) => r.id));
+    for (const [name, fields] of Object.entries(PROFILE_TEMPLATES)) {
+      const id = `builtin:${name}`;
+      if (!have.has(id)) await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 1, ?, ?)', [id, name, JSON.stringify(fields), iso(this.clock)]);
+    }
+  }
+  async list(): Promise<FieldTemplate[]> {
+    await this.seed();
+    const rows = await this.db.select<{ id: string; name: string; built_in: number; fields_json: string }>('SELECT * FROM field_templates ORDER BY built_in DESC, created_at, name');
+    const order = Object.keys(PROFILE_TEMPLATES);
+    const rank = (t: { name: string; builtIn: boolean }): number => (t.builtIn ? order.indexOf(t.name) : order.length);
+    return rows
+      .map((r) => ({ id: r.id, name: r.name, builtIn: bool(r.built_in), fields: cleanDefinitions(JSON.parse(r.fields_json)) }))
+      .sort((a, b) => rank(a) - rank(b));
+  }
+  async get(id: string): Promise<FieldTemplate | null> {
+    return (await this.list()).find((t) => t.id === id) ?? null;
+  }
+  private checkName(name: string): string {
+    const n = name.trim();
+    if (!n) throw new InvalidArgumentError('Give the template a name', { reason: 'emptyName' });
+    return n.slice(0, PROFILE_NAME_MAX);
+  }
+  async create(name: string, fields: FieldDefinition[] = []): Promise<FieldTemplate> {
+    await this.seed();
+    const id = this.newId();
+    await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 0, ?, ?)', [id, this.checkName(name), JSON.stringify(cleanDefinitions(fields)), iso(this.clock)]);
+    return (await this.get(id))!;
+  }
+  /** Replaces the name and/or the fields of a user template. Built-in templates are read-only. */
+  async update(id: string, patch: { name?: string; fields?: FieldDefinition[] }): Promise<FieldTemplate> {
+    const t = await this.get(id);
+    if (!t) throw new InvalidArgumentError('Unknown template');
+    if (t.builtIn) throw new InvalidArgumentError('Built-in templates cannot be changed. Duplicate it first.', { reason: 'builtInTemplate' });
+    await this.db.execute('UPDATE field_templates SET name = ?, fields_json = ? WHERE id = ?', [patch.name !== undefined ? this.checkName(patch.name) : t.name, JSON.stringify(cleanDefinitions(patch.fields ?? t.fields)), id]);
+    return (await this.get(id))!;
+  }
+  async duplicate(id: string, name?: string): Promise<FieldTemplate> {
+    const t = await this.get(id);
+    if (!t) throw new InvalidArgumentError('Unknown template');
+    return this.create(name ?? `${t.name} copy`, t.fields);
+  }
+  async remove(id: string): Promise<void> {
+    const t = await this.get(id);
+    if (!t) return;
+    if (t.builtIn) throw new InvalidArgumentError('Built-in templates cannot be deleted.', { reason: 'builtInTemplate' });
+    await this.db.execute('DELETE FROM field_templates WHERE id = ?', [id]);
+  }
+  /** "Save structure as template": a profile's definitions without values. */
+  async fromProfile(profile: Profile, name: string): Promise<FieldTemplate> {
+    return this.create(name, profile.fields.map(({ key, label, type, aliases, sensitive, options }) => ({ key, label, type, aliases, sensitive, options })));
+  }
+  exportJson(t: FieldTemplate): FieldTemplateExport {
+    return { version: TEMPLATE_EXPORT_VERSION, kind: 'folio-field-template', name: t.name, fields: t.fields };
+  }
+  /** A file with a newer version is refused with a message of its own, so the user knows to update Folio. */
+  async importJson(data: unknown): Promise<FieldTemplate> {
+    const d = data as Partial<FieldTemplateExport> | null;
+    if (!d || d.kind !== 'folio-field-template' || typeof d.name !== 'string' || !Array.isArray(d.fields) || typeof d.version !== 'number')
+      throw new InvalidArgumentError('This is not a Folio field template file', { reason: 'badTemplate' });
+    if (d.version > TEMPLATE_EXPORT_VERSION) throw new InvalidArgumentError('This template was made by a newer version of Folio', { reason: 'templateNewer' });
+    return this.create(d.name, cleanDefinitions(d.fields));
   }
 }
 
@@ -457,6 +662,23 @@ export class FormMappingRepo {
   async forget(docFingerprint: string, profileId: string): Promise<void> {
     await this.db.execute('DELETE FROM form_mappings WHERE doc_fingerprint = ? AND profile_id = ?', [docFingerprint, profileId]);
   }
+  /**
+   * An entry was deleted or its key changed: mappings that used it lose that entry, the rest is kept; a
+   * mapping left empty is removed. @returns how many remembered forms changed.
+   */
+  async dropKey(profileId: string, key: string): Promise<number> {
+    const rows = await this.db.select<{ id: string; mapping_json: string }>('SELECT id, mapping_json FROM form_mappings WHERE profile_id = ?', [profileId]);
+    let changed = 0;
+    for (const r of rows) {
+      const entries = JSON.parse(r.mapping_json) as StoredMappingEntry[];
+      const kept = entries.filter((e) => e.profileKey !== key);
+      if (kept.length === entries.length) continue;
+      changed++;
+      if (kept.length === 0) await this.db.execute('DELETE FROM form_mappings WHERE id = ?', [r.id]);
+      else await this.db.execute('UPDATE form_mappings SET mapping_json = ? WHERE id = ?', [JSON.stringify(kept), r.id]);
+    }
+    return changed;
+  }
 }
 
 export interface AiRun {
@@ -483,7 +705,7 @@ export class AiRunsRepo {
 /** "Delete all app data" (SPEC §12.9): every table emptied, secrets removed. */
 export async function deleteAllData(db: Database, secrets: SecretStore, secretKeys: string[] = []): Promise<void> {
   await db.transaction(async (tx) => {
-    for (const table of ['form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
+    for (const table of ['field_templates', 'form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
   });
   for (const key of [KEY_NAME, ...secretKeys]) await secrets.remove(key);
 }

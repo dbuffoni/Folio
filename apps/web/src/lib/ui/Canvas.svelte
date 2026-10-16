@@ -12,7 +12,7 @@
   const view = $derived(dep(v, session.view));
   const sv = $derived(dep(v, session.structureVersion));
   const hint = $derived(dep(v, m.tools.hint));
-  const snapshot = $derived(dep(v, m.tools.tool) === 'snapshot');
+  const snapshot = $derived(['snapshot', 'table'].includes(dep(v, m.tools.tool)));
   let scroller: HTMLDivElement | undefined = $state();
   let viewport = $state({ width: 800, height: 600 });
   // Scrolling stays out of the reactive graph: the position is a plain variable and the window below

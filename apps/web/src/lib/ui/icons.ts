@@ -57,6 +57,21 @@ import Layers from '@lucide/svelte/icons/layers';
 import Layers2 from '@lucide/svelte/icons/layers-2';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 import LayoutList from '@lucide/svelte/icons/layout-list';
+import Pencil from '@lucide/svelte/icons/pencil';
+import CornerDownRight from '@lucide/svelte/icons/corner-down-right';
+import ArrowUp from '@lucide/svelte/icons/arrow-up';
+import ArrowDown from '@lucide/svelte/icons/arrow-down';
+import Indent from '@lucide/svelte/icons/indent';
+import Outdent from '@lucide/svelte/icons/outdent';
+import FileDown from '@lucide/svelte/icons/file-down';
+import PencilRuler from '@lucide/svelte/icons/pencil-ruler';
+import SquareCheck from '@lucide/svelte/icons/square-check';
+import CircleDot from '@lucide/svelte/icons/circle-dot';
+import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
+import List from '@lucide/svelte/icons/list';
+import RectangleHorizontal from '@lucide/svelte/icons/rectangle-horizontal';
+import ScanText from '@lucide/svelte/icons/scan-text';
+import Table from '@lucide/svelte/icons/table';
 import ListTree from '@lucide/svelte/icons/list-tree';
 import Lock from '@lucide/svelte/icons/lock';
 import LockOpen from '@lucide/svelte/icons/lock-open';
@@ -183,6 +198,21 @@ export const ICONS: Record<string, Component<{ size?: number | string; class?: s
   'layers-2': Layers2,
   'layout-grid': LayoutGrid,
   'layout-list': LayoutList,
+  'pencil': Pencil,
+  'corner-down-right': CornerDownRight,
+  'arrow-up': ArrowUp,
+  'arrow-down': ArrowDown,
+  'indent': Indent,
+  'outdent': Outdent,
+  'file-down': FileDown,
+  'pencil-ruler': PencilRuler,
+  'square-check': SquareCheck,
+  'circle-dot': CircleDot,
+  'chevrons-up-down': ChevronsUpDown,
+  'list': List,
+  'rectangle-horizontal': RectangleHorizontal,
+  'scan-text': ScanText,
+  'table': Table,
   'list-tree': ListTree,
   'lock': Lock,
   'lock-open': LockOpen,

@@ -1,7 +1,10 @@
 // In-memory fakes of the platform ports (SPEC §16.4).
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { IoError, NetworkError } from '@folio/core';
+import { CancelledError, IoError, NetworkError } from '@folio/core';
 import type {
+  OcrEngine,
+  OcrPageResult,
+  RasterImage,
   AppStorage,
   Clipboard,
   Database,
@@ -209,8 +212,8 @@ export class FakeClipboard implements Clipboard {
   async readImage(): Promise<Uint8Array | null> {
     return this.image;
   }
-  async writeImage(png: Uint8Array): Promise<void> {
-    this.image = png;
+  async writeImage(png: Uint8Array | Promise<Uint8Array>): Promise<void> {
+    this.image = await png;
   }
   async writeText(t: string): Promise<void> {
     this.text = t;
@@ -262,4 +265,30 @@ export class ManualTicker {
   get intervals(): number[] {
     return [...this.fns.values()].map((f) => f.ms);
   }
+}
+
+/** Scripted text recognition: every page "reads" the same lines, placed by fractions of the image. */
+export class FakeOcrEngine implements OcrEngine {
+  readonly calls: Array<{ languages: string[]; width: number; height: number }> = [];
+  failWith: Error | null = null;
+  /** Mean confidence reported for every page (0–100). */
+  confidence = 92;
+  /** Called before each page; may abort a signal to simulate a cancel in the middle of a run. */
+  onPage?: (n: number) => void;
+  constructor(private readonly lines: Array<{ text: string; box: [number, number, number, number] }> = [{ text: 'Hello recognised world', box: [0.1, 0.1, 0.6, 0.14] }]) {}
+  async recognize(image: RasterImage, opts: { languages: string[]; signal?: AbortSignal }): Promise<OcrPageResult> {
+    this.onPage?.(this.calls.length);
+    this.calls.push({ languages: opts.languages, width: image.width, height: image.height });
+    if (opts.signal?.aborted) throw new CancelledError();
+    if (this.failWith) throw this.failWith;
+    const lines = this.lines.map((l) => {
+      const [x0, y0, x1, y1] = [l.box[0] * image.width, l.box[1] * image.height, l.box[2] * image.width, l.box[3] * image.height];
+      const parts = l.text.split(' ');
+      const w = (x1 - x0) / parts.length;
+      const words = parts.map((text, k) => ({ text, x0: x0 + k * w, y0, x1: x0 + (k + 1) * w - 2, y1, confidence: this.confidence }));
+      return { text: l.text, words, x0, y0, x1, y1, confidence: this.confidence };
+    });
+    return { width: image.width, height: image.height, lines, confidence: this.confidence };
+  }
+  async dispose(): Promise<void> {}
 }

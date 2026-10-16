@@ -155,13 +155,25 @@ export interface SearchHit {
 export type LinkTarget =
   | { kind: 'page'; page: PageIndex; point?: Point; zoom?: number }
   | { kind: 'uri'; uri: string }
-  | { kind: 'unsupported'; reason: 'javascript' | 'launch' | 'remote' | 'named' | 'unknown' };
+  /** `missing`: the destination page no longer exists in the document (FR-EDT-27). */
+  | { kind: 'unsupported'; reason: 'javascript' | 'launch' | 'remote' | 'named' | 'unknown' | 'missing' };
 
 export interface OutlineNode {
   title: string;
   target?: LinkTarget;
   children: OutlineNode[];
 }
+/**
+ * One edit of the bookmark tree. Paths are child indexes from the root. Everything the edit does not
+ * name (actions, style, open state of other entries) is left exactly as in the file (FR-EDT-27).
+ * For `move`, `parent` and `index` describe the position in the tree after the entry was taken out.
+ */
+export type OutlineEdit =
+  | { op: 'add'; parent: number[]; index: number; title: string; target?: LinkTarget }
+  | { op: 'rename'; path: number[]; title: string }
+  | { op: 'remove'; path: number[] }
+  | { op: 'move'; path: number[]; parent: number[]; index: number }
+  | { op: 'setTarget'; path: number[]; target: LinkTarget };
 export interface LinkInfo {
   rect: Rect;
   target: LinkTarget;
@@ -336,6 +348,52 @@ export interface FormField {
 }
 export type FieldValue = string | boolean | string[];
 
+/** A form field to create (FR-FRM-08, FR-FRM-11). Rectangles are in PDF user space. */
+export interface FieldSpec {
+  type: FormFieldType;
+  /** Fully qualified name; a dot creates a hierarchy. Radio widgets with the same name join one group. */
+  name: string;
+  page: PageIndex;
+  rect: Rect;
+  tooltip?: string;
+  /** Initial text, selected option, or "Yes"/"Off" style value for check boxes. */
+  value?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  multiline?: boolean;
+  password?: boolean;
+  comb?: boolean;
+  maxLength?: number;
+  /** Choices of dropdowns and list boxes. */
+  options?: { label: string; value: string }[];
+  /** Export value of this check box / radio button; defaults to "Yes" and to the group's option number. */
+  exportValue?: string;
+  /** Button caption. */
+  caption?: string;
+  /** Font size in points; 0 or absent = automatic. */
+  fontSize?: number;
+  font?: StandardFontFamily;
+  align?: 'left' | 'center' | 'right';
+  textColor?: Color;
+  backgroundColor?: Color;
+  borderColor?: Color;
+  borderWidth?: number;
+}
+/** Properties that can be changed on an existing field (FR-FRM-16). */
+export interface FieldPatch {
+  tooltip?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  /** text ↔ multiline. */
+  multiline?: boolean;
+  maxLength?: number | null;
+  /** Choice fields; dropdown ↔ list box is `listbox`. */
+  options?: { label: string; value: string }[];
+  listbox?: boolean;
+  fontSize?: number;
+  align?: 'left' | 'center' | 'right';
+}
+
 // ---------------------------------------------------------------------------------------------
 // Page content objects
 // ---------------------------------------------------------------------------------------------
@@ -351,6 +409,14 @@ export interface PageObject {
   text?: string;
   /** Present for image objects: pixel size of the source image. */
   imageSize?: Size;
+  /** Present for image objects: how the pixels are stored (FR-OPT-01). */
+  imageInfo?: {
+    bitsPerPixel: number;
+    /** Size of the stored (still compressed) image data in bytes. */
+    byteSize: number;
+    /** PDF filters in order, e.g. ["DCTDecode"] or ["FlateDecode"]. */
+    filters: string[];
+  };
   fillColor?: Color;
   strokeColor?: Color;
 }
@@ -396,9 +462,26 @@ export interface RectSpec {
   strokeWidth?: number;
 }
 
+/** One recognised word to write into the invisible text layer (FR-OCR-01). */
+export interface OcrLayerWord {
+  text: string;
+  /** Start of the baseline in PDF user space. */
+  origin: Point;
+  /** Direction of the text in degrees, counter-clockwise; equals the page rotation for upright scans. */
+  angle: number;
+  /** Length of the word along its baseline, in points: the text is stretched to it so selection matches. */
+  width: number;
+  fontSize: number;
+}
+
 export interface SaveOptions {
   /** Append changes instead of rewriting (keeps earlier revisions and signatures valid up to that point). */
   incremental?: boolean;
+  /**
+   * Lossless size pass on a full rewrite: object streams, a compressed cross-reference stream and
+   * Flate for every uncompressed stream (FR-OPT-07). Ignored together with `incremental`.
+   */
+  compact?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -443,6 +526,8 @@ export interface PdfDocument {
   search(q: SearchQuery): AsyncIterable<SearchHit>;
   getOutline(): Promise<OutlineNode[]>;
   setOutline(nodes: OutlineNode[]): Promise<void>;
+  /** In-place edit of one bookmark (FR-EDT-11). @throws InvalidArgumentError for a path that does not exist. */
+  editOutline(edit: OutlineEdit): Promise<void>;
   getLinks(i: PageIndex): Promise<LinkInfo[]>;
   listAttachments(): Promise<AttachmentInfo[]>;
   getAttachment(index: number): Promise<Uint8Array>;
@@ -463,6 +548,18 @@ export interface PdfDocument {
   /** Renames a field (used to resolve collisions when merging). */
   renameField(id: FieldId, name: string): Promise<FieldId>;
   flattenForm(): Promise<void>;
+  /**
+   * Creates fields in one step (FR-FRM-08). Names must be unused, except radio buttons of one group.
+   * Appearance streams are generated so other viewers show them. @returns the ids, in order.
+   * @throws InvalidArgumentError (bad or taken name, bad rectangle), UnsupportedFeatureError (XFA, encrypted)
+   */
+  createFields(specs: FieldSpec[]): Promise<FieldId[]>;
+  /** Changes properties of an existing field (FR-FRM-16); returns its (unchanged) id. */
+  updateField(id: FieldId, patch: FieldPatch): Promise<FieldId>;
+  /** Moves/resizes one widget; the appearance is regenerated. */
+  setWidgetRect(id: FieldId, widget: number, rect: Rect): Promise<void>;
+  /** Removes a field with all its widgets, or just one widget (`widget` given); the last widget removes the field. */
+  removeField(id: FieldId, widget?: number): Promise<void>;
 
   // page content objects
   listObjects(i: PageIndex): Promise<PageObject[]>;
@@ -471,6 +568,16 @@ export interface PdfDocument {
   addImage(i: PageIndex, img: ImageSpec): Promise<ObjId>;
   getImage(i: PageIndex, id: ObjId): Promise<RasterImage>;
   replaceImage(i: PageIndex, id: ObjId, image: ImageSpec['image']): Promise<void>;
+  /**
+   * Writes recognised words as invisible text (render mode 3) tagged `Folio:OCR` (FR-OCR-01, FR-OCR-09).
+   * Characters the bundled font lacks are written as their base letter; `substituted` counts the words that
+   * needed that, so the UI can say so.
+   */
+  addOcrLayer(i: PageIndex, words: OcrLayerWord[]): Promise<{ written: number; substituted: number }>;
+  /** Removes the layer Folio made on a page, never third-party text. @returns how many words were removed. */
+  removeOcrLayer(i: PageIndex): Promise<number>;
+  /** Whether the page carries a layer made by Folio. */
+  hasOcrLayer(i: PageIndex): Promise<boolean>;
   transformObject(i: PageIndex, id: ObjId, m: Matrix): Promise<void>;
   removeObject(i: PageIndex, id: ObjId): Promise<void>;
   addRect(i: PageIndex, spec: RectSpec): Promise<ObjId>;

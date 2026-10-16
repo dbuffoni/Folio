@@ -242,6 +242,33 @@ export async function bookmarksDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/**
+ * Outline whose entries use more than a page destination: a bold red entry with a named action, a web
+ * link and a JavaScript action (FR-EDT-27: editing other entries must leave these untouched).
+ */
+export async function bookmarksActionsDoc(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await textDoc({ pages: 4, title: 'Bookmark actions' }));
+  const ctx = doc.context;
+  const pages = doc.getPages();
+  const outlineRef = ctx.nextRef();
+  const refs = [ctx.nextRef(), ctx.nextRef(), ctx.nextRef(), ctx.nextRef()];
+  const entries: Array<Record<string, unknown>> = [
+    { Title: PDFHexString.fromText('Intro'), Dest: [pages[0]!.ref, PDFName.of('XYZ'), 72, 720, 0] },
+    { Title: PDFHexString.fromText('Next page'), F: 2, C: [1, 0, 0], A: { S: 'Named', N: 'NextPage' } },
+    { Title: PDFHexString.fromText('Website'), A: { S: 'URI', URI: PDFString.of('https://example.com/spec') } },
+    { Title: PDFHexString.fromText('Script'), A: { S: 'JavaScript', JS: PDFString.of('app.alert(1)') } },
+  ];
+  entries.forEach((e, k) => {
+    const dict = ctx.obj({ ...e, Parent: outlineRef }) as PDFDict;
+    if (k > 0) dict.set(PDFName.of('Prev'), refs[k - 1]!);
+    if (k < refs.length - 1) dict.set(PDFName.of('Next'), refs[k + 1]!);
+    ctx.assign(refs[k]!, dict);
+  });
+  ctx.assign(outlineRef, ctx.obj({ Type: 'Outlines', First: refs[0]!, Last: refs[3]!, Count: 4 }));
+  doc.catalog.set(PDFName.of('Outlines'), outlineRef);
+  return finish(doc);
+}
+
 /** Page 1 has an internal link to page 3, an https link, a JavaScript action and a launch action. */
 export async function linksDoc(): Promise<Uint8Array> {
   const doc = await PDFDocument.load(await textDoc({ pages: 3, title: 'Links' }));
@@ -448,6 +475,180 @@ export function sampleJpeg(width = 120, height = 80, seed = 1): Uint8Array {
   const r = sampleRaster(width, height, seed);
   return new Uint8Array(jpeg.encode({ width, height, data: Buffer.from(r.data.buffer) }, 85).data);
 }
+/** Deterministic noisy photo-like JPEG: smooth gradients plus seeded noise, so it neither compresses to nothing nor to everything. */
+export function noisyJpeg(width: number, height: number, seed = 1, quality = 92, gray = false): Uint8Array {
+  const data = Buffer.alloc(width * height * 4);
+  let state = seed * 2654435761;
+  const rnd = (): number => ((state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      const base = 90 + 80 * Math.sin(x / 37 + seed) * Math.cos(y / 53);
+      const n = (rnd() - 0.5) * 40;
+      data[o] = Math.max(0, Math.min(255, base + n + (gray ? 0 : x / 12)));
+      data[o + 1] = Math.max(0, Math.min(255, gray ? data[o]! : base + n + y / 14));
+      data[o + 2] = Math.max(0, Math.min(255, gray ? data[o]! : base + n + 40));
+      data[o + 3] = 255;
+    }
+  }
+  return new Uint8Array(jpeg.encode({ width, height, data }, quality).data);
+}
+
+/**
+ * Photographs at 300 dpi for the compression tests: one colour JPEG drawn on page 1 (3.0 × 4.0 in) and
+ * again, smaller, on page 2 (the same stored image, highest resolution 600 dpi); a grey JPEG; a PNG
+ * with transparency that must stay untouched. Text on both pages.
+ */
+export async function photosDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Photos');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const photo = await doc.embedJpg(noisyJpeg(900, 1200, 7));
+  const grey = await doc.embedJpg(noisyJpeg(600, 450, 9, 90, true));
+  const alpha = new PNG({ width: 300, height: 150 });
+  for (let i = 0; i < 300 * 150; i++) alpha.data.set([30 + (i % 200), 90, 160, i % 7 === 0 ? 0 : 255], i * 4);
+  const logo = await doc.embedPng(PNG.sync.write(alpha));
+  const p1 = doc.addPage([612, 792]);
+  p1.drawText('Photos at 300 dpi', { x: 72, y: 740, size: 18, font });
+  p1.drawText('The quick brown fox jumps over the lazy dog', { x: 72, y: 715, size: 11, font });
+  p1.drawImage(photo, { x: 72, y: 380, width: 216, height: 288 });
+  p1.drawImage(grey, { x: 320, y: 500, width: 144, height: 108 });
+  p1.drawImage(logo, { x: 320, y: 380, width: 72, height: 36 });
+  const p2 = doc.addPage([612, 792]);
+  p2.drawText('Second page uses the photo again', { x: 72, y: 740, size: 14, font });
+  p2.drawImage(photo, { x: 72, y: 560, width: 108, height: 144 });
+  return finish(doc);
+}
+
+/** Paragraphs of the OCR fixtures, kept next to the builder so tests can compute the word error rate. */
+export const OCR_TEXT = {
+  en: 'The quick brown fox jumps over the lazy dog. Invoices are due within thirty days of receipt, and late payments may be charged interest.',
+  it: 'La volpe veloce salta sopra il cane pigro. Le fatture devono essere pagate entro trenta giorni dalla ricezione, perché i ritardi sono già costosi.',
+};
+/**
+ * Text set at 16 pt, English then Italian, for the recognition tests. The page is vector text: tests
+ * render it to pixels and recognise that, so the expected text is known exactly.
+ */
+export async function multilingualDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Multilingual');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  const wrap = (text: string, width: number): string[] => {
+    const lines: string[] = [];
+    let cur = '';
+    for (const word of text.split(' ')) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (font.widthOfTextAtSize(next, 16) > width && cur) {
+        lines.push(cur);
+        cur = word;
+      } else cur = next;
+    }
+    return cur ? [...lines, cur] : lines;
+  };
+  let y = 720;
+  for (const para of [OCR_TEXT.en, OCR_TEXT.it]) {
+    for (const line of wrap(para, 468)) {
+      page.drawText(line, { x: 72, y, size: 16, font });
+      y -= 26;
+    }
+    y -= 30;
+  }
+  return finish(doc);
+}
+
+/** What `tablesDoc` draws, row by row, so tests can compare the extracted cells exactly. */
+export const TABLE_TRUTH = {
+  ruled: [
+    ['Item', 'Qty', 'Price'],
+    ['Widget', '2', '10.50'],
+    ['Gadget with a long name', '5', '3,20'],
+    ['Total', '7', '13.70'],
+  ],
+  plain: [
+    ['Name', 'City', 'Amount'],
+    ['Marta Rossi', 'Firenze', '1,250.00'],
+    ['Luca Bianchi', 'Milano', '980.50'],
+    ['Anna Verdi', 'Roma', '12.00'],
+  ],
+  /** Where the ruled table sits on page 1 and the plain one on page 2 (user space). */
+  ruledArea: { x: 60, y: 560, width: 420, height: 160 },
+  plainArea: { x: 60, y: 560, width: 460, height: 160 },
+};
+/**
+ * Page 1: a ruled table whose second row has a two-line cell. Page 2: the same kind of data aligned in
+ * columns with no lines at all, preceded by a paragraph that is not part of the table.
+ */
+export async function tablesDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Tables');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const p1 = doc.addPage([612, 792]);
+  p1.drawText('Order lines', { x: 60, y: 745, size: 16, font });
+  const xs = [60, 300, 380, 480];
+  const ys = [720, 690, 650, 620, 590];
+  for (const y of ys) p1.drawLine({ start: { x: xs[0]!, y }, end: { x: xs[3]!, y }, thickness: 0.8, color: rgb(0, 0, 0) });
+  for (const x of xs) p1.drawLine({ start: { x, y: ys[0]! }, end: { x, y: ys[4]! }, thickness: 0.8, color: rgb(0, 0, 0) });
+  const cell = (text: string, c: number, y: number): void => p1.drawText(text, { x: xs[c]! + 6, y, size: 11, font });
+  TABLE_TRUTH.ruled[0]!.forEach((t, c) => cell(t, c, 701));
+  cell('Widget', 0, 666);
+  cell('2', 1, 666);
+  cell('10.50', 2, 666);
+  // The long name wraps over two lines inside its cell.
+  cell('Gadget with', 0, 641);
+  cell('a long name', 0, 629);
+  cell('5', 1, 635);
+  cell('3,20', 2, 635);
+  cell('Total', 0, 601);
+  cell('7', 1, 601);
+  cell('13.70', 2, 601);
+  const p2 = doc.addPage([612, 792]);
+  p2.drawText('Quarterly summary of the three largest customers, as agreed at the meeting.', { x: 60, y: 745, size: 11, font });
+  const cols = [60, 240, 400];
+  TABLE_TRUTH.plain.forEach((row, r) => row.forEach((text, c) => p2.drawText(text, { x: cols[c]!, y: 700 - r * 24, size: 11, font })));
+  return finish(doc);
+}
+
+export interface ScannedFormArea {
+  /** PDF user space of the unrotated page. */
+  rect: { x: number; y: number; width: number; height: number };
+  kind: 'text' | 'checkbox';
+  /** What the printed label next to it says (not drawn: a scan has no text). */
+  label: string;
+}
+/**
+ * A scanned paper form: one full-page image with five ruled boxes and two check squares drawn on it,
+ * no text and no fields. `rotate` sets the page's /Rotate; the image itself is not turned, so the areas
+ * stay in unrotated user space and a viewer shows them rotated.
+ */
+export async function scannedFormDoc(opts: { rotate?: 0 | 90 | 180 | 270 } = {}): Promise<{ pdf: Uint8Array; areas: ScannedFormArea[] }> {
+  const W = 612;
+  const H = 792;
+  const areas: ScannedFormArea[] = [
+    { rect: { x: 150, y: 700, width: 300, height: 24 }, kind: 'text', label: 'First name' },
+    { rect: { x: 150, y: 660, width: 300, height: 24 }, kind: 'text', label: 'Last name' },
+    { rect: { x: 150, y: 620, width: 140, height: 24 }, kind: 'text', label: 'Date of birth' },
+    { rect: { x: 150, y: 580, width: 300, height: 24 }, kind: 'text', label: 'Email' },
+    { rect: { x: 150, y: 540, width: 300, height: 24 }, kind: 'text', label: 'Tax code' },
+    { rect: { x: 150, y: 500, width: 14, height: 14 }, kind: 'checkbox', label: 'Newsletter' },
+    { rect: { x: 300, y: 500, width: 14, height: 14 }, kind: 'checkbox', label: 'Privacy' },
+  ];
+  const png = new PNG({ width: W, height: H });
+  png.data.fill(255);
+  const dot = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    png.data.set([20, 20, 20, 255], (y * W + x) * 4);
+  };
+  for (const { rect: r } of areas) {
+    const top = Math.round(H - r.y - r.height);
+    const left = Math.round(r.x);
+    for (let x = 0; x <= r.width; x++) for (const y of [0, Math.round(r.height)]) dot(left + x, top + y);
+    for (let y = 0; y <= r.height; y++) for (const x of [0, Math.round(r.width)]) dot(left + x, top + y);
+  }
+  const doc = await newDoc('Scanned form');
+  const page = doc.addPage([W, H]);
+  page.drawImage(await doc.embedPng(PNG.sync.write(png)), { x: 0, y: 0, width: W, height: H });
+  if (opts.rotate) page.setRotation(degrees(opts.rotate));
+  return { pdf: await finish(doc), areas };
+}
+
 /** PNG with a transparent background and a dark handwritten-like stroke (signature import tests). */
 export function signaturePng(width = 200, height = 80, background: [number, number, number, number] = [255, 255, 255, 255]): Uint8Array {
   const png = new PNG({ width, height });

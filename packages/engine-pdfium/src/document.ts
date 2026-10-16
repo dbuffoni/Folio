@@ -4,6 +4,7 @@ import {
   InvalidPdfError,
   LimitExceededError,
   PasswordRequiredError,
+  UnsupportedFeatureError,
   groupLines,
   normalizeRotation,
   pagesToSearch,
@@ -19,6 +20,8 @@ import type {
   DocMeta,
   EditableMeta,
   FieldId,
+  FieldPatch,
+  FieldSpec,
   FieldValue,
   FontInfo,
   FormField,
@@ -27,6 +30,8 @@ import type {
   LinkTarget,
   Matrix,
   ObjId,
+  OcrLayerWord,
+  OutlineEdit,
   OutlineNode,
   PageIndex,
   PageInfo,
@@ -49,6 +54,8 @@ import type {
 } from '@folio/ports';
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
+import { compact } from './compact.ts';
+import { addFields, deleteField, moveWidget, patchField } from './fieldedit.ts';
 import { ensureFieldsArray, importWithForms } from './formrepair.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
@@ -591,7 +598,7 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   private destTarget(dest: Ptr): LinkTarget {
     const m = this.m;
     const page = m.FPDFDest_GetDestPageIndex(this.doc, dest);
-    if (page < 0) return { kind: 'unsupported', reason: 'unknown' };
+    if (page < 0) return { kind: 'unsupported', reason: 'missing' };
     return scope(m, (a) => {
       const p = a.alloc(24);
       const ok = m.FPDFDest_GetLocationInPage(dest, p, p + 4, p + 8, p + 12, p + 16, p + 20);
@@ -676,6 +683,118 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
       };
       add(0, nodes);
     });
+  }
+
+  async editOutline(edit: OutlineEdit): Promise<void> {
+    this.alive();
+    const m = this.m;
+    const bad = (what: string): never => {
+      throw new InvalidArgumentError(`No bookmark at ${what}`, { reason: 'badOutlinePath' });
+    };
+    /** Bookmark at `path`; the empty path is the invisible root (0). */
+    const nodeAt = (path: number[]): Ptr => {
+      let bm: Ptr = 0;
+      for (const [depth, index] of path.entries()) {
+        let cur = m.FPDFBookmark_GetFirstChild(this.doc, bm);
+        for (let k = 0; cur && k < index; k++) cur = m.FPDFBookmark_GetNextSibling(this.doc, cur);
+        if (!cur) return bad(path.slice(0, depth + 1).join('/'));
+        bm = cur;
+      }
+      return bm;
+    };
+    const title = (value: string): string => {
+      const t = value.trim();
+      if (t === '' || t.length > 512) throw new InvalidArgumentError('Bookmark titles have 1 to 512 characters', { reason: 'badBookmarkTitle' });
+      return t;
+    };
+    const setTarget = (bm: Ptr, target: LinkTarget | undefined): void => {
+      if (target?.kind === 'page' && target.page >= 0 && target.page < this.pageCount) {
+        const page = this.page(target.page);
+        const pt = target.point;
+        const zoom = target.zoom && target.zoom > 0 ? target.zoom : 0;
+        const dest = m.EPDFDest_CreateXYZ(page, !!pt, pt?.x ?? 0, !!pt, pt?.y ?? 0, zoom > 0, zoom);
+        if (dest) m.EPDFBookmark_SetDest(this.doc, bm, dest);
+      } else if (target?.kind === 'uri') {
+        const action = m.EPDFAction_CreateURI(this.doc, target.uri);
+        if (action) m.EPDFBookmark_SetAction(this.doc, bm, action);
+      }
+    };
+    /** Inserts as child `index` of `parent` (0 = the root); returns the new bookmark. */
+    const insert = (parent: Ptr, index: number, text: string): Ptr =>
+      scope(m, (a) => {
+        let after: Ptr = 0;
+        let cur = m.FPDFBookmark_GetFirstChild(this.doc, parent);
+        for (let k = 0; cur && k < index; k++) {
+          after = cur;
+          cur = m.FPDFBookmark_GetNextSibling(this.doc, cur);
+        }
+        const bm = m.EPDFBookmark_InsertAfter(this.doc, parent, after, a.utf16(text));
+        if (!bm) throw new InvalidPdfError('Could not create bookmark');
+        return bm;
+      });
+    const childCount = (parent: Ptr): number => {
+      let n = 0;
+      for (let c = m.FPDFBookmark_GetFirstChild(this.doc, parent); c; c = m.FPDFBookmark_GetNextSibling(this.doc, c)) n++;
+      return n;
+    };
+    const copyTree = (src: Ptr, parent: Ptr, index: number): void => {
+      const bm = insert(parent, index, getUtf16(m, (b, l) => m.FPDFBookmark_GetTitle(src, b, l)));
+      // PDFium cannot re-attach an existing action object, so a moved entry keeps its page/position/zoom or
+      // web address; named, script and launch actions (never run by Folio) are not carried over a move.
+      const dest = m.FPDFBookmark_GetDest(this.doc, src);
+      const action = dest ? 0 : m.FPDFBookmark_GetAction(src);
+      if (dest) setTarget(bm, this.destTarget(dest));
+      else if (action) setTarget(bm, this.actionTarget(action));
+      let k = 0;
+      for (let c = m.FPDFBookmark_GetFirstChild(this.doc, src); c; c = m.FPDFBookmark_GetNextSibling(this.doc, c)) copyTree(c, bm, k++);
+    };
+    switch (edit.op) {
+      case 'add': {
+        const parent = nodeAt(edit.parent);
+        const text = title(edit.title);
+        if (edit.index < 0 || edit.index > childCount(parent)) bad(`${edit.parent.join('/')}[${edit.index}]`);
+        setTarget(insert(parent, edit.index, text), edit.target);
+        return;
+      }
+      case 'rename': {
+        const bm = edit.path.length ? nodeAt(edit.path) : bad('root');
+        const text = title(edit.title);
+        if (!scope(m, (a) => m.EPDFBookmark_SetTitle(bm, a.utf16(text)))) throw new InvalidPdfError('Could not rename bookmark');
+        return;
+      }
+      case 'remove': {
+        const bm = edit.path.length ? nodeAt(edit.path) : bad('root');
+        if (!m.EPDFBookmark_Delete(this.doc, bm)) throw new InvalidPdfError('Could not delete bookmark');
+        return;
+      }
+      case 'setTarget': {
+        const bm = edit.path.length ? nodeAt(edit.path) : bad('root');
+        m.EPDFBookmark_ClearTarget(bm);
+        setTarget(bm, edit.target);
+        return;
+      }
+      case 'move': {
+        const from = edit.path;
+        if (from.length === 0) bad('root');
+        const src = nodeAt(from);
+        // Express the destination in the tree before the entry is taken out.
+        const d = from.length - 1;
+        const parent = [...edit.parent];
+        let index = edit.index;
+        if (parent.length > d && parent.slice(0, d).every((v, k) => v === from[k]) && parent[d]! >= from[d]!) parent[d]!++;
+        else if (parent.length === d && parent.every((v, k) => v === from[k]) && index >= from[d]!) index++;
+        if (from.every((v, k) => parent[k] === v)) throw new InvalidArgumentError('A bookmark cannot move into itself', { reason: 'badOutlinePath' });
+        const target = nodeAt(parent);
+        if (index < 0 || index > childCount(target)) bad(`${edit.parent.join('/')}[${edit.index}]`);
+        copyTree(src, target, index);
+        // The copy may have shifted the original within a list it was inserted into.
+        const oldPath = [...from];
+        const L = parent.length;
+        if (L < oldPath.length && parent.every((v, k) => v === oldPath[k]) && index <= oldPath[L]!) oldPath[L]!++;
+        if (!m.EPDFBookmark_Delete(this.doc, nodeAt(oldPath))) throw new InvalidPdfError('Could not move bookmark');
+        return;
+      }
+    }
   }
 
   async getLinks(i: PageIndex): Promise<LinkInfo[]> {
@@ -772,6 +891,33 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     this.alive();
     forms.flatten(this);
   }
+  /** Field authoring goes through the structural helper on saved bytes, then the document is reloaded. */
+  private async rewriteForms(fn: (bytes: Uint8Array) => Promise<Uint8Array>): Promise<void> {
+    this.alive();
+    if (this.m.EPDF_IsEncrypted(this.doc)) throw new UnsupportedFeatureError('formEditEncrypted');
+    if (this.m.FPDF_GetFormType(this.doc) >= 2) throw new UnsupportedFeatureError('xfa');
+    this.reload(await fn(this.bytesNow()));
+  }
+  async createFields(specs: FieldSpec[]): Promise<FieldId[]> {
+    if (specs.length === 0) return [];
+    let ids: string[] = [];
+    await this.rewriteForms(async (bytes) => {
+      const out = await addFields(bytes, specs);
+      ids = out.ids;
+      return out.bytes;
+    });
+    return ids;
+  }
+  async updateField(id: FieldId, patch: FieldPatch): Promise<FieldId> {
+    await this.rewriteForms((bytes) => patchField(bytes, id, patch));
+    return id;
+  }
+  async setWidgetRect(id: FieldId, widget: number, rect: Rect): Promise<void> {
+    await this.rewriteForms((bytes) => moveWidget(bytes, id, widget, rect));
+  }
+  async removeField(id: FieldId, widget?: number): Promise<void> {
+    await this.rewriteForms((bytes) => deleteField(bytes, id, widget));
+  }
   async listObjects(i: PageIndex): Promise<PageObject[]> {
     return objects.list(this, i);
   }
@@ -791,6 +937,18 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   }
   async replaceImage(i: PageIndex, id: ObjId, image: ImageSpec['image']): Promise<void> {
     objects.replaceImage(this, i, id, image);
+  }
+  async addOcrLayer(i: PageIndex, words: OcrLayerWord[]): Promise<{ written: number; substituted: number }> {
+    await this.shared.fonts.ready;
+    this.checkPage(i);
+    return objects.addOcrLayer(this, i, words);
+  }
+  async removeOcrLayer(i: PageIndex): Promise<number> {
+    this.checkPage(i);
+    return objects.removeOcrLayer(this, i);
+  }
+  async hasOcrLayer(i: PageIndex): Promise<boolean> {
+    return objects.hasOcrLayer(this, i);
   }
   async transformObject(i: PageIndex, id: ObjId, matrix: Matrix): Promise<void> {
     objects.transform(this, i, id, matrix);
@@ -838,7 +996,12 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
     // A document created in memory has no original bytes to append to.
     const incremental = !!opts.incremental && this.dataPtr !== 0;
     if (incremental) return this.write(FPDF_INCREMENTAL);
-    return ensureFieldsArray(this.write(FPDF_NO_INCREMENTAL));
+    const bytes = await ensureFieldsArray(this.write(FPDF_NO_INCREMENTAL));
+    if (!opts.compact) return bytes;
+    // Encrypted files are left as written: the structural helper cannot re-encrypt them.
+    if (this.m.EPDF_IsEncrypted(this.doc)) return bytes;
+    const small = await compact(bytes);
+    return small.length < bytes.length ? small : bytes;
   }
 
   async snapshot(): Promise<Uint8Array> {

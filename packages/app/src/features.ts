@@ -1,6 +1,9 @@
 import {
   Emitter,
   InvalidArgumentError,
+  grid,
+  endpointHost,
+  isLoopbackUrl,
   formatPageRanges,
   isFolioError,
   isValidPageRanges,
@@ -9,10 +12,16 @@ import {
   splitExt,
   type Msg,
 } from '@folio/core';
-import type { StoredSignature } from '@folio/db';
-import type { Color, FieldValue, FileRef, FormField, ImageFormat, PageIndex, Point } from '@folio/ports';
+import { uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
+import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
+  COMPRESS_PRESETS,
+  normalizeSettings,
+  type CompressAnalysis,
+  type CompressPreset,
+  type CompressResult,
+  type CompressSettings,
   DEFAULT_IMAGE_PAGE,
   DEFAULT_MERGE,
   DEFAULT_TEMPLATE,
@@ -32,6 +41,17 @@ import {
   tabOrder,
   toggle,
   type AnalysisResult,
+  MAX_OCR_LANGUAGES,
+  defaultOcrLanguages,
+  type OcrLanguagePack,
+  type OcrRun,
+  type FieldProposal,
+  type FieldTool,
+  FIELD_TOOLS,
+  labelNear,
+  type DetectionNotice,
+  type MoveIntent,
+  type OutlinePath,
   type ConflictPolicy,
   type HandwritingFont,
   type ImagePageOptions,
@@ -48,6 +68,7 @@ import {
   type Suggestion,
   type TextStampStyle,
 } from '@folio/services';
+import { aiGates } from './ai-settings.ts';
 import type { AppModel } from './app.ts';
 import type { DocumentSession } from './session.ts';
 import type { ToolController } from './tools.ts';
@@ -892,6 +913,977 @@ export class SignModel extends ViewModel {
   }
 }
 
+// ---- OCR (FR-OCR-01…03, 06, 09) ----------------------------------------------------------------
+
+export type OcrStage = 'idle' | 'ready' | 'running' | 'done';
+export class OcrModel extends ViewModel {
+  stage: OcrStage = 'idle';
+  languages: string[] = ['eng'];
+  engine: 'local' | 'ai' = 'local';
+  scope: 'current' | 'selected' | 'all' = 'current';
+  redo = false;
+  progress = 0;
+  run: OcrRun | null = null;
+  /** Pages the local engine was unsure about. */
+  retry: PageIndex[] = [];
+  packs: Array<OcrLanguagePack & { installed: boolean }> = [];
+  /** A language being downloaded, for the progress line. */
+  downloading: { code: string; received: number; total: number } | null = null;
+  /** Current page is a scan with no text and no layer of ours: the banner offers "Recognise text". */
+  scannedHere = false;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+  }
+  private get s() {
+    return this.app.services;
+  }
+  get available(): boolean {
+    return this.s.ocr.localAvailable;
+  }
+  /** "AI (vision)" needs AI switched on, configured, and a model that can read images (FR-AIF-13). */
+  async aiAvailable(): Promise<boolean> {
+    const ai = this.app.settings.ai;
+    return ai.enabled && aiGates(ai).vision && (await this.s.ai.isConfigured());
+  }
+  async loadPacks(): Promise<void> {
+    this.packs = await this.s.ocrLanguages.list();
+    this.emit();
+  }
+  /** Opens the dialog state: remembered languages first, else the UI language. */
+  async start(): Promise<void> {
+    await this.loadPacks();
+    const ocr = this.app.settings.ocr.languages;
+    this.languages = defaultOcrLanguages(this.app.settings.language, ocr).filter((c) => this.packs.some((p) => p.code === c));
+    if (this.languages.length === 0) this.languages = ['eng'];
+    this.stage = 'ready';
+    this.run = null;
+    this.retry = [];
+    this.progress = 0;
+    this.emit();
+  }
+  toggleLanguage(code: string): boolean {
+    const at = this.languages.indexOf(code);
+    if (at >= 0) {
+      if (this.languages.length > 1) this.languages = this.languages.filter((c) => c !== code);
+    } else if (this.languages.length < MAX_OCR_LANGUAGES) this.languages = [...this.languages, code];
+    else return false;
+    this.emit();
+    return true;
+  }
+  /** Order matters: the first language is the primary one. */
+  moveLanguage(code: string, direction: -1 | 1): void {
+    const i = this.languages.indexOf(code);
+    const j = i + direction;
+    if (i < 0 || j < 0 || j >= this.languages.length) return;
+    const next = [...this.languages];
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    this.languages = next;
+    this.emit();
+  }
+  get pages(): PageIndex[] {
+    const sel = this.session.selection;
+    if (this.scope === 'all') return Array.from({ length: this.session.pageCount }, (_, i) => i);
+    if (this.scope === 'selected' && sel.kind === 'pages') return [...sel.pages].sort((a, b) => a - b);
+    return [this.session.view.page];
+  }
+
+  /** Downloads a language only after the user confirmed its name and size (FR-OCR-02). */
+  async install(code: string): Promise<boolean> {
+    const pack = this.s.ocrLanguages.pack(code);
+    if (!pack || pack.bundled) return false;
+    if (!(await this.app.prompts.confirm(msg('ocr.confirmDownload', { name: pack.name, size: pack.size, host: new URL(pack.url!).host }), { confirmLabel: msg('ocr.download') }))) return false;
+    this.downloading = { code, received: 0, total: pack.size };
+    this.emit();
+    const ok = await this.app.guard(async () => {
+      await this.s.ocrLanguages.install(code, {
+        onProgress: (received, total) => {
+          this.downloading = { code, received, total };
+          this.emit();
+        },
+      });
+      return true;
+    });
+    this.downloading = null;
+    await this.loadPacks();
+    return !!ok;
+  }
+  async remove(code: string): Promise<void> {
+    await this.app.guard(() => this.s.ocrLanguages.remove(code));
+    this.languages = this.languages.filter((c) => c !== code);
+    if (this.languages.length === 0) this.languages = ['eng'];
+    await this.loadPacks();
+  }
+
+  /** The current page, for the banner: scanned, no text, no layer of Folio's. */
+  async refreshBanner(): Promise<void> {
+    const page = this.session.view.page;
+    if (page < 0 || page >= this.session.pageCount) return;
+    const layer = await this.session.text.layer(page);
+    const scanned = layer.isScanned && !(await this.session.doc.hasOcrLayer(page));
+    // Only a change is announced: the shell calls this on every update and would loop otherwise.
+    if (scanned !== this.scannedHere) {
+      this.scannedHere = scanned;
+      this.emit();
+    }
+  }
+
+  /**
+   * Runs recognition as one undoable step. Languages that are not installed are downloaded first (after
+   * confirmation); signed documents and AI runs ask before anything changes or is sent.
+   */
+  async execute(pagesOverride?: PageIndex[], engineOverride?: 'local' | 'ai'): Promise<OcrRun | null> {
+    const engine = engineOverride ?? this.engine;
+    const pages = pagesOverride ?? this.pages;
+    if (engine === 'local') {
+      if (!this.available) {
+        this.app.toast('warning', msg('ocr.unavailable'));
+        return null;
+      }
+      for (const pack of await this.s.ocrLanguages.missing(this.languages)) if (!(await this.install(pack.code))) return null;
+    } else {
+      if (!(await this.aiAvailable())) {
+        this.app.toast('warning', msg('ai.gate.noVision'));
+        return null;
+      }
+      const host = endpointHost(this.app.settings.ai.baseUrl);
+      if (!(await this.app.prompts.confirm(msg('ocr.aiPreflight', { count: pages.length, host }), { confirmLabel: msg('ocr.aiSend') }))) return null;
+    }
+    if (this.session.meta.hasSignatures && !(await this.app.prompts.confirm(msg('ocr.confirmSigned'), { confirmLabel: msg('action.continue') }))) return null;
+    this.stage = 'running';
+    this.progress = 0;
+    this.abort = new AbortController();
+    this.emit();
+    let result: OcrRun | null = null;
+    const ok = await this.app.guard(async () => {
+      await this.session.settled();
+      await this.session.run(
+        this.s.ocr.command(
+          this.session.doc,
+          {
+            pages,
+            languages: this.s.ocrLanguages.validate(this.languages),
+            engine,
+            redo: this.redo,
+            signal: this.abort!.signal,
+            progress: (done, total) => {
+              this.progress = total ? done / total : 1;
+              this.emit();
+            },
+          },
+          (r) => (result = r),
+        ),
+      );
+      return true;
+    });
+    if (ok && engine === 'local') await this.app.setSetting('ocr', { languages: this.languages });
+    this.stage = ok ? 'done' : 'ready';
+    this.run = result;
+    this.retry = result ? this.s.ocr.lowConfidence(result) : [];
+    if (result) {
+      const done = (result as OcrRun).outcomes.filter((o) => o.status === 'done').length;
+      this.app.toastUndo(msg(done ? 'toast.ocrDone' : 'toast.ocrNothing', { count: done }));
+      if ((result as OcrRun).outcomes.some((o) => o.substituted > 0)) this.app.toast('info', msg('ocr.substituted'));
+    }
+    this.emit();
+    void this.refreshBanner();
+    return result;
+  }
+  /** "Retry with AI" for the pages the local run was unsure about; replaces only Folio's own layer. */
+  async retryWithAi(): Promise<OcrRun | null> {
+    const pages = this.retry;
+    if (pages.length === 0) return null;
+    const keep = this.redo;
+    this.redo = true;
+    const out = await this.execute(pages, 'ai');
+    this.redo = keep;
+    return out;
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+  reset(): void {
+    this.stage = 'idle';
+    this.run = null;
+    this.emit();
+  }
+}
+
+// ---- Extract tables (FR-OPT-12) -----------------------------------------------------------------
+
+export class TablesModel extends ViewModel {
+  open = false;
+  page: PageIndex = 0;
+  /** The rectangle the user drew, or null for the whole page. */
+  area: Rect | null = null;
+  rows: string[][] = [];
+  source: 'local' | 'ai' = 'local';
+  ruled = false;
+  skippedRotated = false;
+  busy = false;
+  /** Nothing was found in the area. */
+  empty = false;
+  delimiter: ',' | ';' = ',';
+  bom = false;
+  /** First row is a header (shown in bold; the file is unchanged). */
+  header = true;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+    tools?: { areaPicked: { on(cb: (e: { tool: 'table'; page: PageIndex; rect: Rect }) => void): () => void } },
+  ) {
+    super();
+    tools?.areaPicked.on((e) => void this.extract(e.page, e.rect));
+  }
+  private get s() {
+    return this.app.services;
+  }
+  async aiAvailable(): Promise<boolean> {
+    const ai = this.app.settings.ai;
+    return ai.enabled && aiGates(ai).vision && (await this.s.ai.isConfigured());
+  }
+  get columns(): number {
+    return Math.max(0, ...this.rows.map((r) => r.length));
+  }
+  /** Local detection on a page, for the area or the whole page; the grid opens either way. */
+  async extract(page: PageIndex, area: Rect | null): Promise<void> {
+    this.page = page;
+    this.area = area;
+    this.open = true;
+    this.busy = true;
+    this.empty = false;
+    this.emit();
+    const out = await this.app.guard(() => this.s.tables.extractLocal(this.session.doc, page, area));
+    this.busy = false;
+    this.source = 'local';
+    this.rows = out?.rows ?? [];
+    this.ruled = !!out?.ruled;
+    this.skippedRotated = !!out?.skippedRotated;
+    this.empty = !out || out.rows.length === 0;
+    this.emit();
+  }
+  /** "Use AI": on a scan or when the local result is poor. The pre-flight says what is sent. */
+  async useAi(): Promise<boolean> {
+    if (!(await this.aiAvailable())) {
+      this.app.toast('warning', msg('ai.gate.noVision'));
+      return false;
+    }
+    const host = endpointHost(this.app.settings.ai.baseUrl);
+    if (!(await this.app.prompts.confirm(msg('tables.aiPreflight', { page: this.page + 1, host }), { confirmLabel: msg('tables.aiSend') }))) return false;
+    this.abort = new AbortController();
+    this.busy = true;
+    this.emit();
+    const out = await this.app.guard(() => this.s.tables.extractAi(this.session.doc, this.page, this.area, this.abort!.signal));
+    this.busy = false;
+    if (out) {
+      this.rows = out.rows;
+      this.source = 'ai';
+      this.ruled = false;
+      this.empty = out.rows.length === 0;
+    }
+    this.emit();
+    return !!out;
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+  close(): void {
+    this.open = false;
+    this.rows = [];
+    this.emit();
+  }
+
+  // ---- grid editing ---------------------------------------------------------------------------
+  private set(rows: string[][]): void {
+    this.rows = rows;
+    this.emit();
+  }
+  setCell(r: number, c: number, value: string): void {
+    this.set(grid.setCell(this.rows, r, c, value));
+  }
+  mergeColumns(c: number): void {
+    this.set(grid.mergeColumns(this.rows, c));
+  }
+  splitColumn(c: number): void {
+    this.set(grid.splitColumn(this.rows, c));
+  }
+  deleteRow(r: number): void {
+    this.set(grid.deleteRow(this.rows, r));
+  }
+  deleteColumn(c: number): void {
+    this.set(grid.deleteColumn(this.rows, c));
+  }
+  setOptions(patch: Partial<Pick<TablesModel, 'delimiter' | 'bom' | 'header'>>): void {
+    Object.assign(this, patch);
+    this.emit();
+  }
+
+  // ---- output ---------------------------------------------------------------------------------
+  /** Save CSV: UTF-8, RFC 4180, the chosen separator and optional byte order mark. */
+  async saveCsv(): Promise<boolean> {
+    const files = this.s.platform.files;
+    const ref = await files.pickSave({ suggestedName: this.s.tables.fileName(this.session.name, this.page), kind: 'csv' });
+    if (!ref) return false;
+    const ok = await this.app.guard(async () => {
+      await files.write(ref, this.s.tables.csv(this.rows, { delimiter: this.delimiter, bom: this.bom }), { atomic: true });
+      return true;
+    });
+    if (ok) this.app.toast('success', msg('toast.tableSaved', { name: ref.name }));
+    return !!ok;
+  }
+  /** Copy as tab-separated text, ready to paste into a spreadsheet. */
+  async copy(): Promise<boolean> {
+    const ok = await this.app.guard(async () => {
+      await this.s.platform.clipboard.writeText(this.s.tables.tsv(this.rows));
+      return true;
+    });
+    if (ok) this.app.toast('success', msg('toast.tableCopied'));
+    return !!ok;
+  }
+}
+
+// ---- Profiles and field templates (FR-FRM-20, FR-AIF-01) --------------------------------------
+
+export class ProfilesModel extends ViewModel {
+  profiles: Profile[] = [];
+  templates: FieldTemplate[] = [];
+  editing: string | null = null;
+  /** Keys skipped by the last "add template", for the notice. */
+  skipped: string[] = [];
+  constructor(private readonly app: AppModel) {
+    super();
+  }
+  private get s() {
+    return this.app.services;
+  }
+  async load(): Promise<void> {
+    this.profiles = await this.s.profiles.list();
+    this.templates = await this.s.templates.list();
+    if (this.editing && !this.profiles.some((p) => p.id === this.editing)) this.editing = null;
+    this.emit();
+  }
+  get current(): Profile | null {
+    return this.profiles.find((p) => p.id === this.editing) ?? null;
+  }
+  open(id: string | null): void {
+    this.editing = id;
+    this.skipped = [];
+    this.emit();
+  }
+  private async run<T>(task: () => Promise<T>): Promise<T | undefined> {
+    const out = await this.app.guard(task);
+    await this.load();
+    return out;
+  }
+
+  // ---- profiles ---------------------------------------------------------------------------
+  /** New profile: empty, or built from one or more templates (built-in or user-made). */
+  async create(name: string, templateIds: string[] = []): Promise<Profile | undefined> {
+    return this.run(async () => {
+      const p = await this.s.profiles.create(name);
+      for (const id of templateIds) {
+        const t = this.templates.find((x) => x.id === id);
+        if (t) await this.s.profiles.addTemplate(p.id, t.fields);
+      }
+      this.editing = p.id;
+      return (await this.s.profiles.get(p.id))!;
+    });
+  }
+  async duplicate(id: string): Promise<void> {
+    await this.run(async () => (this.editing = (await this.s.profiles.duplicate(id)).id));
+  }
+  async remove(id: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('confirm.removeProfile'), { danger: true, confirmLabel: msg('action.delete') }))) return false;
+    await this.run(() => this.s.profiles.remove(id));
+    return true;
+  }
+  async rename(id: string, name: string): Promise<boolean> {
+    return !!(await this.run(async () => (await this.s.profiles.rename(id, name), true)));
+  }
+  async setDefault(id: string): Promise<void> {
+    await this.run(() => this.s.profiles.setDefault(id));
+  }
+
+  // ---- entries ----------------------------------------------------------------------------
+  /** Adds an empty entry; the key is made from the label and stays as it is when the label changes. */
+  async addField(profileId: string, label: string, type: ProfileFieldType = 'text'): Promise<string | undefined> {
+    const p = this.profiles.find((x) => x.id === profileId);
+    const key = uniqueKey(label, p?.fields.map((f) => f.key) ?? []);
+    return this.run(async () => {
+      await this.s.profiles.setField(profileId, { key, label: label.trim() || key, type, value: '' });
+      return key;
+    });
+  }
+  /** Typed edits: invalid dates, e-mail addresses and numbers are refused with the reason (no write). */
+  async updateField(
+    profileId: string,
+    key: string,
+    patch: Partial<{ label: string; value: string; type: ProfileFieldType; sensitive: boolean; aliases: string[]; options: string[] }>,
+  ): Promise<boolean> {
+    const f = this.profiles.find((p) => p.id === profileId)?.fields.find((x) => x.key === key);
+    if (!f) return false;
+    const next = { ...f, ...patch };
+    const problem = validateProfileValue(next.type, next.value);
+    if (problem) {
+      this.app.toast('warning', msg(`profiles.invalid.${problem}`));
+      this.emit();
+      return false;
+    }
+    return !!(await this.run(async () => {
+      await this.s.profiles.setField(profileId, next);
+      return true;
+    }));
+  }
+  /** Changing a key forgets the remembered mappings that used it, after confirmation. */
+  async changeKey(profileId: string, key: string, newKey: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('profiles.confirmKey'), { confirmLabel: msg('action.continue') }))) return false;
+    return !!(await this.run(async () => {
+      await this.s.profiles.renameKey(profileId, key, newKey);
+      await this.s.mappings.dropKey(profileId, key);
+      return true;
+    }));
+  }
+  async removeField(profileId: string, key: string): Promise<void> {
+    await this.run(async () => {
+      await this.s.profiles.removeField(profileId, key);
+      await this.s.mappings.dropKey(profileId, key);
+    });
+  }
+  async moveField(profileId: string, key: string, direction: -1 | 1): Promise<void> {
+    const keys = this.profiles.find((p) => p.id === profileId)?.fields.map((f) => f.key) ?? [];
+    const at = keys.indexOf(key);
+    const to = at + direction;
+    if (at < 0 || to < 0 || to >= keys.length) return;
+    [keys[at], keys[to]] = [keys[to]!, keys[at]!];
+    await this.run(() => this.s.profiles.reorder(profileId, keys));
+  }
+
+  // ---- templates --------------------------------------------------------------------------
+  async addTemplate(profileId: string, templateId: string): Promise<void> {
+    const t = this.templates.find((x) => x.id === templateId);
+    if (!t) return;
+    const res = await this.run(() => this.s.profiles.addTemplate(profileId, t.fields));
+    this.skipped = res?.skipped ?? [];
+    if (this.skipped.length) this.app.toast('info', msg('profiles.skipped', { count: this.skipped.length, keys: this.skipped.join(', ') }));
+    this.emit();
+  }
+  async saveAsTemplate(profileId: string, name: string): Promise<FieldTemplate | undefined> {
+    const p = this.profiles.find((x) => x.id === profileId);
+    return p ? this.run(() => this.s.templates.fromProfile(p, name)) : undefined;
+  }
+  async createTemplate(name: string): Promise<FieldTemplate | undefined> {
+    return this.run(() => this.s.templates.create(name));
+  }
+  async updateTemplate(id: string, patch: { name?: string; fields?: FieldDefinition[] }): Promise<boolean> {
+    return !!(await this.run(async () => (await this.s.templates.update(id, patch), true)));
+  }
+  async duplicateTemplate(id: string): Promise<void> {
+    await this.run(() => this.s.templates.duplicate(id));
+  }
+  async removeTemplate(id: string): Promise<boolean> {
+    if (!(await this.app.prompts.confirm(msg('profiles.confirmTemplate'), { danger: true, confirmLabel: msg('action.delete') }))) return false;
+    await this.run(() => this.s.templates.remove(id));
+    return true;
+  }
+  async exportTemplate(id: string): Promise<boolean> {
+    const t = this.templates.find((x) => x.id === id);
+    const files = this.s.platform.files;
+    if (!t) return false;
+    const ref = await files.pickSave({ suggestedName: `${t.name}.template.json`, kind: 'json' });
+    if (!ref) return false;
+    await files.write(ref, new TextEncoder().encode(JSON.stringify(this.s.templates.exportJson(t), null, 2)), { atomic: true });
+    return true;
+  }
+  async importTemplate(): Promise<FieldTemplate | null> {
+    const files = this.s.platform.files;
+    const [ref] = await files.pickOpen({ accept: ['json'] });
+    if (!ref) return null;
+    const out = await this.run(async () => {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(new TextDecoder().decode(await files.read(ref)));
+      } catch {
+        /* reported as "not a template file" */
+      }
+      return this.s.templates.importJson(data);
+    });
+    return out ?? null;
+  }
+}
+
+// ---- Form authoring: Edit form mode (FR-FRM-08, FR-FRM-11, FR-FRM-16, FR-FRM-17) -----------------
+
+export class FormAuthoringModel extends ViewModel {
+  /** "Edit form" is on: highlights always shown, inputs not interactive, drawing and selection enabled. */
+  active = false;
+  tool: FieldTool | 'select' = 'select';
+  selected: { id: string; widget: number } | null = null;
+  proposals: FieldProposal[] = [];
+  notice: DetectionNotice | null = null;
+  detecting = false;
+  private warned = false;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+    session.invalidated.on((inv) => {
+      if (inv.kind === 'form' || inv.kind === 'all' || inv.kind === 'structure') {
+        if (this.selected && !this.fields.some((f) => f.id === this.selected!.id)) this.selected = null;
+        this.emit();
+      }
+    });
+  }
+  private get service() {
+    return this.app.services.authoring;
+  }
+  /** Last list of fields; kept here so the model has no await in getters. */
+  cached: FormField[] = [];
+  get fields(): FormField[] {
+    return this.cached;
+  }
+  async refresh(): Promise<void> {
+    this.cached = await this.session.fields();
+    this.emit();
+  }
+  get field(): FormField | null {
+    return this.selected ? (this.cached.find((f) => f.id === this.selected!.id) ?? null) : null;
+  }
+  get blocked(): 'xfa' | 'encrypted' | null {
+    return this.service.blocked(this.session.meta);
+  }
+  get compatible() {
+    return this.field ? this.service.compatible(this.field) : [];
+  }
+
+  /** Edit form / Fill form. XFA and encrypted documents are not authored (FR-FRM-09). */
+  async toggle(): Promise<boolean> {
+    if (this.active) {
+      this.active = false;
+      this.tool = 'select';
+      this.selected = null;
+      this.proposals = [];
+      this.emit();
+      return true;
+    }
+    const block = this.blocked;
+    if (block) {
+      this.app.toast('warning', msg(`form.author.blocked.${block}`));
+      return false;
+    }
+    if (this.session.meta.hasSignatures && !this.warned) {
+      if (!(await this.app.prompts.confirm(msg('form.author.confirmSigned'), { confirmLabel: msg('action.continue') }))) return false;
+      this.warned = true;
+    }
+    this.active = true;
+    await this.refresh();
+    return true;
+  }
+  setTool(tool: FieldTool | 'select'): void {
+    this.tool = FIELD_TOOLS.includes(tool as FieldTool) || tool === 'select' ? tool : 'select';
+    this.emit();
+  }
+  select(sel: { id: string; widget: number } | null): void {
+    this.selected = sel;
+    this.emit();
+  }
+  private async run(cmd: ReturnType<typeof this.service.create>): Promise<boolean> {
+    const ok = await this.app.guard(async () => {
+      await this.session.run(cmd);
+      await this.refresh();
+      return true;
+    });
+    return !!ok;
+  }
+  private taken(): Set<string> {
+    return new Set(this.cached.map((f) => f.name));
+  }
+
+  /** A click or drag on a page with a tool: creates the field with an automatic name (FR-FRM-08). */
+  async createAt(page: PageIndex, a: Point, b: Point | null): Promise<boolean> {
+    if (this.tool === 'select') return false;
+    const info = this.session.pageInfos[page];
+    if (!info) return false;
+    const rect = this.service.rectFor(this.tool, a, b, info.cropBox);
+    const layer = await this.session.text.layer(page);
+    const name = this.service.autoName(this.tool, labelNear(rect, layer), this.taken());
+    // A radio button drawn next to an existing group joins it when the user names it the same later; a
+    // new one starts its own group with its own name.
+    const spec = this.service.spec(this.tool, name, page, rect);
+    const ok = await this.run(this.service.create([spec]));
+    if (ok) {
+      this.selected = { id: name, widget: 0 };
+      this.tool = 'select';
+    }
+    this.emit();
+    return ok;
+  }
+  async update(patch: FieldPatch): Promise<boolean> {
+    const f = this.field;
+    return f ? this.run(this.service.update(f, patch)) : false;
+  }
+  async rename(name: string): Promise<boolean> {
+    const f = this.field;
+    if (!f) return false;
+    const ok = await this.app.guard(async () => {
+      await this.session.run(this.service.rename(f, name, this.taken()));
+      await this.refresh();
+      return true;
+    });
+    if (ok) this.selected = { id: f.name.includes('.') ? `${f.name.slice(0, f.name.lastIndexOf('.') + 1)}${name.trim()}` : name.trim(), widget: this.selected!.widget };
+    this.emit();
+    return !!ok;
+  }
+  async setRect(rect: Rect): Promise<boolean> {
+    const f = this.field;
+    return f && this.selected ? this.run(this.service.move(f, this.selected.widget, rect)) : false;
+  }
+  /** Arrow keys nudge by 1 pt, with Shift by 10 pt. */
+  async nudge(dx: number, dy: number, shift: boolean): Promise<boolean> {
+    const f = this.field;
+    if (!f || !this.selected) return false;
+    const w = f.widgets[this.selected.widget]!;
+    const info = this.session.pageInfos[w.page];
+    if (!info) return false;
+    return this.setRect(this.service.nudge(w.rect, dx, dy, shift, info.cropBox));
+  }
+  async remove(): Promise<boolean> {
+    const f = this.field;
+    if (!f || !this.selected) return false;
+    const widget = f.type === 'radio' && f.widgets.length > 1 ? this.selected.widget : undefined;
+    const ok = await this.run(this.service.remove(f, widget));
+    if (ok) this.selected = null;
+    this.emit();
+    return ok;
+  }
+
+  // ---- Detect fields (FR-FRM-15) -------------------------------------------------------------
+
+  /** Proposes fields for pages: local on vector pages, the vision model on scans or when `forceAi`. */
+  async detect(pages: PageIndex[], forceAi = false): Promise<number> {
+    this.detecting = true;
+    this.notice = null;
+    this.emit();
+    const settings = this.app.settings.ai;
+    const gates = aiGates(settings);
+    const res = await this.app.guard(async () => {
+      await this.refresh();
+      return this.app.services.detection.detect(this.session.doc, pages, {
+        useAi: settings.enabled && gates.vision && (await this.app.services.ai.isConfigured()),
+        forceAi,
+      });
+    });
+    this.detecting = false;
+    if (res) {
+      this.proposals = res.proposals;
+      this.notice = res.notice ?? (res.proposals.length === 0 && forceAi && !gates.vision ? 'visionOff' : null);
+    }
+    this.emit();
+    return res?.proposals.length ?? 0;
+  }
+  toggleProposal(id: string, accepted: boolean): void {
+    this.proposals = this.proposals.map((p) => (p.id === id ? { ...p, accepted } : p));
+    this.emit();
+  }
+  acceptAll(accepted = true): void {
+    this.proposals = this.proposals.map((p) => ({ ...p, accepted }));
+    this.emit();
+  }
+  /** Turns the accepted proposals into real fields, named from their labels, in one undoable step. */
+  async createProposals(): Promise<number> {
+    const taken = this.taken();
+    const specs = [];
+    for (const p of this.proposals.filter((x) => x.accepted)) {
+      const tool: FieldTool = p.type === 'checkbox' ? 'checkbox' : p.multiline ? 'multiline' : 'text';
+      const name = this.service.autoName(tool, p.label, taken);
+      taken.add(name);
+      specs.push(this.service.spec(tool, name, p.page, p.rect, { tooltip: p.label, ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
+    }
+    if (specs.length === 0) return 0;
+    const ok = await this.run(this.service.create(specs, 'cmd.createFields'));
+    if (!ok) return 0;
+    this.proposals = [];
+    this.emit();
+    return specs.length;
+  }
+  cancelProposals(): void {
+    this.proposals = [];
+    this.notice = null;
+    this.emit();
+  }
+}
+
+// ---- Reduce file size (FR-OPT-01) --------------------------------------------------------------
+
+export type CompressStage = 'idle' | 'analysing' | 'ready' | 'running' | 'done';
+export class CompressModel extends ViewModel {
+  stage: CompressStage = 'idle';
+  preset: CompressPreset = 'balanced';
+  custom: CompressSettings = { ...COMPRESS_PRESETS.balanced };
+  /** Estimated size per preset, once measured. */
+  estimates: Partial<Record<CompressPreset, number>> = {};
+  /** 'copy' writes `name-compressed.pdf`; 'replace' overwrites the open file (never for signed files). */
+  target: 'copy' | 'replace' = 'copy';
+  result: CompressResult | null = null;
+  progress = 0;
+  analysis: CompressAnalysis | null = null;
+  private abort?: AbortController;
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+  }
+  get size(): number {
+    return this.session.byteSize ?? 0;
+  }
+  get signed(): boolean {
+    return this.session.meta.hasSignatures;
+  }
+  get encrypted(): boolean {
+    return this.session.meta.isEncrypted;
+  }
+  get canReplace(): boolean {
+    return !this.signed && !!this.session.ref;
+  }
+  get settings(): CompressSettings {
+    return this.preset === 'custom' ? normalizeSettings(this.custom) : COMPRESS_PRESETS[this.preset];
+  }
+  /** Measures the document and the estimated size of every preset. */
+  async start(): Promise<void> {
+    this.stage = 'analysing';
+    this.result = null;
+    this.estimates = {};
+    this.target = this.canReplace ? this.target : 'copy';
+    this.abort = new AbortController();
+    this.emit();
+    const ok = await this.app.guard(async () => {
+      await this.session.settled();
+      const bytes = this.size || (await this.session.doc.save()).length;
+      this.analysis = await this.app.services.compress.analyze(this.session.doc, bytes, this.abort!.signal);
+      for (const p of ['light', 'balanced', 'strong'] as const) {
+        this.estimates[p] = await this.app.services.compress.estimate(this.session.doc, this.analysis, COMPRESS_PRESETS[p], this.abort!.signal);
+        this.emit();
+      }
+      return true;
+    });
+    this.stage = ok ? 'ready' : 'idle';
+    this.emit();
+  }
+  async setPreset(preset: CompressPreset): Promise<void> {
+    this.preset = preset;
+    this.emit();
+    if (preset === 'custom') await this.estimateCustom();
+  }
+  async setCustom(patch: Partial<CompressSettings>): Promise<void> {
+    this.custom = { ...this.custom, ...patch };
+    this.preset = 'custom';
+    this.emit();
+    await this.estimateCustom();
+  }
+  private async estimateCustom(): Promise<void> {
+    if (!this.analysis) return;
+    const size = await this.app.guard(() => this.app.services.compress.estimate(this.session.doc, this.analysis!, this.custom, this.abort?.signal));
+    if (size !== undefined) this.estimates.custom = size;
+    this.emit();
+  }
+  setTarget(target: 'copy' | 'replace'): void {
+    this.target = target === 'replace' && !this.canReplace ? 'copy' : target;
+    this.emit();
+  }
+  cancel(): void {
+    this.abort?.abort();
+  }
+
+  /**
+   * Compresses a copy; nothing is written when the result is not smaller. Returns the written file name,
+   * or null (cancelled, no gain, failure).
+   */
+  async run(): Promise<string | null> {
+    const files = this.app.services.platform.files;
+    const svc = this.app.services.compress;
+    this.stage = 'running';
+    this.progress = 0;
+    this.abort = new AbortController();
+    this.emit();
+    const res = await this.app.guard(async () => {
+      await this.session.settled();
+      return svc.run(this.session.doc, this.settings, {
+        originalBytes: this.size || (await this.session.doc.save()).length,
+        signal: this.abort!.signal,
+        progress: (done, total) => {
+          this.progress = total ? done / total : 1;
+          this.emit();
+        },
+      });
+    });
+    this.stage = res ? 'done' : 'ready';
+    this.result = res ?? null;
+    this.emit();
+    if (!res) return null;
+    if (!res.bytes) {
+      this.app.toast('info', msg('compress.noGain'));
+      return null;
+    }
+    const replace = this.target === 'replace' && this.canReplace;
+    let ref: FileRef | null | undefined;
+    if (replace) ref = this.session.ref!;
+    else ref = await files.pickSave({ suggestedName: svc.copyName(this.session.name), kind: 'pdf' });
+    if (!ref) return null;
+    const written = await this.app.guard(async () => {
+      await files.write(ref!, res.bytes!, { atomic: true, backup: replace ? this.app.settings.keepBackup : false });
+      return true;
+    });
+    if (!written) return null;
+    this.app.toast('success', msg('compress.done', { name: ref.name, before: res.before, after: res.after, percent: Math.round(res.saved * 100) }));
+    if (replace) {
+      // The file now holds the compressed document: reopen it so the tab shows what is on disk.
+      this.session.markSaved(ref, res.after);
+      const tab = this.session;
+      await this.app.closeTab(tab.id);
+      await this.app.openRef(ref);
+    }
+    return ref.name;
+  }
+}
+
+// ---- Bookmarks (FR-EDT-11, FR-EDT-27) ----------------------------------------------------------
+
+export class OutlineModel extends ViewModel {
+  tree: OutlineNode[] = [];
+  editing = false;
+  /** Path of the selected entry, or null. */
+  selected: OutlinePath | null = null;
+  /** Entry being renamed in place. */
+  renaming: OutlinePath | null = null;
+  collapsed = new Set<string>();
+
+  constructor(
+    private readonly app: AppModel,
+    private readonly session: DocumentSession,
+  ) {
+    super();
+    session.invalidated.on((inv) => {
+      if (['outline', 'structure', 'all'].includes(inv.kind)) void this.load();
+    });
+  }
+  private get service() {
+    return this.app.services.outline;
+  }
+  async load(): Promise<void> {
+    this.tree = await this.session.nav.outline();
+    if (this.selected && !this.service.node(this.tree, this.selected)) this.selected = null;
+    this.emit();
+  }
+  /** Entries whose page was deleted, keyed by joined path (shown as "Target removed"). */
+  get removed(): Set<string> {
+    return new Set(this.service.issues(this.tree).map((i) => i.path.join('.')));
+  }
+  get signed(): boolean {
+    return this.session.meta.hasSignatures;
+  }
+  setEditing(on: boolean): void {
+    this.editing = on;
+    this.renaming = null;
+    this.emit();
+  }
+  select(path: OutlinePath | null): void {
+    this.selected = path;
+    this.emit();
+  }
+  toggleCollapsed(path: OutlinePath): void {
+    const key = path.join('.');
+    if (this.collapsed.has(key)) this.collapsed.delete(key);
+    else this.collapsed.add(key);
+    this.collapsed = new Set(this.collapsed);
+    this.emit();
+  }
+  startRename(path = this.selected): void {
+    if (!path || !this.service.node(this.tree, path)) return;
+    this.renaming = path;
+    this.emit();
+  }
+
+  /** The signed-document warning applies to every edit; false when the user backs out. */
+  private async allowed(): Promise<boolean> {
+    if (!this.signed) return true;
+    return this.app.prompts.confirm(msg('bookmarks.confirmSigned'), { confirmLabel: msg('action.continue') });
+  }
+  private async run(cmd: () => ReturnType<typeof this.service.add>, after?: () => void): Promise<boolean> {
+    if (!(await this.allowed())) return false;
+    const ok = await this.app.guard(async () => {
+      await this.session.run(cmd());
+      await this.load();
+      return true;
+    });
+    if (ok) after?.();
+    this.emit();
+    return !!ok;
+  }
+
+  /** Adds an entry at the current page: after the selection (sibling) or as its first child. */
+  async add(title: string, asChild = false): Promise<boolean> {
+    const sel = this.selected;
+    const parent = sel ? (asChild ? sel : sel.slice(0, -1)) : [];
+    const siblings = parent.length ? this.service.node(this.tree, parent)!.children.length : this.tree.length;
+    const index = sel && !asChild ? sel[sel.length - 1]! + 1 : siblings;
+    const target = this.service.viewTarget(this.session.view.page);
+    return this.run(
+      () => this.service.add(parent, index, title, target),
+      () => (this.selected = [...parent, index]),
+    );
+  }
+  async rename(path: OutlinePath, title: string): Promise<boolean> {
+    const ok = await this.run(() => this.service.rename(path, title));
+    if (ok) this.renaming = null;
+    this.emit();
+    return ok;
+  }
+  /** Del: asks first when the entry has children. */
+  async remove(path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    const size = this.service.subtreeSize(this.tree, path);
+    if (size === 0) return false;
+    if (size > 1 && !(await this.app.prompts.confirm(msg('bookmarks.confirmDelete', { count: size }), { danger: true, confirmLabel: msg('action.delete') })))
+      return false;
+    return this.run(
+      () => this.service.remove(path),
+      () => (this.selected = null),
+    );
+  }
+  async move(intent: MoveIntent, path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    const to = this.service.planMove(this.tree, path, intent);
+    if (!to) return false;
+    return this.run(
+      () => this.service.move(path, to),
+      () => (this.selected = this.service.pathAfterMove(path, to)),
+    );
+  }
+  /** Drag and drop: `before` is the entry the dragged one is dropped on, null for the end of the list. */
+  async drop(from: OutlinePath, before: OutlinePath | null): Promise<boolean> {
+    const to = this.service.dropPosition(from, before, this.tree);
+    if (!to) return false;
+    return this.run(
+      () => this.service.move(from, to),
+      () => (this.selected = this.service.pathAfterMove(from, to)),
+    );
+  }
+  /** "Set target to current view", also the fix for a removed target. */
+  async setTargetHere(path = this.selected): Promise<boolean> {
+    if (!path) return false;
+    return this.run(() => this.service.setTarget(path, this.service.viewTarget(this.session.view.page)));
+  }
+}
+
 // ---- Forms (FR-FRM-01…03, 05, 09; epic E4) -----------------------------------------------------
 
 export class FormModel extends ViewModel {
@@ -1034,6 +2026,8 @@ export class SmartFillModel extends ViewModel {
   suggestions: Suggestion[] = [];
   /** Suggestion whose box is highlighted on the page ("Locate"). */
   located: string | null = null;
+  /** Explains an empty result (a scan with no AI, FR-AIF-14). */
+  noticeKey: string | null = null;
   private abort?: AbortController;
 
   constructor(
@@ -1042,9 +2036,16 @@ export class SmartFillModel extends ViewModel {
   ) {
     super();
   }
-  /** The AI path is offered only when it is switched on and configured (FR-AIF-02). */
+  /**
+   * The AI path is offered only when it is switched on, configured (FR-AIF-02) and the model can
+   * return JSON (FR-AIF-13).
+   */
   async aiAvailable(): Promise<boolean> {
-    return this.app.settings.ai.enabled && (await this.app.services.ai.isConfigured());
+    return this.app.settings.ai.enabled && aiGates(this.app.settings.ai).json && (await this.app.services.ai.isConfigured());
+  }
+  /** Page images are sent only to a model that can see them (FR-AIF-13). */
+  private get includeImage(): boolean {
+    return this.app.settings.ai.includeImage && aiGates(this.app.settings.ai).vision;
   }
   private pages(): PageIndex[] {
     return this.scope === 'all'
@@ -1078,25 +2079,31 @@ export class SmartFillModel extends ViewModel {
     }
     const ai = await this.aiAvailable();
     const settings = this.app.settings.ai;
-    if (ai && !settings.preflightAcknowledged.includes(settings.mode)) {
+    if (ai) {
       const sf = this.app.services.smartFill;
       const pages = this.pages();
       const { candidates, layers } = await sf.collect(this.session.doc, pages);
-      const sizes = new Map(
-        pages.map((p) => [p, this.session.pageInfos[p]?.size ?? { width: 612, height: 792 }] as const),
-      );
-      const req = sf.buildRequest(
-        candidates,
-        layers,
-        sizes,
-        this.profile,
-        settings.mode,
-        settings.maxPagesPerRun,
-      );
-      this.preflight = { ...sf.preflight(req, this.profile), includesImage: settings.includeImage };
-      this.stage = 'preflight';
-      this.emit();
-      return;
+      // No fields at all (a scan): the page image is the only input, so it is sent for this run even if
+      // the setting is off, after the pre-flight says so. A model without vision cannot do it.
+      const noFields = candidates.length === 0;
+      const scanned = noFields && pages.some((p) => layers.get(p)?.isScanned);
+      if (noFields && !aiGates(settings).vision) {
+        if (scanned) this.app.toast('warning', msg('ai.gate.noVision'));
+        return this.analyse(false);
+      }
+      if (noFields || !settings.preflightAcknowledged.includes(settings.mode)) {
+        const sizes = new Map(pages.map((p) => [p, this.session.pageInfos[p]?.size ?? { width: 612, height: 792 }] as const));
+        const req = sf.buildRequest(candidates, layers, sizes, this.profile, settings.mode, settings.maxPagesPerRun, pages);
+        this.preflight = {
+          ...sf.preflight(req, this.profile),
+          includesImage: this.includeImage || noFields,
+          imageForThisRun: noFields && !this.includeImage,
+          destination: { host: endpointHost(settings.baseUrl), local: isLoopbackUrl(settings.baseUrl) },
+        };
+        this.stage = 'preflight';
+        this.emit();
+        return;
+      }
     }
     await this.analyse(false);
   }
@@ -1130,7 +2137,8 @@ export class SmartFillModel extends ViewModel {
       this.app.services.smartFill.analyze(this.session.doc, this.pages(), this.profile!, {
         useAi: await this.aiAvailable(),
         mode: settings.mode,
-        includeImage: settings.includeImage,
+        includeImage: this.includeImage,
+        canSeeImages: aiGates(settings).vision,
         maxPages: settings.maxPagesPerRun,
         reanalyze,
         signal: this.abort!.signal,
@@ -1145,6 +2153,7 @@ export class SmartFillModel extends ViewModel {
     this.stage = result.suggestions.length ? 'review' : 'empty';
     if (result.fallbackReason && result.fallbackReason !== 'notConfigured')
       this.app.toast('warning', msg(`smartfill.fallback.${result.fallbackReason}`));
+    this.noticeKey = result.fallbackReason === 'scanNeedsAi' ? 'smartfill.fallback.scanNeedsAi' : null;
     this.emit();
   }
   /** Review panel edits. */
@@ -1183,17 +2192,28 @@ export class SmartFillModel extends ViewModel {
     const created = this.profile?.fields.find((f) => f.label === labelText);
     if (created) this.setKey(ref, created.key);
   }
+  /** Option "Flatten on save": the filled form is closed, fields and all (remembered). */
+  get flatten(): boolean {
+    return this.app.settings.smartFillFlatten;
+  }
+  setFlatten(on: boolean): Promise<void> {
+    return this.app.setSetting('smartFillFlatten', on);
+  }
   /** "Apply selected" / "Apply all high-confidence": one undo step, and the mapping is remembered. */
   async apply(onlyHigh = false): Promise<number> {
     if (!this.result || !this.profile) return 0;
-    const list = onlyHigh ? this.app.services.smartFill.acceptHigh(this.suggestions) : this.suggestions;
-    const sizes = new Map(this.session.pageInfos.map((p, i) => [i, p.size] as const));
-    const cmd = this.app.services.smartFill.apply(list, sizes);
+    const svc = this.app.services.smartFill;
+    const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    const taken = new Set((await this.session.fields()).map((f) => f.name));
+    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten });
     if (!cmd) return 0;
+    const plan = svc.plan(list, taken);
     const count = list.filter((s) => s.accepted && s.value !== '').length;
+    const pages = [...new Set(list.filter((s) => plan.nameByRef.has(s.ref)).map((s) => s.page))];
     const ok = await this.app.guard(async () => {
       await this.session.run(cmd);
-      await this.app.services.smartFill.remember(this.result!, list, this.profile!);
+      await svc.remember(this.result!, list, this.profile!);
+      if (!this.flatten) await svc.rememberCreated(this.session.doc, pages, plan.nameByRef, list, this.profile!);
       return true;
     });
     if (!ok) return 0;

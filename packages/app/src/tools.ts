@@ -53,11 +53,12 @@ export type ToolId =
   | 'cover-type'
   | 'check'
   | 'cross'
-  | 'snapshot';
+  | 'snapshot'
+  | 'table';
 
 /** Tools offered in each mode's contextual toolbar (SPEC §7.2). `select` is always available. */
 export const MODE_TOOLS: Record<Mode, ToolId[]> = {
-  view: ['select', 'snapshot'],
+  view: ['select', 'snapshot', 'table'],
   organise: ['select'],
   annotate: [
     'select',
@@ -180,6 +181,8 @@ export interface EditNotice {
  */
 export class ToolController {
   readonly changed = new Emitter<void>();
+  /** A rectangle drawn with an area tool (Extract table) is ready. */
+  readonly areaPicked = new Emitter<{ tool: 'table'; page: PageIndex; rect: Rect }>();
   tool: ToolId = 'select';
   /** Shift-click on a tool keeps it active after use (FR "sticky if Shift held"). */
   sticky = false;
@@ -445,6 +448,7 @@ export class ToolController {
       case 'arrow':
       case 'whiteout':
       case 'snapshot':
+      case 'table':
         this.draft = { tool: this.tool, page, start: p, current: p };
         break;
       case 'polyline':
@@ -719,13 +723,22 @@ export class ToolController {
           }),
         );
       } else if (draft.tool === 'snapshot') {
-        await this.services.platform.clipboard.writeImage(
-          await this.services.exporter.snapshotPng(this.session.doc, draft.page, rect),
-        );
-        this.feedback.info(msg('toast.snapshotCopied'));
+        // Rendering can outlast the user gesture the clipboard needs, so the write starts first.
+        try {
+          await this.services.platform.clipboard.writeImage(
+            this.services.exporter.snapshotPng(this.session.doc, draft.page, rect),
+          );
+          this.feedback.info(msg('toast.snapshotCopied'));
+        } catch (e) {
+          if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError'))
+            this.feedback.info(msg('toast.snapshotRefused'));
+          else throw e;
+        }
+      } else if (draft.tool === 'table') {
+        this.areaPicked.emit({ tool: 'table', page: draft.page, rect });
       }
     });
-    if (SHAPES.includes(draft.tool) || draft.tool === 'polyline' || draft.tool === 'snapshot') this.done();
+    if (SHAPES.includes(draft.tool) || draft.tool === 'polyline' || draft.tool === 'snapshot' || draft.tool === 'table') this.done();
     else this.emit();
   }
 

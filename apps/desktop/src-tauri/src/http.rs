@@ -17,12 +17,28 @@ use crate::secrets::Secrets;
 pub const AI_KEY: &str = "folio.openai-key";
 pub const DEFAULT_ORIGIN: &str = "https://api.openai.com";
 const MAX_BODY: usize = 8 * 1024 * 1024;
-const MAX_TIMEOUT_MS: u64 = 120_000;
+// A local model running on the CPU may take minutes (FR-AIF-12); remote endpoints ask for 60 s.
+const MAX_TIMEOUT_MS: u64 = 180_000;
 
 /// The single origin `http_request` may talk to. Stored outside the webview's reach.
 pub struct AllowedOrigin {
     origin: Mutex<String>,
     file: Option<PathBuf>,
+}
+
+/// True for a server on this computer (Ollama, LM Studio, llama.cpp): no key is needed there.
+pub fn is_loopback(url: &str) -> bool {
+    url::Url::parse(url).map(|u| matches!(u.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]"))).unwrap_or(false)
+}
+
+/// The value of a secret header, or `None` when it can be left out: a local server without a stored
+/// key gets no Authorization header, a remote endpoint without a key is an error.
+pub fn secret_header_value(url: &str, secret: Option<String>, format: Option<&str>) -> Result<Option<String>> {
+    match secret {
+        Some(s) => Ok(Some(format.unwrap_or("{secret}").replace("{secret}", &s))),
+        None if is_loopback(url) => Ok(None),
+        None => Err(Error::Invalid("the API key is not set".into())),
+    }
 }
 
 pub fn origin_of(url: &str) -> Result<String> {
@@ -135,8 +151,9 @@ pub async fn http_request(req: HttpRequest, allowed: State<'_, AllowedOrigin>, s
         builder = builder.header(k, v);
     }
     for (name, r) in &req.secret_headers {
-        let secret = secrets.0.get(&r.secret)?.ok_or_else(|| Error::Invalid("the API key is not set".into()))?;
-        builder = builder.header(name, r.format.as_deref().unwrap_or("{secret}").replace("{secret}", &secret));
+        if let Some(value) = secret_header_value(&req.url, secrets.0.get(&r.secret)?, r.format.as_deref())? {
+            builder = builder.header(name, value);
+        }
     }
     if let Some(body) = req.body {
         builder = builder.body(body);
@@ -149,6 +166,43 @@ pub async fn http_request(req: HttpRequest, allowed: State<'_, AllowedOrigin>, s
         return Err(Error::Network("response is too large".into()));
     }
     Ok(HttpResponse { status, headers, body: String::from_utf8_lossy(&bytes).to_string() })
+}
+
+/// Hosts OCR language data may come from (FR-OCR-02). Fixed in the binary: page content cannot extend it.
+pub const DOWNLOAD_HOSTS: &[&str] = &["raw.githubusercontent.com"];
+
+/// Checks a download request: https only, host on the allow-list, no credentials, no custom port.
+pub fn download_allowed(url: &str) -> Result<url::Url> {
+    let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
+    let host_ok = u.host_str().map(|h| DOWNLOAD_HOSTS.contains(&h)).unwrap_or(false);
+    if u.scheme() != "https" || !host_ok || !u.username().is_empty() || u.password().is_some() || u.port().is_some() {
+        return Err(Error::Invalid("downloads are only allowed from the OCR language host".into()));
+    }
+    Ok(u)
+}
+
+/// Downloads a file for the OCR language manager. The caller verifies the SHA-256 against the manifest
+/// bundled with the app; this command only enforces where the bytes may come from and how big they are.
+#[tauri::command]
+pub async fn download_file(url: String, max_bytes: u64) -> Result<tauri::ipc::Response> {
+    let u = download_allowed(&url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| Error::Network(e.to_string()))?;
+    let res = client.get(u).send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if !res.status().is_success() {
+        return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
+    }
+    if res.content_length().map(|n| n > max_bytes).unwrap_or(false) {
+        return Err(Error::Network("the file is larger than expected".into()));
+    }
+    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Error::Network("the file is larger than expected".into()));
+    }
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
 }
 
 #[cfg(test)]
@@ -177,6 +231,29 @@ mod tests {
         a.set("http://localhost:11434".into());
         assert!(a.permits("http://localhost:11434/v1/chat/completions"));
         assert!(!a.permits("https://api.openai.com/v1/models"));
+    }
+
+    #[test]
+    fn local_servers_need_no_key_remote_ones_do() {
+        assert_eq!(secret_header_value("http://localhost:11434/v1/models", None, Some("Bearer {secret}")).unwrap(), None);
+        assert_eq!(secret_header_value("http://127.0.0.1:1234/v1/models", None, None).unwrap(), None);
+        assert_eq!(
+            secret_header_value("http://localhost:11434/v1/models", Some("sk-1".into()), Some("Bearer {secret}")).unwrap(),
+            Some("Bearer sk-1".into())
+        );
+        assert!(secret_header_value("https://api.openai.com/v1/models", None, Some("Bearer {secret}")).is_err());
+        assert!(!is_loopback("https://localhost.evil.example/v1"));
+    }
+
+    #[test]
+    fn downloads_are_limited_to_the_language_host() {
+        assert!(download_allowed("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/deu.traineddata").is_ok());
+        assert!(download_allowed("http://raw.githubusercontent.com/x").is_err());
+        assert!(download_allowed("https://raw.githubusercontent.com.evil.example/x").is_err());
+        assert!(download_allowed("https://evil.example/raw.githubusercontent.com").is_err());
+        assert!(download_allowed("https://user:pw@raw.githubusercontent.com/x").is_err());
+        assert!(download_allowed("https://raw.githubusercontent.com:8443/x").is_err());
+        assert!(download_allowed("file:///etc/passwd").is_err());
     }
 
     #[test]

@@ -57,7 +57,11 @@ export class NetworkError extends FolioError {
     super('network', 'Network request failed', { detail, cause });
   }
 }
-export type AiErrorKind = 'notConfigured' | 'unauthorized' | 'rateLimited' | 'malformed' | 'server' | 'blocked';
+/**
+ * `insecure`: plain http to a host that is not this computer. `unsupported`: the model cannot do
+ * what the feature needs (images, JSON output), as found by the capability check (FR-AIF-13).
+ */
+export type AiErrorKind = 'notConfigured' | 'unauthorized' | 'rateLimited' | 'malformed' | 'server' | 'blocked' | 'insecure' | 'unsupported';
 export class AiError extends FolioError {
   constructor(readonly kind: AiErrorKind, detail?: string) {
     super('ai', `AI request failed: ${kind}`, { params: { kind }, detail });

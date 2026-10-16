@@ -9,6 +9,7 @@ export type Invalidation =
   | { kind: 'annotations'; pages: PageIndex[] }
   | { kind: 'form' }
   | { kind: 'meta' }
+  | { kind: 'outline' } // bookmarks changed
   | { kind: 'all' };
 
 export interface CommandContext {

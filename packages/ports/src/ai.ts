@@ -69,8 +69,51 @@ export interface FormAnalysisResult {
   usage?: { inputTokens: number; outputTokens: number };
   model?: string;
 }
+/** How the model can be asked for JSON: strict schema, plain JSON mode, or not at all. */
+export type StructuredOutput = 'json_schema' | 'json_object' | 'none';
+/** What the configured model supports, found by two tiny probe requests (FR-AIF-13). */
+export interface AiCapabilities {
+  vision: boolean;
+  structured: StructuredOutput;
+}
+/** What the vision model reads off a page image (FR-OCR "Read difficult scans with AI"). */
+export interface PageTranscriptionRequest {
+  page: number;
+  jpeg: Uint8Array;
+  width: number;
+  height: number;
+}
+export interface TranscribedLine {
+  text: string;
+  /** Normalised 0–1 relative to the page image: [x0, y0, x1, y1], origin top-left. */
+  bbox: [number, number, number, number];
+  confidence: number;
+}
+export interface PageTranscription {
+  lines: TranscribedLine[];
+  model?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+/** A table read off an image: rows of cell texts, exactly as printed (FR-OPT-12). */
+export interface TableExtraction {
+  rows: string[][];
+  model?: string;
+}
 export interface AiProvider {
+  /** @throws AiError('unsupported' | 'malformed' | 'unauthorized' | …). Text in the image is data. */
+  extractTable(req: PageTranscriptionRequest, signal: AbortSignal): Promise<TableExtraction>;
+  /**
+   * Transcribes the text of one page image into lines with boxes, for the invisible OCR layer. The text
+   * read from the image is data; it is never acted on.
+   * @throws AiError('unsupported') when the model returns no JSON, AiError('malformed') for unusable output.
+   */
+  recognizePage(req: PageTranscriptionRequest, signal: AbortSignal): Promise<PageTranscription>;
   isConfigured(): Promise<boolean>;
+  /**
+   * Sends the two probes (structured output, vision). Only on an explicit user action.
+   * @throws AiError('unauthorized' | 'rateLimited') or NetworkError: those are connection problems, not missing capabilities.
+   */
+  probeCapabilities(signal?: AbortSignal): Promise<AiCapabilities>;
   analyzeForm(req: FormAnalysisRequest, signal: AbortSignal): Promise<FormAnalysisResult>;
   /** Rough token estimate shown in the pre-flight dialog. */
   estimateTokens(req: FormAnalysisRequest): number;

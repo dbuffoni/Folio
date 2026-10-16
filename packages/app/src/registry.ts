@@ -55,6 +55,8 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'task.merge', title: 'cmd.merge', group: 'file', icon: 'combine', keywords: 'combine join pdfs', run: ({ ui }) => ui.openDialog('merge') },
     { id: 'task.split', title: 'cmd.split', group: 'file', icon: 'scissors', when: doc, keywords: 'separate divide', run: ({ ui }) => ui.openDialog('split') },
     { id: 'task.images', title: 'cmd.imagesToPdf', group: 'file', icon: 'images', keywords: 'photos jpg png scan', run: ({ ui }) => ui.openDialog('images') },
+    { id: 'task.ocr', title: 'cmd.ocr.open', group: 'file', icon: 'scan-text', when: doc, keywords: 'recognise recognize text scan searchable ocr', run: ({ ui }) => ui.openDialog('ocr') },
+    { id: 'export.compress', title: 'cmd.compress', group: 'export', icon: 'file-down', when: doc, keywords: 'reduce shrink smaller size compress optimise', run: ({ ui }) => ui.openDialog('compress') },
     { id: 'export.images', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
     { id: 'export.flatten', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {
         if (await app.prompts.confirm({ key: 'confirm.flatten' }, { danger: true, confirmLabel: { key: 'cmd.flatten.both' } })) await app.guard(() => session!.run(app.services.exporter.flatten('both')));
@@ -128,6 +130,8 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     tool('check', 'tool.check', 'check', undefined, 'fill', 'tick'),
     tool('cross', 'tool.cross', 'x', undefined, 'fill'),
     tool('snapshot', 'tool.snapshot', 'camera', undefined, 'view', 'copy area image'),
+    tool('table', 'tool.table', 'table', undefined, 'view', 'extract table csv spreadsheet grid'),
+    { id: 'task.tableWhole', title: 'cmd.tableWholePage', group: 'file', icon: 'table', when: doc, keywords: 'extract table csv page', run: ({ ui }) => ui.openDialog('tables') },
     // Sign & stamps
     { id: 'sign.sign', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
         session!.setMode('fill');

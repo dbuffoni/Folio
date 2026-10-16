@@ -5,7 +5,7 @@ import type { Database } from '@folio/ports';
 import { FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, samplePng } from '@folio/testkit';
 import { MIGRATIONS, migrate, splitStatements } from './migrations.ts';
 import { Oo1Database, type Oo1Db } from './oo1.ts';
-import { AiRunsRepo, DataCipher, FormMappingRepo, PROFILE_TEMPLATES, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, deleteAllData } from './repos.ts';
+import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, PROFILE_TEMPLATES, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, deleteAllData } from './repos.ts';
 
 const codeOf = async (p: Promise<unknown>): Promise<string> => {
   try {
@@ -42,15 +42,15 @@ describe.each(drivers)('database on %s', (_name, open) => {
 
   it('applies migrations once, in order, transactionally @FR-APP-10', async () => {
     const db = await open();
-    expect(await migrate(db)).toEqual([1]);
+    expect(await migrate(db)).toEqual([1, 2]);
     expect(await migrate(db)).toEqual([]);
     const tables = (await db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
-    expect(tables).toEqual(['ai_runs', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
+    expect(tables).toEqual(['ai_runs', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
     expect(splitStatements(MIGRATIONS[0]!.sql).length).toBe(10);
-    const bad = [...MIGRATIONS, { version: 2, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
+    const bad = [...MIGRATIONS, { version: 3, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
     await expect(migrate(db, bad)).rejects.toThrow();
     expect((await db.select("SELECT name FROM sqlite_master WHERE name='x'")).length).toBe(0);
-    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(1);
+    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(2);
   });
 
   it('stores settings per key, validates them and resets to defaults @FR-APP-10', async () => {
@@ -241,5 +241,112 @@ describe.each(drivers)('database on %s', (_name, open) => {
     await deleteAllData(db, secrets, ['folio.openai-key']);
     for (const table of ['settings', 'recent_files', 'signatures', 'stamps', 'profiles', 'form_mappings', 'ai_runs']) expect((await db.select(`SELECT * FROM ${table}`)).length).toBe(0);
     expect(secrets.values.size).toBe(0);
+  });
+
+  it('duplicates, reorders and edits profile entries with typed options and validation @FR-FRM-20', async () => {
+    const { db, clock, newId, cipher } = await setup();
+    const repo = new ProfileRepo(db, clock, newId, cipher);
+    const p = await repo.create('Work', []);
+    await repo.setField(p.id, { key: 'level', label: 'Level', type: 'choice', value: 'B', options: ['A', 'B', ' B ', ''] });
+    await repo.setField(p.id, { key: 'born', label: 'Born', type: 'date', value: '1988-04-23' });
+    await repo.setField(p.id, { key: 'secret', label: 'Secret', type: 'text', value: 'hunter2', sensitive: true });
+    expect((await repo.get(p.id))!.fields.find((f) => f.key === 'level')).toMatchObject({ type: 'choice', options: ['A', 'B'], value: 'B' });
+    // Validation: unique key by repo slug, dates exist, e-mail and numbers are shaped.
+    expect(await codeOf(repo.setField(p.id, { key: 'b', label: 'B', type: 'date', value: '2026-02-31' }))).toBe('invalidArgument:badDate');
+    expect(await codeOf(repo.setField(p.id, { key: 'b', label: 'B', type: 'email', value: 'not an email' }))).toBe('invalidArgument:badEmail');
+    expect(await codeOf(repo.setField(p.id, { key: 'b', label: 'B', type: 'number', value: '12x' }))).toBe('invalidArgument:badNumber');
+    expect(await codeOf(repo.setField(p.id, { key: 'b', label: 'B', type: 'phone', value: '+39 055 555 0123' }))).toBe('ok');
+    expect(await codeOf(repo.setField(p.id, { key: 'c', label: 'C', type: 'email', value: '' }))).toBe('ok');
+    // Reorder: listed keys first, the rest after.
+    await repo.reorder(p.id, ['secret', 'born']);
+    expect((await repo.get(p.id))!.fields.map((f) => f.key)).toEqual(['secret', 'born', 'level', 'b', 'c']);
+    // Duplicate keeps values (also the encrypted one) and is a separate profile.
+    const copy = await repo.duplicate(p.id);
+    expect(copy.name).toBe('Work copy');
+    expect(copy.isDefault).toBe(false);
+    expect(copy.fields.map((f) => [f.key, f.value, f.sensitive])).toEqual((await repo.get(p.id))!.fields.map((f) => [f.key, f.value, f.sensitive]));
+    await repo.setField(copy.id, { key: 'born', label: 'Born', type: 'date', value: '2000-01-01' });
+    expect((await repo.get(p.id))!.fields.find((f) => f.key === 'born')!.value).toBe('1988-04-23');
+    expect((await db.select<{ value: string }>("SELECT value FROM profile_fields WHERE key = 'secret' AND profile_id = ?", [copy.id]))[0]!.value.startsWith('enc:')).toBe(true);
+  });
+
+  it('keys stay stable when the label changes; renaming a key forgets only the mappings that used it @FR-FRM-20', async () => {
+    const { db, clock, newId, cipher } = await setup();
+    const repo = new ProfileRepo(db, clock, newId, cipher);
+    const mappings = new FormMappingRepo(db, clock, newId);
+    const p = await repo.create('Me', ['identity']);
+    await repo.setField(p.id, { key: 'first_name', label: 'Given name (renamed)', type: 'text', value: 'Marta' });
+    const first = (await repo.get(p.id))!.fields.find((f) => f.key === 'first_name')!;
+    expect(first.label).toBe('Given name (renamed)');
+    await mappings.save('form-a', p.id, [{ fieldRef: 'a', profileKey: 'first_name', transform: 'none' }, { fieldRef: 'b', profileKey: 'last_name', transform: 'none' }], 'manual');
+    await mappings.save('form-b', p.id, [{ fieldRef: 'x', profileKey: 'first_name', transform: 'none' }], 'ai');
+    await mappings.save('form-c', p.id, [{ fieldRef: 'y', profileKey: 'email', transform: 'none' }], 'ai');
+    expect(await repo.renameKey(p.id, 'first_name', 'Given Name')).toBe('given_name');
+    expect(await mappings.dropKey(p.id, 'first_name')).toBe(2);
+    expect((await mappings.find('form-a', p.id))!.mapping).toEqual([{ fieldRef: 'b', profileKey: 'last_name', transform: 'none' }]);
+    expect(await mappings.find('form-b', p.id)).toBeNull();
+    expect((await mappings.find('form-c', p.id))!.mapping.length).toBe(1);
+    expect(await codeOf(repo.renameKey(p.id, 'given_name', 'last_name'))).toBe('invalidArgument:keyTaken');
+    expect(await codeOf(repo.renameKey(p.id, 'given_name', '  !!  '))).toBe('invalidArgument:badKey');
+  });
+
+  it('field templates: built-in sets are read-only, user templates are edited, saved from a profile and added without duplicates @FR-FRM-20', async () => {
+    const { db, clock, newId, cipher } = await setup();
+    const repo = new ProfileRepo(db, clock, newId, cipher);
+    const templates = new FieldTemplateRepo(db, clock, newId);
+    const all = await templates.list();
+    expect(all.filter((t) => t.builtIn).map((t) => t.name)).toEqual(Object.keys(PROFILE_TEMPLATES));
+    expect(await codeOf(templates.update(all[0]!.id, { name: 'x' }))).toBe('invalidArgument:builtInTemplate');
+    expect(await codeOf(templates.remove(all[0]!.id))).toBe('invalidArgument:builtInTemplate');
+    const mine = await templates.create('Header', [
+      { key: 'name', label: 'Name', type: 'text', aliases: ['nome'], sensitive: false, options: [] },
+      { key: 'Address', label: 'Address', type: 'address', aliases: [], sensitive: false, options: [] },
+      { key: 'name', label: 'Duplicate', type: 'text', aliases: [], sensitive: false, options: [] },
+      { key: 'date', label: 'Date', type: 'bogus' as never, aliases: [], sensitive: false, options: [] },
+    ]);
+    expect(mine.fields.map((f) => [f.key, f.type])).toEqual([['name', 'text'], ['address', 'address'], ['date', 'text']]);
+    const renamed = await templates.update(mine.id, { name: 'Letter header' });
+    expect(renamed.name).toBe('Letter header');
+    expect((await templates.duplicate(all[0]!.id)).builtIn).toBe(false);
+    // From a profile: structure only, never a value.
+    const p = await repo.create('Me', []);
+    await repo.setField(p.id, { key: 'iban', label: 'IBAN', type: 'text', value: 'IT60X0542811101000000123456', sensitive: true });
+    await repo.setField(p.id, { key: 'name', label: 'Name', type: 'text', value: 'Marta' });
+    const saved = await templates.fromProfile((await repo.get(p.id))!, 'From Me');
+    expect(JSON.stringify(saved)).not.toContain('IT60');
+    expect(JSON.stringify(saved)).not.toContain('Marta');
+    expect(saved.fields.map((f) => f.key)).toEqual(['iban', 'name']);
+    // Add to a second profile: duplicates are skipped and listed.
+    const q = await repo.create('Other', []);
+    await repo.setField(q.id, { key: 'name', label: 'Name', type: 'text', value: 'Keep me' });
+    expect(await repo.addTemplate(q.id, renamed.fields)).toEqual({ added: ['address', 'date'], skipped: ['name'] });
+    const after = (await repo.get(q.id))!.fields;
+    expect(after.find((f) => f.key === 'name')!.value).toBe('Keep me');
+    expect(after.find((f) => f.key === 'address')!.value).toBe('');
+    await templates.remove(mine.id);
+    expect((await templates.get(mine.id))).toBeNull();
+  });
+
+  it('exports and imports profiles and templates, and refuses a newer template version @FR-FRM-20', async () => {
+    const { db, clock, newId, cipher } = await setup();
+    const repo = new ProfileRepo(db, clock, newId, cipher);
+    const templates = new FieldTemplateRepo(db, clock, newId);
+    const p = await repo.create('Me', []);
+    await repo.setField(p.id, { key: 'size', label: 'Size', type: 'choice', value: 'M', options: ['S', 'M', 'L'], aliases: ['taglia'] });
+    await repo.setField(p.id, { key: 'name', label: 'Name', type: 'text', value: 'Marta', sensitive: true });
+    const out = await repo.exportJson(p.id);
+    expect(out.version).toBe(1);
+    const back = await repo.importJson(JSON.parse(JSON.stringify(out)));
+    expect(back.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value, sensitive, aliases, options }))).toEqual(
+      (await repo.get(p.id))!.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value, sensitive, aliases, options })),
+    );
+    const t = await templates.create('Sizes', [{ key: 'size', label: 'Size', type: 'choice', aliases: ['taglia'], sensitive: false, options: ['S', 'M'] }]);
+    const file = JSON.parse(JSON.stringify(templates.exportJson(t))) as ReturnType<FieldTemplateRepo['exportJson']>;
+    expect(file).toMatchObject({ version: 1, kind: 'folio-field-template', name: 'Sizes' });
+    const imported = await templates.importJson(file);
+    expect({ ...imported, id: '' }).toEqual({ ...t, id: '' });
+    expect(await codeOf(templates.importJson({ ...file, version: 2 }))).toBe('invalidArgument:templateNewer');
+    expect(await codeOf(templates.importJson({ nope: true }))).toBe('invalidArgument:badTemplate');
+    expect(await codeOf(templates.importJson({ ...file, kind: 'profile' }))).toBe('invalidArgument:badTemplate');
   });
 });

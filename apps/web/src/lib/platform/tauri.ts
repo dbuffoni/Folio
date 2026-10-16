@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { FolioError, IoError, NetworkError, type ErrorCode } from '@folio/core';
-import type { AppStorage, Database, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
+import type { AppStorage, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
 import { BrowserClipboard, CanvasImageCodec, IframePrinting, RingLogger, SystemClock, WebCryptoService } from './common.ts';
 
 /** Rust errors arrive as `{ code, message }`; turn them into the typed errors the app understands. */
@@ -19,6 +19,19 @@ async function call<T>(cmd: string, args?: Record<string, unknown> | Uint8Array,
 }
 const enc = (s: string): string => encodeURIComponent(s);
 const bytesOf = (v: ArrayBuffer | Uint8Array | number[]): Uint8Array => (v instanceof Uint8Array ? v : new Uint8Array(v as ArrayBuffer));
+
+/** OCR language data: Rust enforces the host list and the size; the hash is checked here against the manifest. */
+class TauriDownloader implements Downloader {
+  constructor(private readonly crypto: WebCryptoService) {}
+  async download(req: Parameters<Downloader['download']>[0]): Promise<Uint8Array> {
+    if (req.signal?.aborted) throw new NetworkError('aborted');
+    const data = bytesOf(await call<ArrayBuffer>('download_file', { url: req.url, maxBytes: req.maxBytes }));
+    req.onProgress?.(data.length, data.length);
+    const hex = Array.from(await this.crypto.sha256(data), (b) => b.toString(16).padStart(2, '0')).join('');
+    if (hex !== req.sha256) throw new IoError('checksum');
+    return data;
+  }
+}
 
 class TauriFileService implements FileService {
   readonly capabilities = { nativePaths: true, watch: false, writeInPlace: true, reveal: true };
@@ -186,6 +199,7 @@ export async function createTauriPlatform(): Promise<Platform> {
     db: new TauriDatabase(),
     secrets: new TauriSecretStore(backend),
     http: new TauriHttpClient(),
+    downloader: new TauriDownloader(new WebCryptoService()),
     shell: new TauriShell(),
     clipboard: new BrowserClipboard(),
     window: new TauriWindow(),

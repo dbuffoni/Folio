@@ -1,5 +1,5 @@
 export type Unsubscribe = () => void;
-export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'any';
+export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'csv' | 'any';
 
 export interface FileRef {
   id: string;
@@ -74,7 +74,8 @@ export interface Shell {
 }
 export interface Clipboard {
   readImage(): Promise<Uint8Array | null>;
-  writeImage(png: Uint8Array): Promise<void>;
+  /** The image may still be rendering: browsers only accept a clipboard write inside the user gesture. */
+  writeImage(png: Uint8Array | Promise<Uint8Array>): Promise<void>;
   writeText(t: string): Promise<void>;
 }
 export interface WindowService {
@@ -133,6 +134,8 @@ export interface ImageCodec {
 }
 
 export interface Platform {
+  /** Verified downloads of OCR language data (FR-OCR-02); absent in builds that cannot download. */
+  downloader?: import('./ocr.ts').Downloader;
   files: FileService;
   storage: AppStorage;
   db: Database;

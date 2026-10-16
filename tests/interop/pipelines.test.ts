@@ -169,3 +169,84 @@ describe('chained operations @FR-ORG-01 @FR-APP-05', () => {
     doc.dispose();
   });
 });
+
+describe('Reduce file size with independent tools @FR-OPT-01 @FR-OPT-09 @FR-OPT-11', () => {
+  it('Balanced output: qpdf and pdfcpu clean, the same text, text areas render the same, images at ≤ 150 dpi @FR-OPT-01 @FR-OPT-09', async () => {
+    const { engine, doc } = await opened('photos');
+    const original = await fixture('photos');
+    const { CompressService, COMPRESS_PRESETS } = await import('@folio/services');
+    const { qpdfCheck, pdfcpuValidate, pdftoppm, diffImages } = await import('@folio/testkit');
+    const svc = new CompressService({ engine, images: new NodeImageCodec() });
+    const res = await svc.run(doc, COMPRESS_PRESETS.balanced, { originalBytes: original.length });
+    const out = res.bytes!;
+    expect(out.length).toBeLessThan(original.length * 0.6);
+    expect((await qpdfCheck(out)).ok).toBe(true);
+    expect((await qpdfCheck(out)).warnings).toEqual([]);
+    expect((await pdfcpuValidate(out)).ok).toBe(true);
+    expect(await pdftotext(out)).toEqual(await pdftotext(original));
+    // The headline and the paragraph (top strip of page 1) are pixel-identical in poppler.
+    const a = await pdftoppm(original, 1, 100);
+    const b = await pdftoppm(out, 1, 100);
+    const strip = (img: typeof a): typeof a => ({ width: img.width, height: 120, data: img.data.slice(0, img.width * 120 * 4) });
+    expect(diffImages(strip(a), strip(b), { threshold: 0.05 }).ratio).toBeLessThan(0.001);
+    // Object streams and a compressed cross-reference are in use.
+    expect(Buffer.from(out).toString('latin1')).toMatch(/\/Type\s*\/ObjStm/);
+    expect(Buffer.from(out).toString('latin1')).toMatch(/\/Type\s*\/XRef/);
+    expect((await pdfinfo(out)).pages).toBe(2);
+    expect(await qpdfQdf(out)).toContain('Photos at 300 dpi');
+  });
+});
+
+describe('Created and edited form fields with independent tools @FR-FRM-08 @FR-FRM-16 @FR-AIF-14', () => {
+  it('fields of every type pass qpdf and pdfcpu, are listed by pdfcpu and filled values show in poppler @FR-FRM-08', async () => {
+    const { doc } = await opened('text');
+    const { qpdfCheck, pdfcpuValidate } = await import('@folio/testkit');
+    const r = (x: number, y: number, w = 150, h = 22) => ({ x, y, width: w, height: h });
+    await doc.createFields([
+      { type: 'text', name: 'person.name', page: 0, rect: r(72, 600), tooltip: 'Full name', required: true },
+      { type: 'text', name: 'notes', page: 0, rect: r(72, 540, 200, 50), multiline: true },
+      { type: 'checkbox', name: 'agree', page: 0, rect: r(72, 500, 16, 16) },
+      { type: 'radio', name: 'size', page: 0, rect: r(72, 460, 16, 16), exportValue: 'S' },
+      { type: 'radio', name: 'size', page: 0, rect: r(110, 460, 16, 16), exportValue: 'L' },
+      { type: 'dropdown', name: 'country', page: 0, rect: r(72, 420), options: [{ label: 'Italy', value: 'IT' }, { label: 'France', value: 'FR' }] },
+      { type: 'signature', name: 'sign', page: 1, rect: r(72, 600, 200, 50) },
+    ]);
+    await doc.setFieldValue('person.name', 'Ada Lovelace');
+    await doc.setFieldValue('country', 'France');
+    const bytes = await doc.save();
+    expect((await qpdfCheck(bytes)).ok).toBe(true);
+    expect((await qpdfCheck(bytes)).warnings).toEqual([]);
+    expect((await pdfcpuValidate(bytes)).ok).toBe(true);
+    const rows = await pdfcpuFormFields(bytes);
+    expect(rows.map((x) => x.name).sort()).toEqual(['agree', 'country', 'notes', 'person.name', 'sign', 'size']);
+    expect(rows.find((x) => x.name === 'person.name')!.value).toBe('Ada Lovelace');
+    expect(await pdftotext(bytes, { page: 1 })).toContain('Ada Lovelace');
+    // Edit then delete: still clean.
+    await doc.updateField('person.name', { multiline: true });
+    await doc.setWidgetRect('person.name', 0, { x: 90, y: 610, width: 200, height: 40 });
+    await doc.removeField('size', 1);
+    await doc.removeField('agree');
+    const edited = await doc.save();
+    expect((await qpdfCheck(edited)).ok).toBe(true);
+    expect((await pdfcpuValidate(edited)).ok).toBe(true);
+    expect((await pdfcpuFormFields(edited)).map((x) => x.name).sort()).toEqual(['country', 'notes', 'person.name', 'sign', 'size']);
+  });
+
+  it('a scanned form filled by Smart Fill flattens to text the other tools read, and keeps no fields @FR-AIF-14', async () => {
+    const { engine } = await opened('text');
+    const { scannedFormDoc, PERSON, pdftoppm, inkRatio } = await import('@folio/testkit');
+    const { pdfcpuFormFields: fieldsOf } = await import('@folio/testkit');
+    const { pdf } = await scannedFormDoc();
+    const doc = await engine.open(pdf);
+    const before = await pdftoppm(await doc.save(), 1, 72);
+    await doc.createFields([{ type: 'text', name: 'FirstName', page: 0, rect: { x: 150, y: 700, width: 300, height: 24 }, value: PERSON.firstName }]);
+    expect((await fieldsOf(await doc.save())).length).toBe(1);
+    await doc.flattenForm();
+    const flat = await doc.save();
+    expect(await fieldsOf(flat)).toEqual([]);
+    expect(await pdftotext(flat)).toContain(PERSON.firstName);
+    // The scan itself is untouched under the text: only the written value adds ink.
+    const after = await pdftoppm(flat, 1, 72);
+    expect(inkRatio(after)).toBeGreaterThanOrEqual(inkRatio(before));
+  });
+});

@@ -172,6 +172,23 @@ export function viewToPageMatrix(size: Size, rot: Rotation, scale: number): Matr
   return invert(pageToViewMatrix(size, rot, scale));
 }
 
+/**
+ * A box given as fractions of the rendered page image ([x0, y0, x1, y1], origin top-left, page as shown
+ * with its /Rotate) in PDF user space, crop box offset included and clamped to the crop box. Used for
+ * everything a vision model reports (FR-AIF-06, field detection).
+ */
+export function bboxToUserRect(
+  bbox: readonly [number, number, number, number],
+  page: { size: Size; rotation: Rotation; cropBox: Rect },
+): Rect {
+  const shown = rotatedSize(page.size, page.rotation);
+  const m = viewToPageMatrix(page.size, page.rotation, 1);
+  const a = applyToPoint(m, { x: bbox[0] * shown.width, y: bbox[1] * shown.height });
+  const b = applyToPoint(m, { x: bbox[2] * shown.width, y: bbox[3] * shown.height });
+  const raw = rectFromPoints({ x: a.x + page.cropBox.x, y: a.y + page.cropBox.y }, { x: b.x + page.cropBox.x, y: b.y + page.cropBox.y });
+  return clampRect(raw, page.cropBox);
+}
+
 // ---- layout helpers ------------------------------------------------------------------------
 
 export type FitMode = 'contain' | 'cover' | 'original';

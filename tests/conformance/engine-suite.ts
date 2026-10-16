@@ -156,6 +156,101 @@ export function runEngineConformance(
       });
     });
 
+    describe('OCR text layer', () => {
+      const words = (page: { width: number; height: number }) => [
+        { text: 'Hello', origin: { x: 72, y: page.height - 100 }, angle: 0, width: 60, fontSize: 14 },
+        { text: 'recognised', origin: { x: 140, y: page.height - 100 }, angle: 0, width: 90, fontSize: 14 },
+        { text: 'Città', origin: { x: 72, y: page.height - 130 }, angle: 0, width: 40, fontSize: 14 },
+      ];
+      it('writes invisible text that search and extraction find, and the page looks the same @FR-OCR-01 @FR-OCR-04', async () => {
+        const doc = await open('scan');
+        const before = await doc.render(0, { scale: 1 });
+        expect((await doc.getTextLayer(0)).isScanned).toBe(true);
+        expect(await doc.hasOcrLayer(0)).toBe(false);
+        const res = await doc.addOcrLayer(0, words((await doc.getPageInfo(0)).size));
+        expect(res).toEqual({ written: 3, substituted: 0 });
+        expect(await doc.hasOcrLayer(0)).toBe(true);
+        const layer = await doc.getTextLayer(0);
+        expect(layer.text.replace(/\s+/g, ' ')).toContain('Hello recognised');
+        expect(layer.text).toContain('Città');
+        // The scan image is exactly as before: the text is invisible.
+        expect(await doc.render(0, { scale: 1 })).toRenderLike(before, { tolerance: 0 });
+        const hits: SearchHit[] = [];
+        for await (const h of doc.search({ text: 'recognised' })) hits.push(h);
+        expect(hits.length).toBe(1);
+        // Word boxes are stretched to the width given, so selection matches the image.
+        const run = layer.runs.find((r) => r.text.startsWith('recognised'))!;
+        expect(run.rect.width).toBeGreaterThan(80);
+        expect(run.rect.width).toBeLessThan(100);
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        expect(await again.hasOcrLayer(0)).toBe(true);
+        expect(await again.removeOcrLayer(0)).toBe(3);
+        expect((await again.getTextLayer(0)).text).toBe('');
+        expect((await again.getTextLayer(0)).isScanned).toBe(true);
+        expect(await again.hasOcrLayer(0)).toBe(false);
+        doc.dispose();
+        again.dispose();
+      });
+      it('removing the layer leaves third-party text alone and unsupported letters fall back to a base letter @FR-OCR-03', async () => {
+        const doc = await open('text');
+        const original = (await doc.getTextLayer(0)).text;
+        const res = await doc.addOcrLayer(0, [
+          { text: 'Reka 漢字', origin: { x: 72, y: 300 }, angle: 0, width: 80, fontSize: 12 },
+          { text: 'plain', origin: { x: 72, y: 280 }, angle: 0, width: 30, fontSize: 12 },
+          { text: '   ', origin: { x: 72, y: 260 }, angle: 0, width: 30, fontSize: 12 },
+          { text: 'zero', origin: { x: 72, y: 240 }, angle: 0, width: 0, fontSize: 12 },
+        ]);
+        expect(res.written).toBe(2);
+        expect(res.substituted).toBe(1);
+        expect((await doc.getTextLayer(0)).text).toMatch(/Reka \?\?/);
+        expect(await doc.removeOcrLayer(0)).toBe(2);
+        expect((await doc.getTextLayer(0)).text).toBe(original);
+        // Pages without a layer report none; asking twice is harmless.
+        expect(await doc.removeOcrLayer(0)).toBe(0);
+        expect(await code(doc.addOcrLayer(9, []))).toBe('invalidArgument');
+        doc.dispose();
+      });
+      it('text on a rotated page reads upright when the page is shown @FR-OCR-01', async () => {
+        const doc = await open('rotated-pages');
+        const info = await doc.getPageInfo(1);
+        expect(info.rotation).toBe(90);
+        // On a page shown rotated by 90° the baseline runs up the page: angle 90 in user space.
+        await doc.addOcrLayer(1, [{ text: 'sideways', origin: { x: 100, y: 100 }, angle: 90, width: 60, fontSize: 12 }]);
+        const run = (await doc.getTextLayer(1)).runs.find((r) => r.text.includes('sideways'))!;
+        expect(Math.round(run.angle)).toBe(90);
+        expect(run.rect.height).toBeGreaterThan(run.rect.width);
+        doc.dispose();
+      });
+    });
+
+    describe('compact save', () => {
+      it('writes object streams, Flate for every stream and keeps text and pages @FR-OPT-07', async () => {
+        const doc = await open('text-25');
+        const plain = await doc.save();
+        const small = await doc.save({ compact: true });
+        if (caps.realPdf) {
+          await valid(small);
+          expect(small.length).toBeLessThan(plain.length);
+          const text = Buffer.from(small).toString('latin1');
+          expect(text).toMatch(/\/Type\s*\/ObjStm/);
+          expect(text).toMatch(/\/Type\s*\/XRef/);
+        }
+        const again = await engine.open(small);
+        expect(again.pageCount).toBe(25);
+        expect(await pageTexts(again)).toEqual(await pageTexts(doc));
+        // Incremental saves ignore the option: the signed bytes must stay where they are.
+        const signed = await open('signed');
+        const original = await fixture('signed');
+        const inc = await signed.save({ incremental: true, compact: true });
+        expect(Buffer.from(inc.subarray(0, original.length)).equals(Buffer.from(original))).toBe(true);
+        again.dispose();
+        signed.dispose();
+        doc.dispose();
+      });
+    });
+
     describe('pages', () => {
       it('reports size, rotation and boxes @FR-ORG-01', async () => {
         const doc = await open('mixed-sizes');
@@ -399,6 +494,89 @@ export function runEngineConformance(
         expect(await again.getOutline()).toEqual([]);
         doc.dispose();
         again.dispose();
+      });
+      it('edits bookmarks in place: add, rename, move, nest and delete @FR-EDT-11', async () => {
+        const doc = await open('bookmarks');
+        const titles = async (): Promise<unknown> =>
+          (await doc.getOutline()).map((n) => [n.title, n.children.map((c) => c.title)]);
+        await doc.editOutline({ op: 'add', parent: [], index: 1, title: 'Inserted', target: { kind: 'page', page: 2, point: { x: 10, y: 20 } } });
+        expect(await titles()).toEqual([['Chapter 1', ['Section 1.1']], ['Inserted', []], ['Chapter 2', []], ['Appendix – Ünïcode', []]]);
+        await doc.editOutline({ op: 'add', parent: [1], index: 0, title: 'Child', target: { kind: 'uri', uri: 'https://example.com/' } });
+        await doc.editOutline({ op: 'rename', path: [0, 0], title: '  Renamed 1.1  ' });
+        expect(await titles()).toEqual([['Chapter 1', ['Renamed 1.1']], ['Inserted', ['Child']], ['Chapter 2', []], ['Appendix – Ünïcode', []]]);
+        // Indent "Chapter 2" under "Inserted" (after its child), then outdent the child to the top.
+        await doc.editOutline({ op: 'move', path: [2], parent: [1], index: 1 });
+        await doc.editOutline({ op: 'move', path: [1, 0], parent: [], index: 0 });
+        expect(await titles()).toEqual([['Child', []], ['Chapter 1', ['Renamed 1.1']], ['Inserted', ['Chapter 2']], ['Appendix – Ünïcode', []]]);
+        const outline = await doc.getOutline();
+        expect(outline[0]!.target).toEqual({ kind: 'uri', uri: 'https://example.com/' });
+        expect(outline[2]!.target).toMatchObject({ kind: 'page', page: 2 });
+        expect(outline[2]!.children[0]!.target).toMatchObject({ kind: 'page', page: 3 });
+        await doc.editOutline({ op: 'setTarget', path: [3], target: { kind: 'page', page: 0 } });
+        await doc.editOutline({ op: 'remove', path: [1] });
+        expect((await doc.getOutline()).map((n) => n.title)).toEqual(['Child', 'Inserted', 'Appendix – Ünïcode']);
+        expect((await doc.getOutline())[2]!.target).toMatchObject({ kind: 'page', page: 0 });
+        // Bad paths, empty titles and moving an entry into itself are refused.
+        expect(await code(doc.editOutline({ op: 'rename', path: [9], title: 'x' }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'rename', path: [0], title: '   ' }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'add', parent: [], index: 0, title: 'x'.repeat(513) }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'move', path: [1], parent: [7], index: 0 }))).toBe('invalidArgument');
+        expect(await code(doc.editOutline({ op: 'remove', path: [] }))).toBe('invalidArgument');
+        if (caps.realPdf) {
+          const bytes = await doc.save();
+          await valid(bytes);
+          const again = await engine.open(bytes);
+          expect((await again.getOutline()).map((n) => n.title)).toEqual(['Child', 'Inserted', 'Appendix – Ünïcode']);
+          again.dispose();
+        }
+        doc.dispose();
+      });
+      it('leaves untouched bookmarks exactly as they were: actions, style, colour @FR-EDT-27', async () => {
+        const doc = await open('bookmarks-actions');
+        const before = await doc.getOutline();
+        expect(before.map((n) => n.target)).toEqual([
+          expect.objectContaining({ kind: 'page', page: 0 }),
+          { kind: 'unsupported', reason: 'unknown' },
+          { kind: 'uri', uri: 'https://example.com/spec' },
+          { kind: 'unsupported', reason: expect.any(String) },
+        ]);
+        await doc.editOutline({ op: 'rename', path: [0], title: 'Introduction' });
+        await doc.editOutline({ op: 'add', parent: [], index: 4, title: 'Last' });
+        if (caps.realPdf) {
+          const bytes = await doc.save();
+          const text = Buffer.from(bytes).toString('latin1');
+          // The entries nobody edited still carry their named action, colour, style flags and script.
+          expect(text).toMatch(/\/N\s*\/NextPage/);
+          expect(text).toMatch(/\/C\s*\[\s*1(\.0+)?\s+0(\.0+)?\s+0(\.0+)?\s*\]/);
+          expect(text).toMatch(/\/F\s*2\b/);
+          expect(text).toMatch(/\/S\s*\/JavaScript/);
+          expect(text).toContain('app.alert');
+        }
+        const after = await doc.getOutline();
+        expect(after.map((n) => n.title)).toEqual(['Introduction', 'Next page', 'Website', 'Script', 'Last']);
+        expect(after.slice(1, 4).map((n) => n.target)).toEqual(before.slice(1, 4).map((n) => n.target));
+        // Moving an entry is a copy: its title and target survive, the original is gone.
+        await doc.editOutline({ op: 'move', path: [2], parent: [], index: 0 });
+        expect((await doc.getOutline()).map((n) => n.title)).toEqual(['Website', 'Introduction', 'Next page', 'Script', 'Last']);
+        expect((await doc.getOutline())[0]!.target).toEqual({ kind: 'uri', uri: 'https://example.com/spec' });
+        doc.dispose();
+      });
+      it('bookmarks follow their pages; entries of deleted pages are reported as missing @FR-EDT-27', async () => {
+        const doc = await open('bookmarks');
+        await doc.movePages([0], 4);
+        const moved = await doc.getOutline();
+        // Chapter 1 pointed at the first page, which is now the last.
+        expect(moved[0]!.target).toMatchObject({ kind: 'page', page: 4 });
+        expect(moved[0]!.children[0]!.target).toMatchObject({ kind: 'page', page: 0 });
+        // Chapter 2's page is now third; Appendix and the section keep theirs.
+        await doc.deletePages([2]);
+        const after = await doc.getOutline();
+        const chapter2 = after.find((n) => n.title === 'Chapter 2')!;
+        expect(chapter2.target).toEqual({ kind: 'unsupported', reason: 'missing' });
+        for (const n of after.flatMap((x) => [x, ...x.children])) {
+          if (n.target?.kind === 'page') expect(n.target.page).toBeLessThan(doc.pageCount);
+        }
+        doc.dispose();
       });
       it('reports link targets and never exposes script or launch actions as openable @FR-VIEW-05 @FR-SEC-05', async () => {
         const doc = await open('links');
@@ -788,6 +966,102 @@ export function runEngineConformance(
     });
 
     describe('forms', () => {
+      it('creates one field of every type on a blank page and they can be filled and saved @FR-FRM-08 @FR-FRM-11', async () => {
+        const doc = await open('text');
+        const r = (x: number, y: number, w = 160, h = 22) => ({ x, y, width: w, height: h });
+        const ids = await doc.createFields([
+          { type: 'text', name: 'person.name', page: 0, rect: r(72, 700), tooltip: 'Full name', required: true },
+          { type: 'text', name: 'notes', page: 0, rect: r(72, 640, 200, 50), multiline: true, maxLength: 200 },
+          { type: 'text', name: 'code', page: 0, rect: r(72, 600, 150), comb: true, maxLength: 6 },
+          { type: 'checkbox', name: 'agree', page: 0, rect: r(72, 560, 16, 16), exportValue: 'Yes' },
+          { type: 'radio', name: 'size', page: 0, rect: r(72, 520, 16, 16), exportValue: 'small' },
+          { type: 'radio', name: 'size', page: 0, rect: r(120, 520, 16, 16), exportValue: 'large' },
+          { type: 'dropdown', name: 'country', page: 0, rect: r(72, 480), options: [{ label: 'Italy', value: 'IT' }, { label: 'France', value: 'FR' }] },
+          { type: 'listbox', name: 'langs', page: 0, rect: r(72, 400, 120, 60), options: [{ label: 'EN', value: 'EN' }, { label: 'IT', value: 'IT' }] },
+          { type: 'button', name: 'submit', page: 0, rect: r(72, 360, 90, 26), caption: 'Send' },
+          { type: 'signature', name: 'sign', page: 0, rect: r(72, 300, 200, 50) },
+        ]);
+        expect(ids).toEqual(['person.name', 'notes', 'code', 'agree', 'size', 'size', 'country', 'langs', 'submit', 'sign']);
+        const fields = await doc.listFormFields();
+        const by = (n: string) => fields.find((f) => f.name === n)!;
+        expect(fields.map((f) => f.name).sort()).toEqual(['agree', 'code', 'country', 'langs', 'notes', 'person.name', 'sign', 'size', 'submit']);
+        expect(by('person.name')).toMatchObject({ type: 'text', required: true, label: 'Full name' });
+        expect(by('notes')).toMatchObject({ multiline: true, maxLength: 200 });
+        expect(by('code')).toMatchObject({ comb: true, maxLength: 6 });
+        expect(by('size').widgets.map((w) => w.exportValue)).toEqual(['small', 'large']);
+        expect(by('country').options!.map((o) => o.label)).toEqual(['Italy', 'France']);
+        expect(by('sign').type).toBe('signature');
+        expect(by('person.name').widgets[0]!.rect).toMatchObject({ x: 72, y: 700, width: 160, height: 22 });
+        // New fields work at once.
+        await doc.setFieldValue('person.name', 'Ada Lovelace');
+        await doc.setFieldValue('agree', true);
+        await doc.setFieldValue('size', 'large');
+        await doc.setFieldValue('country', 'France');
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        const back = await again.listFormFields();
+        expect(back.find((f) => f.name === 'person.name')!.value).toBe('Ada Lovelace');
+        expect(back.find((f) => f.name === 'agree')!.value).not.toBe('Off');
+        expect(back.find((f) => f.name === 'size')!.value).toBe('large');
+        expect(back.find((f) => f.name === 'country')!.value).toBe('France');
+        // Other viewers see the text: the appearance stream carries it.
+        if (caps.realPdf) expect(Buffer.from(bytes).toString('latin1')).toContain('(Ada Lovelace)');
+        doc.dispose();
+        again.dispose();
+      });
+      it('refuses taken names, empty rectangles and unknown pages; XFA and encrypted files are not authored @FR-FRM-08 @FR-FRM-09', async () => {
+        const doc = await open('acroform');
+        const base = { type: 'text' as const, page: 0, rect: { x: 10, y: 10, width: 50, height: 20 } };
+        expect(await code(doc.createFields([{ ...base, name: 'person.name' }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'fresh', rect: { x: 0, y: 0, width: 0, height: 5 } }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'fresh', page: 9 }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: '.bad' }]))).toBe('invalidArgument');
+        expect(await code(doc.createFields([{ ...base, name: 'code', comb: true }]))).toBe('invalidArgument');
+        expect((await doc.listFormFields()).some((f) => f.name === 'fresh')).toBe(false);
+        const xfa = await open('xfa');
+        expect(await code(xfa.createFields([{ ...base, name: 'x' }]))).toBe('unsupportedFeature');
+        const enc = await engine.open(await fixture('encrypted'), { password: FIXTURE_PASSWORD });
+        expect(await code(enc.createFields([{ ...base, name: 'x' }]))).toBe('unsupportedFeature');
+        for (const d of [doc, xfa, enc]) d.dispose();
+      });
+      it('edits an existing form: properties, move, resize, delete a field and one radio option @FR-FRM-16', async () => {
+        const doc = await open('acroform');
+        const before = await doc.listFormFields();
+        const name = before.find((f) => f.name === 'person.name')!;
+        await doc.updateField(name.id, { multiline: true, required: true, tooltip: 'Your name', maxLength: 40 });
+        let f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f).toMatchObject({ multiline: true, required: true, label: 'Your name', maxLength: 40 });
+        await doc.updateField(name.id, { multiline: false, maxLength: null });
+        f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f.multiline).toBe(false);
+        expect(f.maxLength).toBeUndefined();
+        // Dropdown ↔ list box and new options.
+        await doc.updateField('country', { listbox: true, options: [{ label: 'Spain', value: 'ES' }, { label: 'Italy', value: 'IT' }] });
+        const country = (await doc.listFormFields()).find((x) => x.name === 'country')!;
+        expect(country.type).toBe('listbox');
+        expect(country.options!.map((o) => o.label)).toEqual(['Spain', 'Italy']);
+        await doc.updateField('country', { listbox: false });
+        expect((await doc.listFormFields()).find((x) => x.name === 'country')!.type).toBe('dropdown');
+        // Move and resize.
+        await doc.setWidgetRect(name.id, 0, { x: 100, y: 500, width: 220, height: 30 });
+        f = (await doc.listFormFields()).find((x) => x.name === 'person.name')!;
+        expect(f.widgets[0]!.rect).toMatchObject({ x: 100, y: 500, width: 220, height: 30 });
+        // Delete one radio option and a whole field.
+        await doc.removeField('color', 1);
+        const color = (await doc.listFormFields()).find((x) => x.name === 'color')!;
+        expect(color.widgets.map((w) => w.exportValue)).toEqual(['red']);
+        await doc.removeField('agree');
+        expect((await doc.listFormFields()).some((x) => x.name === 'agree')).toBe(false);
+        expect(await code(doc.updateField('missing', { required: true }))).toBe('invalidArgument');
+        expect(await code(doc.updateField('agree2', { multiline: true }))).toBe('invalidArgument');
+        const bytes = await doc.save();
+        await valid(bytes);
+        const again = await engine.open(bytes);
+        expect((await again.listFormFields()).length).toBe((await doc.listFormFields()).length);
+        doc.dispose();
+        again.dispose();
+      });
       it('lists fields with types, flags, options and widgets @FR-FRM-01 @FR-FRM-02', async () => {
         const doc = await open('acroform');
         expect((await doc.getMeta()).hasAcroForm).toBe(true);
@@ -927,6 +1201,19 @@ export function runEngineConformance(
     });
 
     describe('page content objects', () => {
+      it('describes how an image is stored @FR-OPT-01', async () => {
+        const doc = await open('images');
+        const images = (await doc.listObjects(0)).filter((o) => o.type === 'image');
+        expect(images.length).toBeGreaterThanOrEqual(2);
+        for (const img of images) {
+          expect(img.imageInfo!.byteSize).toBeGreaterThan(0);
+          expect([1, 8, 24, 32]).toContain(img.imageInfo!.bitsPerPixel);
+          expect(img.imageInfo!.filters.length).toBeGreaterThan(0);
+        }
+        expect(images.some((i) => i.imageInfo!.filters.includes('DCTDecode'))).toBe(true);
+        expect((await doc.listObjects(0)).filter((o) => o.type !== 'image').every((o) => o.imageInfo === undefined)).toBe(true);
+        doc.dispose();
+      });
       it('lists objects with type, bounds and text @FR-EDT-07', async () => {
         const doc = await open('images');
         const objs = await doc.listObjects(0);

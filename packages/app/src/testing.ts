@@ -7,7 +7,7 @@ import {
   NodeCrypto, NodeImageCodec, fixture, sharedEngine,
 } from '@folio/testkit';
 import { AppModel } from './app.ts';
-import { ExportImagesModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
+import { CompressModel, ExportImagesModel, OcrModel, TablesModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OrganiseModel, OutlineModel, ProfilesModel, SignModel, SmartFillModel, SplitWizard } from './features.ts';
 import type { Prompts } from './prompts.ts';
 import { createRegistry, type CommandContext } from './registry.ts';
 import { Services } from './services.ts';
@@ -76,10 +76,16 @@ export interface TestApp {
   tools(session: DocumentSession): ToolController;
   organise(session: DocumentSession): OrganiseModel;
   form(session: DocumentSession): FormModel;
+  author(session: DocumentSession): FormAuthoringModel;
+  outline(session: DocumentSession): OutlineModel;
   find(session: DocumentSession): FindModel;
   smartFill(session: DocumentSession): SmartFillModel;
   split(session: DocumentSession): SplitWizard;
   exportImages(session: DocumentSession): ExportImagesModel;
+  compress(session: DocumentSession): CompressModel;
+  ocr(session: DocumentSession): OcrModel;
+  tables(session: DocumentSession): TablesModel;
+  profiles(): ProfilesModel;
   merge(): MergeWizard;
   images(): ImagesWizard;
   /** Context for running registry commands against the active tab. */
@@ -88,6 +94,10 @@ export interface TestApp {
 }
 
 export interface TestAppOptions {
+  /** Text recognition engine and bundled language data for OCR tests. */
+  ocr?: import('@folio/ports').OcrEngine;
+  loadOcrLanguage?: (code: string) => Promise<Uint8Array>;
+  downloader?: import('@folio/ports').Downloader;
   /** Reuse storage/database/files from a previous instance to simulate a restart. */
   from?: Pick<TestApp, 'storage' | 'db' | 'files' | 'secrets' | 'clock'>;
   ai?: AiProvider;
@@ -113,9 +123,10 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     log: new MemoryLogger(),
     crypto: new NodeCrypto(),
     images: new NodeImageCodec(),
+    downloader: opts.downloader,
   };
   let seq = 0;
-  const services = new Services({ platform, engine, ai: opts.ai, newId: () => `id-${++seq}`, loadFont: (name) => readFile(new URL(`../../../assets/fonts/handwriting/${name}.ttf`, import.meta.url)) });
+  const services = new Services({ platform, engine, ai: opts.ai, ocr: opts.ocr, loadOcrLanguage: opts.loadOcrLanguage, newId: () => `id-${++seq}`, loadFont: (name) => readFile(new URL(`../../../assets/fonts/handwriting/${name}.ttf`, import.meta.url)) });
   const prompts = new ScriptedPrompts();
   const app = new AppModel(services, prompts, ticker);
   await app.start();
@@ -123,7 +134,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
   const ui = new UiState();
   const sign = new SignModel(app);
   const registry = createRegistry();
-  const cache = new Map<string, { tools?: ToolController; organise?: OrganiseModel; form?: FormModel; find?: FindModel }>();
+  const cache = new Map<string, { tools?: ToolController; organise?: OrganiseModel; form?: FormModel; author?: FormAuthoringModel; outline?: OutlineModel; find?: FindModel }>();
   const slot = (s: DocumentSession) => {
     let c = cache.get(s.id);
     if (!c) cache.set(s.id, (c = {}));
@@ -144,10 +155,16 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     tools: (s) => (slot(s).tools ??= new ToolController(s, services, { error: (e) => app.reportError(e), info: (m) => void app.toast('info', m) })),
     organise: (s) => (slot(s).organise ??= new OrganiseModel(app, s)),
     form: (s) => (slot(s).form ??= new FormModel(app, s)),
+    author: (s) => (slot(s).author ??= new FormAuthoringModel(app, s)),
+    outline: (s) => (slot(s).outline ??= new OutlineModel(app, s)),
     find: (s) => (slot(s).find ??= new FindModel(s)),
     smartFill: (s) => new SmartFillModel(app, s),
     split: (s) => new SplitWizard(app, s),
     exportImages: (s) => new ExportImagesModel(app, s),
+    compress: (s) => new CompressModel(app, s),
+    ocr: (s) => new OcrModel(app, s),
+    tables: (s) => new TablesModel(app, s, t.tools(s)),
+    profiles: () => new ProfilesModel(app),
     merge: () => new MergeWizard(app),
     images: () => new ImagesWizard(app),
     ctx() {
