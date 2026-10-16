@@ -106,7 +106,7 @@
     scrollTop = scroller.scrollTop;
     scrolling = true;
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => ((scrolling = false), (streak = 0), update(), publishWindow()), 120);
+    idleTimer = setTimeout(() => ((scrolling = false), (streak = 0), update(), publishWindow()), 80);
     if (!frame) frame = requestAnimationFrame(update);
   }
   $effect(() => {
@@ -186,7 +186,7 @@
       {#if viewLayout !== 'single' && win.mounted.has(b.index) && !heavy.has(b.index)}
         <div class="pv" style="left:{b.x + Math.max(0, (viewport.width - layout.width) / 2)}px;top:{b.y}px;width:{b.width}px;height:{b.height}px" aria-hidden="true"></div>
       {:else if heavy.has(b.index) || viewLayout === 'single'}
-        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} {viewWin} />
+        <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} urgent={win.inView.has(b.index)} {viewWin} />
       {/if}
     {/each}
   </div>

@@ -30,6 +30,7 @@
     box,
     visible,
     scrolling = false,
+    urgent = false,
     viewWin = { left: 0, top: 0, right: 0, bottom: 0 },
   }: {
     session: DocumentSession;
@@ -38,6 +39,8 @@
     visible: boolean;
     /** The canvas is being scrolled: renders wait a little longer so pages flying past are skipped. */
     scrolling?: boolean;
+    /** The page is on screen now (not only prefetched): its render goes first. */
+    urgent?: boolean;
     /** Visible part of the canvas in its own pixels; read only while the page is too large for one bitmap. */
     viewWin?: { left: number; top: number; right: number; bottom: number };
   } = $props();
@@ -95,14 +98,20 @@
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       // Large pages get a bounded base bitmap; the visible part is redrawn sharp by the tile below.
       const scale = budgetScale(pageInfo.size, z * dpr);
-      const priority = page === session.view.page ? 'visible' : 'near';
-      // A short delay coalesces renders while zooming with the wheel; a longer one while scrolling.
+      const priority = urgent || page === session.view.page ? 'visible' : 'near';
+      // A page seen before (scrolling back, a repeated zoom) is drawn from the cache at once.
+      const cached = session.renderer.peek({ page, scale, rotation, bitmap: true });
+      if (cached) {
+        paintSoon(target, cached, () => ac.signal.aborted);
+        return undefined;
+      }
+      // A short delay coalesces renders while zooming with the wheel and skips pages flying past.
       return setTimeout(() => {
         session.renderer
           .render({ page, scale, rotation, priority, bitmap: true, signal: ac.signal })
           .then((img) => !ac.signal.aborted && paintSoon(target, img, () => ac.signal.aborted))
           .catch((e) => (e as { code?: string }).code !== 'cancelled' && app.reportError(e));
-      }, scrolling ? 90 : 40);
+      }, scrolling ? 70 : 40);
     });
     return () => (clearTimeout(timer), ac.abort());
   });
