@@ -49,11 +49,26 @@
   let frame = 0;
   const renders = (i: number): boolean => viewLayout === 'single' || win.inView.has(i) || (!scrolling && win.near.has(i));
   let reported = -1;
+  // Dragging the scrollbar jumps over many pages per frame. Mounting a full page view for each (about
+  // twenty reactive values, engine calls for annotations and links) costs more than a frame, so while
+  // the position moves faster than `FAST` viewports per update, pages not yet mounted stay as plain
+  // white boxes; they become real views when the scroll slows down.
+  const FAST = 0.4;
+  let heavy = $state.raw<ReadonlySet<number>>(new Set());
+  let lastTop = 0;
+  let streak = 0;
+  let lite = false;
   function update(): void {
     frame = 0;
     if (scroller) scrollTop = scroller.scrollTop;
+    // Two fast updates in a row: a single jump (Page Down, a bookmark) is not a drag and mounts at once.
+    streak = Math.abs(scrollTop - lastTop) > viewport.height * FAST ? streak + 1 : 0;
+    lite = streak >= 2;
+    lastTop = scrollTop;
     const next = renderWindow(boxes, scrollTop, viewport.height, win.mounted);
     if (!sameSet(next.mounted, win.mounted) || !sameSet(next.inView, win.inView) || !sameSet(next.near, win.near)) win = next;
+    const allowed = lite ? new Set([...next.mounted].filter((i) => heavy.has(i))) : next.mounted;
+    if (!sameSet(allowed, heavy)) heavy = allowed;
     if (viewLayout === 'single') return;
     // Scrolling reports the current page; a page change from elsewhere scrolls to it.
     if (next.current !== raw(session).view.page) {
@@ -91,7 +106,7 @@
     scrollTop = scroller.scrollTop;
     scrolling = true;
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => ((scrolling = false), publishWindow()), 120);
+    idleTimer = setTimeout(() => ((scrolling = false), (streak = 0), update(), publishWindow()), 120);
     if (!frame) frame = requestAnimationFrame(update);
   }
   $effect(() => {
@@ -168,7 +183,9 @@
   {/if}
   <div class="pages" style="width:{Math.max(layout.width, viewport.width)}px;height:{layout.height}px">
     {#each boxes as b (`${sv}-${b.index}`)}
-      {#if win.mounted.has(b.index) || viewLayout === 'single'}
+      {#if viewLayout !== 'single' && win.mounted.has(b.index) && !heavy.has(b.index)}
+        <div class="pv" style="left:{b.x + Math.max(0, (viewport.width - layout.width) / 2)}px;top:{b.y}px;width:{b.width}px;height:{b.height}px" aria-hidden="true"></div>
+      {:else if heavy.has(b.index) || viewLayout === 'single'}
         <PageView {session} page={b.index} box={{ ...b, x: b.x + Math.max(0, (viewport.width - layout.width) / 2) }} visible={renders(b.index)} {scrolling} {viewWin} />
       {/if}
     {/each}

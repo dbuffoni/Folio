@@ -100,7 +100,8 @@ export class RenderService {
   async thumbnail(page: PageIndex, width = this.opts.thumbnailWidth ?? 200, signal?: AbortSignal): Promise<RasterImage> {
     const info = await this.doc.getPageInfo(page);
     const shown = rotatedSize(info.size, info.rotation);
-    return this.render({ page, scale: Math.min(width, 200) / shown.width, priority: 'thumbnail', signal });
+    // A decoded bitmap (where the engine runs in a worker) is drawn without copying pixels on the UI thread.
+    return this.render({ page, scale: Math.min(width, 200) / shown.width, priority: 'thumbnail', bitmap: true, signal });
   }
 
   /** Drops cached bitmaps of the given pages (all pages when omitted) after a document change. */

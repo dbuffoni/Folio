@@ -83,8 +83,20 @@
   }
   const when = (s?: string): string => parsePdfDate(s)?.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) ?? '';
   let thumbBody: HTMLDivElement | undefined = $state();
+  // Keeps the current thumbnail in view once the page number stops changing: while the document is
+  // being dragged past, scrolling the strip on every step would force a layout of all thumbnails.
   $effect(() => {
-    if (tab === 'thumbnails') thumbBody?.querySelector(`[data-page="${page}"]`)?.scrollIntoView({ block: 'nearest' });
+    const current = page;
+    if (tab !== 'thumbnails' || !thumbBody) return;
+    const body = thumbBody;
+    const timer = setTimeout(() => {
+      const el = body.querySelector<HTMLElement>(`[data-page="${current}"]`);
+      if (!el) return;
+      const top = el.offsetTop - body.offsetTop;
+      if (top < body.scrollTop) body.scrollTop = top;
+      else if (top + el.offsetHeight > body.scrollTop + body.clientHeight) body.scrollTop = top + el.offsetHeight - body.clientHeight;
+    }, 150);
+    return () => clearTimeout(timer);
   });
 </script>
 
