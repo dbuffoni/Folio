@@ -7,6 +7,7 @@ export * from './keymap.ts';
 export * from './commands.ts';
 export * from './tools.ts';
 export * from './features.ts';
+export * from './signing.ts';
 export * from './ui.ts';
 export * from './registry.ts';
 export * from './ai-settings.ts';

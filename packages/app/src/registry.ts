@@ -57,6 +57,8 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'task.images', title: 'cmd.imagesToPdf', group: 'file', icon: 'images', keywords: 'photos jpg png scan', run: ({ ui }) => ui.openDialog('images') },
     { id: 'task.ocr', title: 'cmd.ocr.open', group: 'file', icon: 'scan-text', when: doc, keywords: 'recognise recognize text scan searchable ocr', run: ({ ui }) => ui.openDialog('ocr') },
     { id: 'export.compress', title: 'cmd.compress', group: 'export', icon: 'file-down', when: doc, keywords: 'reduce shrink smaller size compress optimise', run: ({ ui }) => ui.openDialog('compress') },
+    { id: 'sign.digital', title: 'cmd.digitalSign', group: 'export', icon: 'badge-check', when: doc, keywords: 'certificate pades sign digitally seal', run: ({ ui }) => ui.openDialog('digitalSign') },
+    { id: 'sign.verify', title: 'cmd.verifySignatures', group: 'export', icon: 'shield-check', when: doc, keywords: 'validate check signatures certificate', run: ({ ui }) => ui.openDialog('signatures') },
     { id: 'export.images', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
     { id: 'export.flatten', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {
         if (await app.prompts.confirm({ key: 'confirm.flatten' }, { danger: true, confirmLabel: { key: 'cmd.flatten.both' } })) await app.guard(() => session!.run(app.services.exporter.flatten('both')));

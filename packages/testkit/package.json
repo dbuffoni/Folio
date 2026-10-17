@@ -16,10 +16,12 @@
     "@folio/ports": "workspace:*",
     "@folio/services": "workspace:*",
     "@pdf-lib/fontkit": "^1.1.1",
+    "asn1js": "^3.1.0",
     "fast-check": "^3",
     "jpeg-js": "^0.4",
     "pdf-lib": "^1.17.1",
     "pixelmatch": "^6",
+    "pkijs": "3.4.1",
     "pngjs": "^7",
     "vitest": "^5.0.3"
   },

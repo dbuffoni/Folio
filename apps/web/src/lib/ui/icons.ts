@@ -108,6 +108,9 @@ import Scissors from '@lucide/svelte/icons/scissors';
 import Search from '@lucide/svelte/icons/search';
 import Settings from '@lucide/svelte/icons/settings';
 import Settings2 from '@lucide/svelte/icons/settings-2';
+import BadgeCheck from '@lucide/svelte/icons/badge-check';
+import ShieldAlert from '@lucide/svelte/icons/shield-alert';
+import ShieldX from '@lucide/svelte/icons/shield-x';
 import Shield from '@lucide/svelte/icons/shield';
 import ShieldCheck from '@lucide/svelte/icons/shield-check';
 import Signature from '@lucide/svelte/icons/signature';
@@ -250,6 +253,9 @@ export const ICONS: Record<string, Component<{ size?: number | string; class?: s
   'settings': Settings,
   'settings-2': Settings2,
   'shield': Shield,
+  'shield-alert': ShieldAlert,
+  'shield-x': ShieldX,
+  'badge-check': BadgeCheck,
   'shield-check': ShieldCheck,
   'signature': Signature,
   'sparkles': Sparkles,

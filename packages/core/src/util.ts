@@ -96,3 +96,6 @@ export function splitExt(name: string): [string, string] {
   const i = name.lastIndexOf('.');
   return i <= 0 ? [name, ''] : [name.slice(0, i), name.slice(i)];
 }
+
+/** Secret-store key under which a signing identity keeps its PKCS#12 data and password (never the database). */
+export const certSecretKey = (fingerprint: string): string => `folio.cert.${fingerprint}`;

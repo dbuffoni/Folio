@@ -69,3 +69,4 @@ export async function fixture(name: keyof typeof FIXTURES | string): Promise<Uin
   return bytes.slice();
 }
 export * from './forms-corpus.ts';
+export * from './certs.ts';

@@ -123,6 +123,8 @@ describe('file commands @FR-APP-01 @FR-APP-04 @FR-APP-07', () => {
       ['settings.open', 'settings'],
       ['settings.profiles', 'profiles'],
       ['sign.stamps', 'stampEditor'],
+      ['sign.digital', 'digitalSign'],
+      ['sign.verify', 'signatures'],
       ['help.shortcuts', 'shortcuts'],
       ['help.privacy', 'privacy'],
       ['help.about', 'about'],
