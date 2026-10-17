@@ -486,7 +486,12 @@ export class SignaturePanelModel extends ViewModel {
     this.emit();
     await this.app.guard(async () => {
       await this.session.settled();
-      const bytes = await this.session.doc.save({ incremental: true });
+      // An untouched document is checked as it is on disk; saving it again would append an update of our own.
+      const { ref } = this.session;
+      const bytes =
+        ref && !this.session.dirty
+          ? await this.app.services.platform.files.read(ref)
+          : await this.session.doc.save({ incremental: true });
       this.reports = await validateSignatures(bytes, {
         trusted: await this.app.services.certificates.trustedDer(),
         now: this.app.services.platform.clock.now(),

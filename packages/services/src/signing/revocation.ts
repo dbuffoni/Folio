@@ -4,7 +4,7 @@
 import * as asn1js from 'asn1js';
 import {
   BasicOCSPResponse,
-  Certificate,
+  type Certificate,
   CertificateRevocationList,
   OCSPRequest,
   OCSPResponse,

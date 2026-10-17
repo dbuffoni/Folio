@@ -1,7 +1,7 @@
 // Wires the UI-less application layer to Svelte. Models stay plain classes; any `changed` event bumps
 // one reactive counter, and components read it through `track()` to re-evaluate.
 import {
-  AiSettingsModel, AppModel, CompressModel, ExportImagesModel, FindModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OcrModel, OrganiseModel, TablesModel, OutlineModel, ProfilesModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
+  AiSettingsModel, AppModel, CertificatesModel, CompressModel, DigitalSignModel, SignaturePanelModel, ExportImagesModel, FindModel, FormAuthoringModel, FormModel, ImagesWizard, MergeWizard, OcrModel, OrganiseModel, TablesModel, OutlineModel, ProfilesModel, Services, SignModel, SmartFillModel, SplitWizard, ToolController, UiState, createRegistry,
   type CommandContext, type DocumentSession, type Prompts,
 } from '@folio/app';
 import type { Emitter, Msg } from '@folio/core';
@@ -119,6 +119,9 @@ export const wizards = {
   images: (): ImagesWizard => observe(new ImagesWizard(raw(app))),
   ocr: (s: DocumentSession): OcrModel => observe(new OcrModel(raw(app), raw(s))),
   compress: (s: DocumentSession): CompressModel => observe(new CompressModel(raw(app), raw(s))),
+  digitalSign: (s: DocumentSession): DigitalSignModel => observe(new DigitalSignModel(raw(app), raw(s))),
+  signatures: (s: DocumentSession): SignaturePanelModel => observe(new SignaturePanelModel(raw(app), raw(s))),
+  certificates: (): CertificatesModel => observe(new CertificatesModel(raw(app))),
   exportImages: (s: DocumentSession): ExportImagesModel => observe(new ExportImagesModel(raw(app), raw(s))),
   profiles: (): ProfilesModel => observe(new ProfilesModel(raw(app))),
   /** Settings ▸ Smart Fill. On desktop a new AI host is approved in a native dialog first. */

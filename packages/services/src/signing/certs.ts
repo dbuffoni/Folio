@@ -2,13 +2,13 @@
 // pkijs, so the desktop and the web build share one code path (ADR 0007).
 import * as asn1js from 'asn1js';
 import {
-  AuthenticatedSafe,
-  CertBag,
+  type AuthenticatedSafe,
+  type CertBag,
   Certificate,
   PFX,
-  PrivateKeyInfo,
-  SafeContents,
-  PKCS8ShroudedKeyBag,
+  type PrivateKeyInfo,
+  type SafeContents,
+  type PKCS8ShroudedKeyBag,
   getCrypto,
   setEngine,
   CryptoEngine,

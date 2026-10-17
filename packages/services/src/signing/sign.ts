@@ -2,7 +2,6 @@
 // fixed-size /Contents placeholder is appended as an incremental update, the byte ranges are hashed,
 // and the CMS SignedData is written into the placeholder (PAdES baseline B-B, adbe.pkcs7.detached).
 import type {
-  PDFArray as PDFArrayT,
   PDFDict as PDFDictT,
   PDFDocument as PDFDocumentT,
   PDFObject,
@@ -146,7 +145,7 @@ function hexText(s: string): string {
 
 /** Builds the signed file. */
 export async function signPdf(input: Uint8Array, opts: SignOptions): Promise<Uint8Array> {
-  const { PDFArray, PDFDict, PDFName, PDFRef, PDFNumber, PDFString, PDFHexString, PDFRawStream, PDFStream } =
+  const { PDFArray, PDFDict, PDFName, PDFRef, PDFNumber, PDFHexString } =
     await import('pdf-lib');
   const n = PDFName.of;
   const doc = await load(input);
@@ -247,6 +246,8 @@ export async function signPdf(input: Uint8Array, opts: SignOptions): Promise<Uin
     const lines = app.lines ?? [signerName];
     let imageName: string | undefined;
     let imageRef: PDFRefT | undefined;
+    let iw = 0;
+    let ih = 0;
     if (app.image) {
       const img =
         app.image.mime === 'image/png'
@@ -256,13 +257,13 @@ export async function signPdf(input: Uint8Array, opts: SignOptions): Promise<Uin
       imageRef = img.ref;
       imageName = 'Img0';
       const ratio = img.width / img.height;
-      var iw = Math.min(w / 2 - 4, (h - 4) * ratio);
-      var ih = iw / ratio;
+      iw = Math.min(w / 2 - 4, (h - 4) * ratio);
+      ih = iw / ratio;
     }
     const textX = imageName ? w / 2 + 2 : 4;
     const size = Math.max(6, Math.min(11, (h - 6) / Math.max(lines.length, 1) / 1.25));
     let content = `q 0.97 0.97 0.97 rg 0 0 ${w} ${h} re f Q\nq 0.4 0.4 0.4 RG 0.75 w 0.375 0.375 ${w - 0.75} ${h - 0.75} re S Q\n`;
-    if (imageName) content += `q ${iw!} 0 0 ${ih!} 4 ${(h - ih!) / 2} cm /${imageName} Do Q\n`;
+    if (imageName) content += `q ${iw} 0 0 ${ih} 4 ${(h - ih) / 2} cm /${imageName} Do Q\n`;
     content += 'BT /F0 ' + size + ' Tf 0.1 0.1 0.1 rg\n';
     lines.forEach((line, i) => {
       content += `1 0 0 1 ${textX} ${h - 4 - size * (i + 1) * 1.2 + size * 0.2} Tm (${pdfText(line)}) Tj\n`;
