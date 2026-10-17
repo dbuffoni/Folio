@@ -21,6 +21,7 @@ import type {
   TableExtraction,
   StructuredOutput,
 } from '@folio/ports';
+import { redactImages, type AiExchangeLog } from './debug-log.ts';
 import { SYSTEM_PROMPT, TABLE_PROMPT, TRANSCRIBE_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
 import { OUTPUT_JSON_SCHEMA, TABLE_JSON_SCHEMA, TRANSCRIPTION_JSON_SCHEMA, validateOutput, validateTable, validateTranscription } from './schema.ts';
 
@@ -40,6 +41,8 @@ export interface OpenAiDeps {
   config: () => OpenAiConfig;
   /** Injectable for tests; real code waits. */
   sleep?: (ms: number) => Promise<void>;
+  /** Remembers each request and answer of this session for the debug window (memory only). */
+  log?: AiExchangeLog;
 }
 
 export type ConnectionTest =
@@ -116,18 +119,38 @@ export class OpenAiProvider implements AiProvider {
     return res;
   }
 
+  /** `exchange`, noting request and answer in the session log when there is one. */
+  private async logged(kind: string, path: string, method: 'GET' | 'POST', body: unknown, signal?: AbortSignal): Promise<HttpResponse> {
+    const log = this.deps.log;
+    if (!log) return this.exchange(path, method, body, signal);
+    const { baseUrl, model } = this.deps.config();
+    const started = Date.now();
+    const at = new Date(started).toISOString();
+    const note = (status: number | null, response: string): void =>
+      log.record({ at, kind, method, url: `${trimSlash(baseUrl)}${path}`, model, request: redactImages(body), status, response, durationMs: Date.now() - started });
+    try {
+      const res = await this.exchange(path, method, body, signal);
+      note(res.status, res.body);
+      return res;
+    } catch (e) {
+      note(null, e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+      throw e;
+    }
+  }
+
   private async call(
     path: string,
     method: 'GET' | 'POST',
     body: unknown,
     signal?: AbortSignal,
+    kind = 'request',
   ): Promise<HttpResponse> {
     const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     let last: HttpResponse | undefined;
     // Two retries on 429/5xx with exponential back-off (SPEC §10.3 step 3).
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await sleep(500 * 2 ** (attempt - 1));
-      const res = await this.exchange(path, method, body, signal);
+      const res = await this.logged(kind, path, method, body, signal);
       if (res.status === 429 || res.status >= 500) {
         last = res;
         continue;
@@ -175,7 +198,7 @@ export class OpenAiProvider implements AiProvider {
     // Malformed output is retried once, then reported so the caller can fall back to the local mapper.
     let detail = '';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.call('/chat/completions', 'POST', this.body(req), signal);
+      const res = await this.call('/chat/completions', 'POST', this.body(req), signal, 'Smart Fill');
       try {
         const json = JSON.parse(res.body) as {
           choices?: Array<{ message?: { content?: string; refusal?: string } }>;
@@ -214,7 +237,7 @@ export class OpenAiProvider implements AiProvider {
     };
     let detail = '';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.call('/chat/completions', 'POST', body, signal);
+      const res = await this.call('/chat/completions', 'POST', body, signal, 'Table');
       try {
         const parsed = JSON.parse(res.body) as { choices?: Array<{ message?: { content?: string; refusal?: string } }>; model?: string };
         const message = parsed.choices?.[0]?.message;
@@ -248,7 +271,7 @@ export class OpenAiProvider implements AiProvider {
     };
     let detail = '';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.call('/chat/completions', 'POST', body, signal);
+      const res = await this.call('/chat/completions', 'POST', body, signal, 'Scan reading');
       try {
         const parsed = JSON.parse(res.body) as { choices?: Array<{ message?: { content?: string; refusal?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string };
         const message = parsed.choices?.[0]?.message;
@@ -265,7 +288,7 @@ export class OpenAiProvider implements AiProvider {
 
   /** Model ids offered by the endpoint (`GET /models`), for the settings list. */
   async listModels(signal?: AbortSignal): Promise<string[]> {
-    const res = await this.call('/models', 'GET', undefined, signal);
+    const res = await this.call('/models', 'GET', undefined, signal, 'Model list');
     try {
       const json = JSON.parse(res.body) as { data?: Array<{ id?: unknown }> };
       return (json.data ?? [])

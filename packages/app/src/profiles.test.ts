@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
-import { samplePng, scannedFormDoc } from '@folio/testkit';
+import { flatFormDoc, samplePng, scannedFormDoc } from '@folio/testkit';
 import { createTestApp } from './testing.ts';
 
 describe('Profiles and field templates editor @FR-FRM-20', () => {
@@ -198,5 +198,32 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const none = t.smartFill(s);
     await none.start();
     expect(none.signFields).toBe(0);
+  });
+
+  it('the profile signature goes onto a "Firma" line of a flat form that has no signature field @FR-STM-01 @FR-AIF-06', async () => {
+    const t = await createTestApp();
+    const { pdf, areas } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma del genitore', kind: 'underline' },
+    ]);
+    t.files.put('/flat.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.signFields).toBe(1);
+    await sf.apply(false);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.length).toBe(1);
+    const line = areas[1]!.rect;
+    const r = stamps[0]!.rect;
+    expect(r.x).toBeGreaterThanOrEqual(line.x - 1);
+    expect(r.x + r.width).toBeLessThanOrEqual(line.x + line.width + 1);
+    expect(r.y + r.height / 2).toBeGreaterThan(line.y);
   });
 });

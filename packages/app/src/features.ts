@@ -67,9 +67,11 @@ import {
   type SmartProfile,
   type SplitMode,
   type StampDef,
+  isSignatureTarget,
   type Suggestion,
   type TextStampStyle,
 } from '@folio/services';
+import { formatExchanges, type AiExchange } from '@folio/ai';
 import { aiGates } from './ai-settings.ts';
 import type { AppModel } from './app.ts';
 import type { DocumentSession } from './session.ts';
@@ -2198,7 +2200,8 @@ export class SmartFillModel extends ViewModel {
   private async signCommand(sig: StoredSignature) {
     const raster = await this.app.services.platform.images.decode(sig.png);
     const data = { kind: sig.kind, svg: sig.svg, raster, width: sig.width, height: sig.height };
-    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data);
+    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect }));
+    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data, targets);
   }
   setSignIt(on: boolean): void {
     this.signIt = on;
@@ -2269,6 +2272,72 @@ export class SmartFillModel extends ViewModel {
     this.app.toastUndo(msg('toast.smartFillApplied', { count }));
     this.cancel();
     return count;
+  }
+}
+
+/**
+ * The hidden AI debug window (Ctrl+Alt+Shift+D): the requests of this session with their answers, to select
+ * and copy for analysis, optionally with the text of the open document. Nothing leaves the device; the log is
+ * in memory and ends with the session.
+ */
+export class AiDebugModel extends ViewModel {
+  entries: AiExchange[] = [];
+  selected = new Set<number>();
+  /** Add the whole text of the open document (text layer and OCR) to the copied text. */
+  includeDocumentText = false;
+  /** Text to show and copy; rebuilt when the selection or the option changes. */
+  output = '';
+  private build = 0;
+
+  constructor(private readonly app: AppModel) {
+    super();
+    this.app.services.aiLog.changed.on(() => void this.refresh());
+  }
+  async refresh(): Promise<void> {
+    this.entries = this.app.services.aiLog.list();
+    const ids = new Set(this.entries.map((e) => e.id));
+    this.selected = new Set([...this.selected].filter((id) => ids.has(id)));
+    await this.rebuild();
+  }
+  async toggle(id: number, on: boolean): Promise<void> {
+    if (on) this.selected.add(id);
+    else this.selected.delete(id);
+    await this.rebuild();
+  }
+  async selectAll(on: boolean): Promise<void> {
+    this.selected = new Set(on ? this.entries.map((e) => e.id) : []);
+    await this.rebuild();
+  }
+  async setIncludeDocumentText(on: boolean): Promise<void> {
+    this.includeDocumentText = on;
+    await this.rebuild();
+  }
+  async clear(): Promise<void> {
+    this.app.services.aiLog.clear();
+    await this.refresh();
+  }
+  /** Every page's text: the text layer, which holds the OCR text of scanned pages once they have been recognised. */
+  async documentText(): Promise<string> {
+    const doc = this.app.active?.doc;
+    if (!doc) return '';
+    const pages: string[] = [];
+    for (let p = 0; p < doc.pageCount; p++) {
+      const layer = await doc.getTextLayer(p);
+      pages.push(`--- page ${p + 1}${layer.isScanned ? ' (scan, no text layer)' : ''} ---\n${layer.lines.map((l) => l.text).join('\n')}`);
+    }
+    return pages.join('\n\n');
+  }
+  private async rebuild(): Promise<void> {
+    const run = ++this.build;
+    const chosen = this.entries.filter((e) => this.selected.has(e.id));
+    const documentText = this.includeDocumentText ? await this.documentText() : undefined;
+    if (run !== this.build) return;
+    this.output = chosen.length || documentText !== undefined ? formatExchanges(chosen, documentText === undefined ? {} : { documentText }) : '';
+    this.emit();
+  }
+  async copy(): Promise<void> {
+    if (!this.output) return;
+    await this.app.services.platform.clipboard.writeText(this.output);
   }
 }
 

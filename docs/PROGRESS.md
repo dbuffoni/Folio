@@ -69,6 +69,9 @@ Implemented but not verified where it matters
 - **Performance in the real UI.** NFR-02/04/05 budgets are measured on the engine in Node; start-up
   time (NFR-01) was not measured in the AppImage. Scrolling (NFR-03) is tracked with the opt-in
   profiler (`?perf`, Ctrl+Alt+Shift+P in the AppImage), not by a gate.
+- **AI debug window.** Ctrl+Alt+Shift+D opens a hidden window with the AI requests of the current
+  session and their answers (images left out, no key), to select and copy, optionally with the full
+  text of the open document. Memory only; nothing is stored or sent.
 - **Visual baselines** are compared only on the machine that rendered them.
 - **Smart Fill accuracy** (≥ 85 %) is measured on the generated forms corpus, not on real-world forms.
 

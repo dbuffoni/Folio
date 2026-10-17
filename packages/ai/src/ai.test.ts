@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AiError, FolioError, NetworkError, normalizeBaseUrl } from '@folio/core';
 import type { FormAnalysisRequest } from '@folio/ports';
 import { FakeHttpClient, FakeSecretStore } from '@folio/testkit';
+import { AiExchangeLog, formatExchanges, redactImages } from './debug-log.ts';
 import { FakeAiProvider } from './fake.ts';
 import { OPENAI_KEY_SECRET, OpenAiProvider } from './openai.ts';
 import { SYSTEM_PROMPT, buildPayload, estimateTokens } from './prompt.ts';
@@ -327,5 +328,39 @@ describe('OpenRouter connection test @FR-AIF-12 @FR-AIF-02', () => {
     expect(await t.provider.testConnection()).toMatchObject({ ok: true, models: ['anthropic/claude-haiku-5.5'] });
     expect(t.http.requests[0]!.url).toBe('https://openrouter.ai/api/v1/models');
     expect(normalizeBaseUrl('https://openrouter.ai/api/v1/models/')).toBe('https://openrouter.ai/api/v1');
+  });
+});
+
+describe('session log of AI requests (debug window)', () => {
+  it('keeps request and answer of every call, without the key or the images, newest first, capped at 50 @FR-AIF-04', async () => {
+    const secrets = new FakeSecretStore();
+    secrets.values.set(OPENAI_KEY_SECRET, 'sk-secret-123');
+    const http = new FakeHttpClient(secrets);
+    const log = new AiExchangeLog();
+    const provider = new OpenAiProvider({ http, secrets, config: () => ({ baseUrl: 'https://api.openai.com/v1/', model: 'gpt-test' }), sleep: async () => undefined, log });
+    http.enqueue(completion(good));
+    await provider.analyzeForm(req({ images: [{ page: 0, jpeg: new Uint8Array([1, 2, 3]), width: 10, height: 10 }] }), new AbortController().signal);
+    const [entry] = log.list();
+    expect(entry).toMatchObject({ kind: 'Smart Fill', method: 'POST', status: 200, model: 'gpt-test' });
+    const text = JSON.stringify(entry);
+    expect(text).not.toContain('sk-secret-123');
+    expect(text).not.toContain('base64,AQID');
+    expect(text).toContain('left out');
+    expect(text).toContain('First name');
+    expect(entry!.response).toContain('first_name');
+    // A request that gets no answer is logged with the error.
+    http.enqueue(() => { throw new NetworkError('offline'); });
+    await kindOf(provider.analyzeForm(req(), new AbortController().signal));
+    expect(log.list()[0]).toMatchObject({ status: null });
+    expect(log.list()[0]!.response).toContain('NetworkError');
+    const out = formatExchanges(log.list(), { documentText: 'Page 1\nciao' });
+    expect(out).toContain('--- request ---');
+    expect(out).toContain('first_name');
+    expect(out).toContain('=== document text');
+    expect(redactImages({ a: ['data:image/png;base64,AAAA', 'x'] })).toEqual({ a: ['[image, 26 characters of base64 left out]', 'x'] });
+    for (let i = 0; i < 60; i++) log.record({ at: '', kind: 'k', method: 'GET', url: '', model: '', request: null, status: 200, response: '', durationMs: 0 });
+    expect(log.list().length).toBe(50);
+    log.clear();
+    expect(log.list()).toEqual([]);
   });
 });
