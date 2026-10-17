@@ -217,6 +217,23 @@ export function tokenSetRatio(a: string, b: string): number {
   return ab === 0 || ba === 0 ? 0 : (2 * ab * ba) / (ab + ba);
 }
 
+/**
+ * A printed label often wraps a profile name in a longer phrase ("genitore o tutore legale dell'alunno/a" for the
+ * alias "tutore legale di"). When every token of a multi-word name is present in the label, that is a match
+ * even though the label has more words than the name. A single word is too weak to count (FR-AIF-07).
+ */
+export function containsPhrase(label: string, name: string): number {
+  const tn = tokens(name);
+  if (tn.length < 2) return 0;
+  const tl = tokens(label);
+  return tn.every((t) => tl.some((l) => tokenMatch(t, l) >= 0.85)) ? 0.8 : 0;
+}
+
+/** A detected line or box that is printed as a signature place ("Firma", "Signature of the parent"). */
+export const SIGNATURE_LABEL = /\b(firma|firme|signature|sign here|sottoscrizione)\b/i;
+export const isSignatureTarget = (s: Pick<Suggestion, 'fieldType' | 'label' | 'kind' | 'value'>): boolean =>
+  s.fieldType === 'signature' || (s.kind === 'detected' && s.value === '' && SIGNATURE_LABEL.test(s.label));
+
 export const HEURISTIC_THRESHOLD = 0.72;
 const level = (score: number): Confidence => (score >= 0.85 ? 'high' : score >= 0.6 ? 'medium' : 'low');
 
@@ -450,7 +467,7 @@ export class SmartFillService {
       let best: { key: string; score: number } | undefined;
       for (const f of profile.fields) {
         const names = [f.label, f.key.replace(/_/g, ' '), ...f.aliases];
-        const score = Math.max(0, ...texts.flatMap((t) => names.map((n) => tokenSetRatio(t, n))));
+        const score = Math.max(0, ...texts.flatMap((t) => names.map((n) => Math.max(tokenSetRatio(t, n), containsPhrase(t, n)))));
         if (!best || score > best.score) best = { key: f.key, score };
       }
       const hit = best && best.score >= HEURISTIC_THRESHOLD ? best : undefined;
@@ -863,11 +880,13 @@ export class SmartFillService {
    * Puts the profile's signature into every signature field of the pages that is still empty, fitted inside
    * the field with a small margin. Null when there is nothing to sign (no signature, no field, all signed).
    */
-  async signFields(doc: PdfDocument, pages: PageIndex[], sig: { kind: 'signature' | 'initials'; svg?: string | null; raster: RasterImage; width: number; height: number } | null): Promise<{ command: Command; count: number } | null> {
+  async signFields(doc: PdfDocument, pages: PageIndex[], sig: { kind: 'signature' | 'initials'; svg?: string | null; raster: RasterImage; width: number; height: number } | null, extra: Array<{ page: PageIndex; rect: Rect }> = []): Promise<{ command: Command; count: number } | null> {
     const signatures = this.deps.signatures;
     if (!sig || !signatures) return null;
     const wanted = new Set(pages);
-    const widgets = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
+    const widgets: Array<{ page: PageIndex; rect: Rect }> = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
+    // A signature line found on a flat form or a scan is only a few points high: the signature may rise above it.
+    for (const e of extra) if (wanted.has(e.page)) widgets.push({ page: e.page, rect: { ...e.rect, height: Math.max(e.rect.height, 36) } });
     const items: Array<{ page: PageIndex; annotation: Annotation }> = [];
     const existing = new Map<PageIndex, Annotation[]>();
     for (const w of widgets) {

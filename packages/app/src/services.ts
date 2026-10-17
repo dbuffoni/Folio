@@ -1,4 +1,4 @@
-import { OpenAiProvider } from '@folio/ai';
+import { AiExchangeLog, OpenAiProvider } from '@folio/ai';
 import { DEFAULT_SETTINGS, aiCapabilities, uuid, type Settings } from '@folio/core';
 import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
 import type { AiProvider, OcrEngine, PdfEngine, Platform } from '@folio/ports';
@@ -76,6 +76,8 @@ export class Services {
   readonly ocrLanguages: OcrLanguageRepo;
   readonly ai: AiProvider;
   readonly openAi?: OpenAiProvider;
+  /** Requests to the AI service in this session, for the hidden debug window. Memory only. */
+  readonly aiLog = new AiExchangeLog();
 
   constructor(readonly opts: ServicesOptions) {
     const { platform, engine } = opts;
@@ -110,7 +112,7 @@ export class Services {
     if (opts.ai) {
       this.ai = opts.ai;
     } else {
-      this.openAi = new OpenAiProvider({ http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model, structured: aiCapabilities(this.settings.ai).structured }) });
+      this.openAi = new OpenAiProvider({ log: this.aiLog, http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model, structured: aiCapabilities(this.settings.ai).structured }) });
       this.ai = this.openAi;
     }
     this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, signatures: this.signatures, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });

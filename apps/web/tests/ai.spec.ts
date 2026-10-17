@@ -116,4 +116,25 @@ test('Ollama preset: no key, Test connection, capabilities, and Smart Fill throu
   expect(seen.every((s) => s.endsWith('no-auth'))).toBe(true);
   expect(outbound.every((u) => u.startsWith('http://localhost:11434/'))).toBe(true);
   outbound.length = 0;
+
+  // Hidden debug window: the requests of this session, to select and copy, with the document text on request.
+  await app.keyboard.press('Control+Alt+Shift+D');
+  const debug = app.getByRole('dialog', { name: 'AI requests of this session' });
+  await expect(debug).toBeVisible();
+  const entry = debug.getByRole('checkbox', { name: /Smart Fill/ }).first();
+  await expect(entry).toBeVisible();
+  const out = debug.getByRole('textbox', { name: 'Text to copy' });
+  await expect(out).toHaveValue('');
+  await entry.check();
+  await expect(out).toHaveValue(/--- request ---[\s\S]*First name[\s\S]*--- response ---[\s\S]*profileKey/);
+  await expect(out).not.toHaveValue(/=== document text/);
+  await debug.getByRole('checkbox', { name: /Include the full text/ }).check();
+  await expect(out).toHaveValue(/=== document text[\s\S]*--- page 1 ---/);
+  if (process.env.FOLIO_SHOTS)
+    for (const [w, h] of [[1360, 860], [1024, 700], [800, 600], [480, 800]] as const) {
+      await app.setViewportSize({ width: w, height: h });
+      await app.screenshot({ path: `${process.env.FOLIO_SHOTS}/ai-debug-${w}x${h}.png` });
+    }
+  await app.keyboard.press('Escape');
+  await expect(debug).toBeHidden();
 });
