@@ -7,6 +7,8 @@ import type { PdfDocument, PdfEngine } from '@folio/ports';
 export interface PerfReport {
   scenario: string;
   userAgent: string;
+  /** WebGL renderer string: shows whether the web view draws on the GPU (e.g. NVIDIA) or in software (llvmpipe). */
+  gpu: string;
   devicePixelRatio: number;
   viewport: { width: number; height: number };
   mountedPages: number;
@@ -100,6 +102,16 @@ const SCENARIOS = {
   drag: { speed: 25000, seconds: 3 },
 } as const;
 
+function gpuName(): string {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+    return gl && ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 async function runScenario(name: keyof typeof SCENARIOS | string): Promise<PerfReport> {
   const sc = SCENARIOS[name as keyof typeof SCENARIOS];
   if (!sc) throw new Error(`unknown scenario ${name}`);
@@ -137,6 +149,7 @@ async function runScenario(name: keyof typeof SCENARIOS | string): Promise<PerfR
   return {
     scenario: name,
     userAgent: navigator.userAgent,
+    gpu: gpuName(),
     devicePixelRatio: window.devicePixelRatio,
     viewport: { width: scroller.clientWidth, height: scroller.clientHeight },
     mountedPages: document.querySelectorAll('.pv').length,
@@ -185,4 +198,96 @@ export function installPerf(host: PerfHost): void {
       a.click();
     },
   };
+}
+
+/** Ctrl+Alt+Shift+P turns the profiler on or off and reloads, for builds without a console (the AppImage). */
+export function registerPerfShortcut(): void {
+  window.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyP')) return;
+    try {
+      if (localStorage.getItem('folio.perf') === '1') localStorage.removeItem('folio.perf');
+      else localStorage.setItem('folio.perf', '1');
+    } catch {
+      return;
+    }
+    location.reload();
+  });
+}
+
+/**
+ * A small developer panel for measuring in the real app: once a document is open it offers one button
+ * per scenario and a text box with the results to copy. Plain DOM and English only, because it exists
+ * only while the profiler flag is set and is not part of the product UI.
+ */
+export function installPerfPanel(): void {
+  const panel = document.createElement('div');
+  panel.style.cssText =
+    'position:fixed;right:12px;bottom:12px;z-index:99999;width:340px;padding:8px;border-radius:6px;font:12px sans-serif;background:#111;color:#eee;display:none;box-shadow:0 2px 12px #000a';
+  panel.setAttribute('data-perf-panel', '');
+  const title = document.createElement('div');
+  title.textContent = `Folio profiler. GPU: ${gpuName()}`;
+  title.style.cssText = 'margin-bottom:6px;font-weight:600';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px';
+  const out = document.createElement('textarea');
+  out.readOnly = true;
+  out.rows = 9;
+  out.style.cssText =
+    'width:100%;box-sizing:border-box;font:11px monospace;background:#222;color:#eee;border:1px solid #444';
+  const lines: string[] = [];
+  const log = (text: string): void => {
+    lines.push(text);
+    out.value = lines.join('\n');
+    out.scrollTop = out.scrollHeight;
+  };
+  const buttons: HTMLButtonElement[] = [];
+  // A/B in the same build: put the blurred shadow back while scrolling, as before the fix.
+  const ab = document.createElement('label');
+  ab.style.cssText = 'display:block;margin-bottom:6px';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  const override = document.createElement('style');
+  box.onchange = () => {
+    override.textContent = box.checked
+      ? '#canvas.scrolling .pv{box-shadow:var(--shadow-page)!important}'
+      : '';
+    log(
+      box.checked
+        ? 'blurred shadow while scrolling: ON (old behaviour)'
+        : 'blurred shadow while scrolling: off (new behaviour)',
+    );
+  };
+  ab.append(box, ' blurred shadow while scrolling (old behaviour)');
+  document.head.append(override);
+  const run = async (name: string): Promise<void> => {
+    for (const b of buttons) b.disabled = true;
+    log(`running ${name}: do not touch the window`);
+    try {
+      const r = await runScenario(name);
+      lines.pop();
+      log(
+        `${name}: frame p50 ${r.frames.p50} p95 ${r.frames.p95} max ${r.frames.max} ms, >33ms ${r.frames.over33}/${r.frames.count}, >100ms ${r.frames.over100}, render p50 ${r.renders.p50} p95 ${r.renders.p95}, settle ${r.settleMs}`,
+      );
+      log(JSON.stringify(r));
+    } catch (e) {
+      lines.pop();
+      log(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    for (const b of buttons) b.disabled = false;
+  };
+  for (const name of Object.keys(SCENARIOS)) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => void run(name);
+    buttons.push(b);
+    row.append(b);
+  }
+  const header = `${navigator.userAgent} | dpr ${window.devicePixelRatio}`;
+  log(header);
+  panel.append(title, row, ab, out);
+  document.body.append(panel);
+  // Visible only while a document is on screen; scrolling needs it.
+  setInterval(() => {
+    panel.style.display = document.querySelector('#canvas') ? 'block' : 'none';
+  }, 1000);
 }

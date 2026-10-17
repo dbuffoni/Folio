@@ -12,7 +12,7 @@ import { setLocale } from './i18n/index.ts';
 import { bridge, bump, bumpPage, live, raw, track, trackPage } from './live.svelte.ts';
 import { createBrowserOcr, loadBundledLanguage } from './ocr/index.ts';
 import { createPlatform, isTauri } from './platform/index.ts';
-import { installPerf, perfRequested } from './perf.ts';
+import { installPerf, installPerfPanel, perfRequested, registerPerfShortcut } from './perf.ts';
 
 export const VERSION = '0.1.0';
 
@@ -176,7 +176,9 @@ export async function start(): Promise<void> {
       if (lastWidth >= 820 && w < 820 && ui.sidebarOpen) ui.toggleSidebar();
       lastWidth = w;
     });
-    if (perfRequested())
+    registerPerfShortcut();
+    if (perfRequested()) {
+      installPerfPanel();
       installPerf({
         open: async (url) => {
           const files = rawServices.platform.files as unknown as { adoptBytes?(name: string, bytes: Uint8Array): FileRef };
@@ -185,6 +187,7 @@ export async function start(): Promise<void> {
           await rawApp.openRef(files.adoptBytes(url.split('/').pop() ?? 'perf.pdf', new Uint8Array(await res.arrayBuffer())));
         },
       });
+    }
     ui.startCoach(app.settings.onboardingDone);
     state.ready = true;
     bump();
