@@ -5,3 +5,4 @@ export * from './timestamp.ts';
 export * from './validate.ts';
 export * from './revocation.ts';
 export * from './dss.ts';
+export * from './certificates.ts';

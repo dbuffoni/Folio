@@ -2,6 +2,7 @@
 // the signing feature: it is built here and sent through a `TimestampTransport` only when the user turned
 // timestamping on and entered an authority URL.
 import * as asn1js from 'asn1js';
+import type { BinaryTransport } from '@folio/ports';
 import {
   AlgorithmIdentifier,
   Attribute,
@@ -19,13 +20,7 @@ import { OID_TIMESTAMP_TOKEN, parseCms, sha256 } from './cms.ts';
 
 const OID_SHA256 = '2.16.840.1.101.3.4.2.1';
 
-/**
- * Binary HTTP for the optional network steps of signing (timestamps, revocation checks). Platform adapters
- * implement it; nothing in Folio calls it unless the user turned the matching option on.
- */
-export interface BinaryTransport {
-  request(req: { url: string; method: 'GET' | 'POST'; body?: Uint8Array; contentType?: string }): Promise<Uint8Array>;
-}
+export type { BinaryTransport };
 /** Kept for readability at call sites that only timestamp. */
 export type TimestampTransport = BinaryTransport;
 

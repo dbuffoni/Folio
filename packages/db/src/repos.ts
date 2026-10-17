@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, InvalidArgumentError, fromBase64, fromHex, parseSettings, toBase64, toHex, utf8, type Settings, type SettingsKey } from '@folio/core';
+import { DEFAULT_SETTINGS, InvalidArgumentError, certSecretKey, fromBase64, fromHex, parseSettings, toBase64, toHex, utf8, type Settings, type SettingsKey } from '@folio/core';
 import type { Clock, CryptoService, Database, SecretStore } from '@folio/ports';
 
 const iso = (clock: Clock): string => clock.now().toISOString();
@@ -713,8 +713,80 @@ export class AiRunsRepo {
 
 /** "Delete all app data" (SPEC §12.9): every table emptied, secrets removed. */
 export async function deleteAllData(db: Database, secrets: SecretStore, secretKeys: string[] = []): Promise<void> {
+  // Signing identities keep their private material in the secret store, named by fingerprint.
+  const identities = await db.select<{ fingerprint: string }>("SELECT fingerprint FROM certificates WHERE kind = 'identity'");
+  for (const { fingerprint } of identities) await secrets.remove(certSecretKey(fingerprint));
   await db.transaction(async (tx) => {
-    for (const table of ['field_templates', 'form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
+    for (const table of ['certificates', 'field_templates', 'form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
   });
   for (const key of [KEY_NAME, ...secretKeys]) await secrets.remove(key);
+}
+
+// ---- certificates (digital signatures) ---------------------------------------------------------
+
+export { certSecretKey };
+
+export type CertificateKind = 'identity' | 'trusted';
+/** Public facts of one certificate plus its DER encoding. No private key material, ever. */
+export interface StoredCertificate {
+  fingerprint: string;
+  kind: CertificateKind;
+  commonName: string;
+  subject: string;
+  issuer: string;
+  serial: string;
+  notBefore: string;
+  notAfter: string;
+  keyAlgorithm: string;
+  keyUsage: string[];
+  selfSigned: boolean;
+  isCa: boolean;
+  der: Uint8Array;
+  createdAt: string;
+}
+type CertRow = { fingerprint: string; kind: CertificateKind; common_name: string; subject: string; issuer: string; serial: string; not_before: string; not_after: string; key_algorithm: string; key_usage_json: string; self_signed: number; is_ca: number; der: unknown; created_at: string };
+const toCert = (r: CertRow): StoredCertificate => ({
+  fingerprint: r.fingerprint,
+  kind: r.kind,
+  commonName: r.common_name,
+  subject: r.subject,
+  issuer: r.issuer,
+  serial: r.serial,
+  notBefore: r.not_before,
+  notAfter: r.not_after,
+  keyAlgorithm: r.key_algorithm,
+  keyUsage: JSON.parse(r.key_usage_json) as string[],
+  selfSigned: bool(r.self_signed),
+  isCa: bool(r.is_ca),
+  der: dec(r.der) ?? new Uint8Array(),
+  createdAt: r.created_at,
+});
+
+/** FR-CRT-03. Signing identities (public part) and trusted certificates. */
+export class CertificateRepo {
+  constructor(private readonly db: Database, private readonly clock: Clock) {}
+
+  async list(kind?: CertificateKind): Promise<StoredCertificate[]> {
+    const rows = kind
+      ? await this.db.select<CertRow>('SELECT * FROM certificates WHERE kind = ? ORDER BY common_name COLLATE NOCASE, created_at', [kind])
+      : await this.db.select<CertRow>('SELECT * FROM certificates ORDER BY kind, common_name COLLATE NOCASE, created_at');
+    return rows.map(toCert);
+  }
+  async get(fingerprint: string, kind: CertificateKind): Promise<StoredCertificate | null> {
+    const rows = await this.db.select<CertRow>('SELECT * FROM certificates WHERE fingerprint = ? AND kind = ?', [fingerprint, kind]);
+    return rows[0] ? toCert(rows[0]) : null;
+  }
+  /** Adds the certificate, or refreshes the row when the same fingerprint is imported again. */
+  async upsert(c: Omit<StoredCertificate, 'createdAt'>): Promise<StoredCertificate> {
+    await this.db.execute(
+      `INSERT INTO certificates (fingerprint, kind, common_name, subject, issuer, serial, not_before, not_after, key_algorithm, key_usage_json, self_signed, is_ca, der, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(fingerprint, kind) DO UPDATE SET common_name = excluded.common_name, subject = excluded.subject, issuer = excluded.issuer, serial = excluded.serial, not_before = excluded.not_before, not_after = excluded.not_after, key_algorithm = excluded.key_algorithm, key_usage_json = excluded.key_usage_json, self_signed = excluded.self_signed, is_ca = excluded.is_ca, der = excluded.der`,
+      [c.fingerprint, c.kind, c.commonName, c.subject, c.issuer, c.serial, c.notBefore, c.notAfter, c.keyAlgorithm, JSON.stringify(c.keyUsage), c.selfSigned ? 1 : 0, c.isCa ? 1 : 0, enc(c.der), iso(this.clock)],
+    );
+    return (await this.get(c.fingerprint, c.kind))!;
+  }
+  async remove(fingerprint: string, kind: CertificateKind): Promise<void> {
+    await this.db.execute('DELETE FROM certificates WHERE fingerprint = ? AND kind = ?', [fingerprint, kind]);
+  }
 }

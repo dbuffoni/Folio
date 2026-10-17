@@ -5,7 +5,7 @@ import type { Database } from '@folio/ports';
 import { FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, samplePng } from '@folio/testkit';
 import { MIGRATIONS, migrate, splitStatements } from './migrations.ts';
 import { Oo1Database, type Oo1Db } from './oo1.ts';
-import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, PROFILE_TEMPLATES, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, deleteAllData } from './repos.ts';
+import { AiRunsRepo, CertificateRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, PROFILE_TEMPLATES, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, certSecretKey, deleteAllData } from './repos.ts';
 
 const codeOf = async (p: Promise<unknown>): Promise<string> => {
   try {
@@ -42,15 +42,15 @@ describe.each(drivers)('database on %s', (_name, open) => {
 
   it('applies migrations once, in order, transactionally @FR-APP-10', async () => {
     const db = await open();
-    expect(await migrate(db)).toEqual([1, 2, 3]);
+    expect(await migrate(db)).toEqual([1, 2, 3, 4]);
     expect(await migrate(db)).toEqual([]);
     const tables = (await db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
-    expect(tables).toEqual(['ai_runs', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
+    expect(tables).toEqual(['ai_runs', 'certificates', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
     expect(splitStatements(MIGRATIONS[0]!.sql).length).toBe(10);
-    const bad = [...MIGRATIONS, { version: 4, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
+    const bad = [...MIGRATIONS, { version: 5, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
     await expect(migrate(db, bad)).rejects.toThrow();
     expect((await db.select("SELECT name FROM sqlite_master WHERE name='x'")).length).toBe(0);
-    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(3);
+    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(4);
   });
 
   it('stores settings per key, validates them and resets to defaults @FR-APP-10', async () => {
@@ -255,8 +255,31 @@ describe.each(drivers)('database on %s', (_name, open) => {
     expect((await db.select<{ name: string }>("SELECT name FROM pragma_table_info('ai_runs')")).map((c) => c.name)).toEqual(['id', 'at', 'model', 'mode', 'included_image', 'input_tokens', 'output_tokens', 'status']);
     await secrets.set('folio.openai-key', 'sk-test');
     await deleteAllData(db, secrets, ['folio.openai-key']);
-    for (const table of ['settings', 'recent_files', 'signatures', 'stamps', 'profiles', 'form_mappings', 'ai_runs']) expect((await db.select(`SELECT * FROM ${table}`)).length).toBe(0);
+    for (const table of ['settings', 'recent_files', 'signatures', 'stamps', 'profiles', 'form_mappings', 'ai_runs', 'certificates']) expect((await db.select(`SELECT * FROM ${table}`)).length).toBe(0);
     expect(secrets.values.size).toBe(0);
+  });
+
+  it('stores certificates by fingerprint and kind, refreshes duplicates and wipes identity secrets @FR-CRT-03 @FR-CRT-04', async () => {
+    const { db, clock, secrets } = await setup();
+    const repo = new CertificateRepo(db, clock);
+    const base = { commonName: 'Ada', subject: 'CN=Ada', issuer: 'CN=Root', serial: '01', notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z', keyAlgorithm: 'RSA', keyUsage: ['digitalSignature'], selfSigned: false, isCa: false, der: new Uint8Array([1, 2, 3, 255]) };
+    await repo.upsert({ ...base, fingerprint: 'aa', kind: 'identity' });
+    await repo.upsert({ ...base, fingerprint: 'aa', kind: 'trusted' });
+    await repo.upsert({ ...base, fingerprint: 'bb', kind: 'trusted', commonName: 'bob' });
+    await repo.upsert({ ...base, fingerprint: 'aa', kind: 'identity', commonName: 'Ada L.' });
+    expect((await repo.list('identity')).map((c) => [c.fingerprint, c.commonName])).toEqual([['aa', 'Ada L.']]);
+    expect((await repo.list('trusted')).map((c) => c.fingerprint)).toEqual(['aa', 'bb']);
+    expect((await repo.get('aa', 'identity'))!.der).toEqual(new Uint8Array([1, 2, 3, 255]));
+    expect((await repo.get('aa', 'identity'))!.keyUsage).toEqual(['digitalSignature']);
+    // No column can hold private key material.
+    const cols = (await db.select<{ name: string }>("SELECT name FROM pragma_table_info('certificates')")).map((c) => c.name);
+    expect(cols.filter((c) => /key(?!_)|private|pkcs|password|secret|p12/i.test(c.replace('key_algorithm', '').replace('key_usage_json', '')))).toEqual([]);
+    await repo.remove('aa', 'trusted');
+    expect((await repo.list('trusted')).map((c) => c.fingerprint)).toEqual(['bb']);
+    await secrets.set(certSecretKey('aa'), '{"p12":"AA=="}');
+    await deleteAllData(db, secrets);
+    expect(await secrets.get(certSecretKey('aa'))).toBeNull();
+    expect(await repo.list()).toEqual([]);
   });
 
   it('duplicates, reorders and edits profile entries with typed options and validation @FR-FRM-20', async () => {
