@@ -416,10 +416,11 @@ export class DigitalSignModel extends ViewModel {
     this.emit();
     this.app.toast('success', msg('dsig.done', { name: ref.name }));
     if (replace) {
+      // The file now holds the signed document: reopen it so the tab shows what is on disk.
       this.session.markSaved(ref, signed.length);
       await this.app.closeTab(this.session.id);
+      await this.app.openRef(ref);
     }
-    await this.app.openRef(ref);
     return ref.name;
   }
 

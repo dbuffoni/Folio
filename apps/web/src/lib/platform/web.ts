@@ -3,7 +3,7 @@
 import { InvalidArgumentError, IoError, NetworkError, fromBase64, toBase64, utf8 } from '@folio/core';
 import { Oo1Database, type Oo1Db } from '@folio/db';
 import { OCR_DOWNLOAD_HOSTS } from '@folio/services';
-import type { AppStorage, CryptoService, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
+import type { AppStorage, BinaryTransport, CryptoService, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
 import { BrowserClipboard, CanvasImageCodec, IframePrinting, RingLogger, SystemClock, WebCryptoService } from './common.ts';
 
 const TYPES: Record<FileKind, { description: string; accept: Record<string, string[]> } | null> = {
@@ -400,6 +400,32 @@ export class WebHttpClient implements HttpClient {
   }
 }
 
+/** Timestamp and revocation requests of digital signatures. Browsers enforce CORS, so authorities that do not allow it fail with a network error. */
+export class WebBinaryTransport implements BinaryTransport {
+  async request(req: { url: string; method: 'GET' | 'POST'; body?: Uint8Array; contentType?: string; signal?: AbortSignal }): Promise<Uint8Array> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 30_000);
+    req.signal?.addEventListener('abort', () => ac.abort(), { once: true });
+    try {
+      const res = await fetch(req.url, {
+        method: req.method,
+        headers: req.contentType ? { 'Content-Type': req.contentType } : undefined,
+        body: req.body ? (req.body.slice().buffer as ArrayBuffer) : undefined,
+        signal: ac.signal,
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+      });
+      if (!res.ok) throw new NetworkError(`HTTP ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    } catch (e) {
+      if (e instanceof NetworkError) throw e;
+      throw new NetworkError(String((e as Error).message ?? e), e);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 /** Language data downloads (FR-OCR-02): fixed host, checksum checked, never without a user action. */
 export class WebDownloader implements Downloader {
   constructor(private readonly crypto: CryptoService) {}
@@ -477,6 +503,7 @@ export async function createWebPlatform(version: string): Promise<Platform> {
     db: await openWebDatabase(storage),
     secrets,
     http: new WebHttpClient(secrets),
+    network: new WebBinaryTransport(),
     downloader: new WebDownloader(crypto),
     shell: new WebShell(),
     clipboard: new BrowserClipboard(),

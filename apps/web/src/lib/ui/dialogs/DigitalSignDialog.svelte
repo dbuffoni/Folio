@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { DocumentSession, SignCorner } from '@folio/app';
   import { t, tm } from '#lib/i18n/index.ts';
   import { dep, track, ui, wizards } from '#lib/state.svelte.ts';
@@ -12,7 +12,13 @@
   const v = $derived(track());
   const CORNERS: SignCorner[] = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
   $effect(() => {
-    untrack(() => void w.start());
+    // The form appears once the certificates are known; focus moves to it then, so Esc and Tab keep working.
+    untrack(() =>
+      w
+        .start()
+        .then(tick)
+        .then(() => document.querySelector<HTMLElement>('.dialog [data-autofocus], .dialog select')?.focus()),
+    );
   });
   async function go(): Promise<void> {
     if (await w.run()) ui.closeDialog();
@@ -79,7 +85,7 @@
   {/if}
   {#if w.error}<div class="callout warn" role="alert"><Icon name="triangle-alert" /><span>{tm(dep(v, w.error)!)}</span></div>{/if}
   {#snippet footer()}
-    {#if dep(v, w.identities).length === 0 && w.stage !== 'idle'}<button class="btn" onclick={openCertificates}>{t('dsig.openCertificates')}</button>{/if}
+    {#if dep(v, w.identities).length === 0 && w.stage !== 'idle'}<button class="btn" data-autofocus onclick={openCertificates}>{t('dsig.openCertificates')}</button>{/if}
     <button class="btn" onclick={() => ui.closeDialog()}>{t('action.cancel')}</button>
     <button class="btn primary" disabled={!dep(v, w.canSign)} onclick={go}>{w.stage === 'running' ? t('dsig.running') : t('dsig.run')}</button>
   {/snippet}

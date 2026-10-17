@@ -898,6 +898,7 @@
  "sigpanel.timestamp": "Timestamp",
  "sigpanel.title": "Digital signatures",
  "sigpanel.trust": "Trust this signer",
+ "sigpanel.trustRow": "Signer",
  "sigpanel.trustState.expired": "Signer's certificate has expired",
  "sigpanel.trustState.not-yet-valid": "Signer's certificate was not valid yet",
  "sigpanel.trustState.trusted": "Signer is trusted",

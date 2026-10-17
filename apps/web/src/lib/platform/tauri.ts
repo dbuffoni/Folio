@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { FolioError, IoError, NetworkError, type ErrorCode } from '@folio/core';
-import type { AppStorage, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
+import type { AppStorage, BinaryTransport, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
 import { BrowserClipboard, CanvasImageCodec, IframePrinting, RingLogger, SystemClock, WebCryptoService } from './common.ts';
 
 /** Rust errors arrive as `{ code, message }`; turn them into the typed errors the app understands. */
@@ -152,6 +152,14 @@ class TauriHttpClient implements HttpClient {
   }
 }
 
+/** Signature timestamp and revocation traffic. Rust asks the user to approve each new host first. */
+class TauriBinaryTransport implements BinaryTransport {
+  async request(req: { url: string; method: 'GET' | 'POST'; body?: Uint8Array; contentType?: string; signal?: AbortSignal }): Promise<Uint8Array> {
+    if (req.signal?.aborted) throw new NetworkError('aborted');
+    return bytesOf(await call<ArrayBuffer>('binary_request', { url: req.url, method: req.method, body: req.body ? Array.from(req.body) : null, contentType: req.contentType ?? null }));
+  }
+}
+
 class TauriShell implements Shell {
   async openExternal(url: string): Promise<void> {
     if (!/^(https?:|mailto:)/i.test(url)) throw new FolioError('invalidArgument', 'Only web and mail links can be opened');
@@ -200,6 +208,7 @@ export async function createTauriPlatform(): Promise<Platform> {
     secrets: new TauriSecretStore(backend),
     http: new TauriHttpClient(),
     downloader: new TauriDownloader(new WebCryptoService()),
+    network: new TauriBinaryTransport(),
     shell: new TauriShell(),
     clipboard: new BrowserClipboard(),
     window: new TauriWindow(),

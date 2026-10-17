@@ -40,14 +40,14 @@
     {#if cur}
       <dl class="kv" data-testid="sig-detail">
         <dt>{t('sigpanel.integrity')}</dt><dd>{t(`sigpanel.integrity.${cur.integrity}`)}</dd>
-        <dt>{t('sigpanel.trust')}</dt><dd>{t(`sigpanel.trustState.${cur.trust}`)}</dd>
+        <dt>{t('sigpanel.trustRow')}</dt><dd>{t(`sigpanel.trustState.${cur.trust}`)}</dd>
         <dt>{t('sigpanel.after')}</dt><dd>{cur.changedAfterSigning ? t('sigpanel.after.changed') : t('sigpanel.after.none')}</dd>
         <dt>{t('sigpanel.revocation')}</dt><dd>{t(`sigpanel.revocationState.${cur.revocation}`)}</dd>
         {#if cur.timestamp}<dt>{t('sigpanel.timestamp')}</dt><dd>{when(cur.timestamp.time)}{cur.timestamp.authority ? ` · ${cur.timestamp.authority}` : ''} · {cur.timestamp.verified ? t('sigpanel.ts.ok') : t('sigpanel.ts.bad')}</dd>{/if}
         {#if cur.signer}<dt>{t('cert.issuer')}</dt><dd>{cur.signer.issuer}</dd>{/if}
         {#if cur.reason}<dt>{t('dsig.reason')}</dt><dd>{cur.reason}</dd>{/if}
         {#if cur.location}<dt>{t('dsig.location')}</dt><dd>{cur.location}</dd>{/if}
-        {#if cur.message}<dt>{t('sigpanel.note')}</dt><dd>{cur.message}</dd>{/if}
+        {#if cur.message && cur.status !== 'valid-untrusted'}<dt>{t('sigpanel.note')}</dt><dd>{cur.message}</dd>{/if}
       </dl>
       {#if cur.status === 'valid-untrusted' && cur.signerDer}
         <div class="row"><button class="btn" onclick={() => w.trustSigner()}><Icon name="shield-check" />{t('sigpanel.trust')}</button></div>
