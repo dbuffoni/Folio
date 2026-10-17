@@ -22,3 +22,4 @@ export * from './form-author.ts';
 export * from './field-detection.ts';
 export * from './ocr.ts';
 export * from './tables.ts';
+export * from './signing/index.ts';

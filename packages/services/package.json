@@ -11,12 +11,17 @@
   "dependencies": {
     "@folio/core": "workspace:*",
     "@folio/ports": "workspace:*",
-    "fflate": "^0.8"
+    "asn1js": "^3.1.0",
+    "fflate": "^0.8",
+    "pdf-lib": "^1.17.1",
+    "pkijs": "3.4.1"
   },
   "devDependencies": {
     "@folio/ai": "workspace:*",
     "@folio/db": "workspace:*",
     "@folio/testkit": "workspace:*",
-    "fast-check": "^3.23.2"
+    "@types/pngjs": "^6.0.5",
+    "fast-check": "^3.23.2",
+    "pngjs": "^7.0.0"
   }
 }

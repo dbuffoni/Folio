@@ -225,3 +225,49 @@ export async function qpdfQdf(pdf: Uint8Array): Promise<string> {
     return (await readFile(out)).toString('latin1');
   });
 }
+
+/** `pdfsig` verdicts, one per signature in file order. */
+export interface PdfsigRow {
+  field: string;
+  signer: string;
+  validSignature: boolean;
+  totalDocumentSigned: boolean;
+  certificate: string;
+}
+export async function pdfsig(pdf: Uint8Array): Promise<PdfsigRow[]> {
+  return withTempPdf(pdf, async (path) => {
+    const r = await exec('pdfsig', [path]);
+    const rows: PdfsigRow[] = [];
+    let cur: PdfsigRow | undefined;
+    for (const line of r.stdout.split('\n')) {
+      if (/^Signature #\d+:/.test(line)) rows.push((cur = { field: '', signer: '', validSignature: false, totalDocumentSigned: false, certificate: '' }));
+      else if (cur) {
+        const t = line.replace(/^\s*-\s*/, '');
+        if (t.startsWith('Signature Field Name:')) cur.field = t.split(':')[1]!.trim();
+        else if (t.startsWith('Signer Certificate Common Name:')) cur.signer = t.split(':')[1]!.trim();
+        else if (t.startsWith('Total document signed')) cur.totalDocumentSigned = true;
+        else if (t.startsWith('Signature Validation:')) cur.validSignature = /is Valid/.test(t);
+        else if (t.startsWith('Certificate Validation:')) cur.certificate = t.slice('Certificate Validation:'.length).trim();
+      }
+    }
+    return rows;
+  });
+}
+
+/** A PKCS#12 file made by OpenSSL, the independent producer our importer is tested against. */
+export async function opensslPkcs12(opts: { cn: string; password: string; ec?: boolean; legacy?: boolean }): Promise<{ p12: Uint8Array; certPem: string }> {
+  const dir = await mkdtemp(join(tmpdir(), 'folio-ossl-'));
+  try {
+    const key = join(dir, 'k.pem');
+    const crt = join(dir, 'c.pem');
+    const out = join(dir, 'o.p12');
+    const keyArgs = opts.ec ? ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1'] : ['-newkey', 'rsa:2048'];
+    const made = await exec('openssl', ['req', '-x509', ...keyArgs, '-nodes', '-keyout', key, '-out', crt, '-days', '30', '-subj', `/CN=${opts.cn}/O=Folio`, '-addext', 'keyUsage=digitalSignature,nonRepudiation']);
+    if (made.code !== 0) throw new Error(`openssl req failed: ${made.stderr}`);
+    const exp = await exec('openssl', ['pkcs12', '-export', '-inkey', key, '-in', crt, '-out', out, '-passout', `pass:${opts.password}`, ...(opts.legacy ? ['-legacy'] : [])]);
+    if (exp.code !== 0) throw new Error(`openssl pkcs12 failed: ${exp.stderr}`);
+    return { p12: new Uint8Array(await readFile(out)), certPem: await readFile(crt, 'utf8') };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
