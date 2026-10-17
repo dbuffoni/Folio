@@ -35,13 +35,15 @@ const startsWith = (big: Uint8Array, prefix: Uint8Array) => prefix.every((v, i) 
 
 describe('Certificates @FR-CRT-01 @FR-CRT-02 @FR-CRT-03', () => {
   it('opens RSA and ECDSA PKCS#12 files made by OpenSSL and describes the signer @FR-CRT-01', async () => {
+    // openssl.exe reads command-line arguments in the ANSI code page, so a non-ASCII password cannot be passed on Windows.
+    const password = process.platform === 'win32' ? 'password-1' : 'pässword-1';
     for (const ec of [false, true]) {
       const { p12 } = await opensslPkcs12({
         cn: ec ? 'Grace Hopper' : 'Ada Lovelace',
-        password: 'pässword-1',
+        password,
         ec,
       });
-      const id = await openPkcs12(p12, 'pässword-1');
+      const id = await openPkcs12(p12, password);
       expect(id.info.commonName).toBe(ec ? 'Grace Hopper' : 'Ada Lovelace');
       expect(id.info.keyAlgorithm).toBe(ec ? 'ECDSA-P256' : 'RSA');
       expect(id.info.keyUsage).toEqual(['digitalSignature', 'nonRepudiation']);
