@@ -1,5 +1,6 @@
 import { connectEngine, type RpcPort } from '@folio/engine-pdfium/rpc';
 import type { PdfEngine } from '@folio/ports';
+import { instrumentEngine, perfRequested } from '../perf.ts';
 
 /** Starts the engine worker and returns a PdfEngine that talks to it. */
 export function createWorkerEngine(): PdfEngine {
@@ -7,7 +8,8 @@ export function createWorkerEngine(): PdfEngine {
   const port: RpcPort = { postMessage: (m, t) => worker.postMessage(m, t ?? []), onmessage: null };
   worker.onmessage = (e) => port.onmessage?.({ data: e.data });
   worker.postMessage({ base: new URL('.', document.baseURI).href });
-  return connectEngine(port);
+  const engine = connectEngine(port);
+  return perfRequested() ? instrumentEngine(engine) : engine;
 }
 
 /** Bundled handwriting fonts for typed signatures (same-origin static files). */
