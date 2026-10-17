@@ -424,6 +424,8 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .pv{position:absolute;background:#fff;box-shadow:var(--shadow-page);overflow:hidden;touch-action:pan-x pan-y;contain:strict;will-change:transform}
   .pv canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
   .pv canvas.tile{inset:auto;pointer-events:none}
+  /* The blurred page shadow dominates paint cost in WebKitGTK while pages mount during a drag: a hard 1px edge until scrolling stops. */
+  #canvas.scrolling .pv{box-shadow:0 0 0 1px var(--color-border)}
   .pv .ov{position:absolute;inset:0;overflow:hidden}
   .pv .ov>*{position:absolute}
   .pv.t-text{cursor:text}.pv.t-cross{cursor:crosshair}.pv.t-place{cursor:copy}
