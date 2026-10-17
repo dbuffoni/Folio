@@ -55,9 +55,9 @@ Not implemented
 
 Implemented but not verified where it matters
 
-- **Release workflow and distro matrix.** `ci.yml` runs on every push and pull request and is green on
-  main. `release.yml` (tag build, checksums, SBOM, draft release) has not run yet, and the distro
-  matrix (Arch, older glibc) and AppImage signing are untested.
+- **Distro matrix and signing.** `ci.yml` runs on every push and pull request and is green on main;
+  v0.1.0 is published. The distro matrix (Fedora, Arch, older glibc), AppImage signing and the SBOM
+  step are untested.
 - **Screens without a browser test.** The e2e suite (33 scenarios on three browsers) covers the
   seven epics, every mode and tool group, the main dialogs and accessibility scans. Not driven in a
   browser: custom stamp editor, drag-and-drop reordering (keyboard and buttons are tested), printing,
