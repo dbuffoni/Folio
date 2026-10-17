@@ -1,5 +1,5 @@
 export type Unsubscribe = () => void;
-export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'csv' | 'any';
+export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'csv' | 'pkcs12' | 'certificate' | 'any';
 
 export interface FileRef {
   id: string;

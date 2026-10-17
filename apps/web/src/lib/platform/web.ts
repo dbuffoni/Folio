@@ -12,9 +12,11 @@ const TYPES: Record<FileKind, { description: string; accept: Record<string, stri
   json: { description: 'JSON files', accept: { 'application/json': ['.json'] } },
   csv: { description: 'CSV files', accept: { 'text/csv': ['.csv'] } },
   zip: { description: 'ZIP archives', accept: { 'application/zip': ['.zip'] } },
+  pkcs12: { description: 'Certificate files with a private key', accept: { 'application/x-pkcs12': ['.p12', '.pfx'] } },
+  certificate: { description: 'Certificates', accept: { 'application/x-x509-ca-cert': ['.cer', '.crt', '.pem', '.der'] } },
   any: null,
 };
-const EXT: Record<FileKind, string> = { pdf: '.pdf', image: 'image/*', json: '.json', zip: '.zip', csv: '.csv', any: '' };
+const EXT: Record<FileKind, string> = { pdf: '.pdf', image: 'image/*', json: '.json', zip: '.zip', csv: '.csv', pkcs12: '.p12,.pfx', certificate: '.cer,.crt,.pem,.der', any: '' };
 
 interface Entry {
   file?: File;

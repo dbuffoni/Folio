@@ -20,6 +20,8 @@ export interface SignatureReport {
   /** Integrity of the signed bytes. */
   integrity: 'ok' | 'tampered' | 'malformed' | 'unsupported';
   signer?: CertificateInfo;
+  /** DER of the signer certificate, for "Trust this signer". */
+  signerDer?: Uint8Array;
   chain: CertificateInfo[];
   trust: TrustState;
   /** The chain reached a trusted certificate. */
@@ -247,6 +249,7 @@ export async function validateSignatures(
       ...base,
       integrity: 'ok',
       signer: chain[0],
+      signerDer: certDer(cms.signer),
       chain,
       chainComplete: trusted,
       trust,
@@ -266,6 +269,5 @@ export async function validateSignatures(
               : 'A certificate of the chain is not valid yet',
     });
   }
-  void certDer;
   return reports;
 }
