@@ -18,7 +18,7 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 
 ## Release 0.1.1
 
-Thirteen cards of the Folio Kanban (Notion), developed locally and not pushed. Every card has unit tests
+Thirteen cards of the Folio Kanban (Notion), merged to main (PR #7). Every card has unit tests
 (services, app view-models, db on both SQLite drivers), conformance tests where the engine changed, oracle
 tests (qpdf, pdfcpu, poppler) where PDFs are written, and Playwright scenarios.
 
@@ -55,9 +55,9 @@ Not implemented
 
 Implemented but not verified where it matters
 
-- **CI has never run.** `.github/workflows/ci.yml` and `release.yml` were written without a GitHub
-  runner to try them on; expect to fix details on the first push. The distro matrix (Fedora, Arch,
-  older glibc), AppImage signing and the SBOM step are untested.
+- **Release workflow and distro matrix.** `ci.yml` runs on every push and pull request and is green on
+  main. `release.yml` (tag build, checksums, SBOM, draft release) has not run yet, and the distro
+  matrix (Arch, older glibc) and AppImage signing are untested.
 - **Screens without a browser test.** The e2e suite (33 scenarios on three browsers) covers the
   seven epics, every mode and tool group, the main dialogs and accessibility scans. Not driven in a
   browser: custom stamp editor, drag-and-drop reordering (keyboard and buttons are tested), printing,
@@ -67,7 +67,8 @@ Implemented but not verified where it matters
   the single-instance hand-off are covered by Rust unit tests and the smoke test's IPC checks, not
   by a UI flow (WebDriver cannot operate native dialogs).
 - **Performance in the real UI.** NFR-02/04/05 budgets are measured on the engine in Node; start-up
-  time (NFR-01) and scrolling frame rate (NFR-03) were not measured in the AppImage.
+  time (NFR-01) was not measured in the AppImage. Scrolling (NFR-03) is tracked with the opt-in
+  profiler (`?perf`, Ctrl+Alt+Shift+P in the AppImage), not by a gate.
 - **Visual baselines** are compared only on the machine that rendered them.
 - **Smart Fill accuracy** (≥ 85 %) is measured on the generated forms corpus, not on real-world forms.
 
