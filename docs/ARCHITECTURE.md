@@ -77,8 +77,8 @@ click / shortcut / palette entry
 `PdfEngine` (`ports/engine.ts`) is the contract; `engine-pdfium` implements it on
 `@embedpdf/pdfium`. In the app it runs inside a Web Worker and the UI holds a proxy created by
 `connectEngine` over the typed RPC in `engine-pdfium/src/rpc.ts`; in tests and the CLI the same code
-runs directly in Node. Rendering returns RGBA bytes (`RasterImage`), not `ImageBitmap`, so services
-stay testable headlessly. Details: [ADR 0001](adr/0001-pdf-engine-packaging.md),
+runs directly in Node. Rendering returns RGBA bytes (`RasterImage`) so services stay testable headlessly; behind the worker
+boundary the RPC layer turns them into an `ImageBitmap` so the UI thread draws without copying. Details: [ADR 0001](adr/0001-pdf-engine-packaging.md),
 [0002](adr/0002-annotation-appearance-streams.md), [0003](adr/0003-text-edit-fidelity.md).
 
 ## Platform and storage
