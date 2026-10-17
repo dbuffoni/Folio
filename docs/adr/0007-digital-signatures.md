@@ -31,3 +31,7 @@ Desktop and web run the same code. The earlier plan of a Rust `SigningService` (
 
 Signed files are checked with `pdfsig` and `qpdf --check` for single and double signatures, RSA and ECDSA,
 classic and xref-stream files, timestamps, OCSP/CRL and `/DSS`. The Rust request filter has a unit test.
+
+## Bundle
+
+pkijs, asn1js and the signing services add about 260 KB gzip. They are imported on demand (`@folio/services/signing`, loaded the first time a signature is read or made), so the initial JavaScript stays within the 600 KB budget of NFR-10; `tools/bundle-size.ts` reports the on-demand part apart.

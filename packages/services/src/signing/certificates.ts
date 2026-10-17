@@ -3,7 +3,11 @@
 // in memory for the session otherwise.
 import { InvalidArgumentError, certSecretKey, fromBase64, toBase64 } from '@folio/core';
 import type { Clock, SecretStore } from '@folio/ports';
-import { CertificateError, certDer, certFingerprint, describeCertificate, openPkcs12, parseCertificates, type CertificateInfo, type SigningIdentity } from './certs.ts';
+import { CertificateError } from './errors.ts';
+import type { CertificateInfo, SigningIdentity } from './certs.ts';
+
+// pkijs is large; load it when a certificate is first read, not with the application.
+const loadCerts = () => import('./certs.ts');
 
 export type CertificateKind = 'identity' | 'trusted';
 
@@ -84,6 +88,7 @@ export class CertificateService {
    * unsupported file; nothing is stored in that case.
    */
   async importIdentity(p12: Uint8Array, password: string): Promise<{ entry: CertificateEntry; persisted: boolean }> {
+    const { openPkcs12, certDer } = await loadCerts();
     const identity = await openPkcs12(p12, password);
     const info = identity.info;
     if (info.keyAlgorithm === 'unsupported') throw new CertificateError('unsupported', 'Only RSA and ECDSA (P-256, P-384) keys are supported');
@@ -118,11 +123,12 @@ export class CertificateService {
       }
     }
     if (!held) return null;
-    return openPkcs12(held.p12, held.password);
+    return (await loadCerts()).openPkcs12(held.p12, held.password);
   }
 
   /** Adds trusted certificates from a DER or PEM file; the chain of an identity is never trusted implicitly. */
   async importTrusted(bytes: Uint8Array): Promise<CertificateEntry[]> {
+    const { parseCertificates, describeCertificate, certDer } = await loadCerts();
     const certs = parseCertificates(bytes);
     const out: CertificateEntry[] = [];
     for (const cert of certs) {
@@ -154,6 +160,7 @@ export class CertificateService {
   }
 
   async isTrusted(der: Uint8Array): Promise<boolean> {
+    const { parseCertificates, certFingerprint } = await loadCerts();
     const [cert] = parseCertificates(der);
     return !!cert && (await this.deps.repo.get(await certFingerprint(cert), 'trusted')) !== null;
   }

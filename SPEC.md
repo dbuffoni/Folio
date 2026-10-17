@@ -997,7 +997,7 @@ take_pending_open_paths() -> [path]  // CLI/file-association launch args
 | NFR-07 | Reliability | Crash in a worker never loses user work (recovery snapshot ≤ 30 s old); save is atomic. |
 | NFR-08 | Compatibility | Output validated by `qpdf --check` and opens in Acrobat Reader, Preview, Okular, Chromium, pdf.js for the test corpus. |
 | NFR-09 | Portability | Release 1: Linux x86_64 (AppImage, glibc ≥ 2.31 / Ubuntu 22.04 baseline) and modern evergreen browsers for web (Chromium, Firefox, Safari). Code must stay compatible with Windows 10+, macOS 12+ and Linux aarch64 (verified by compile-only CI jobs; shipped builds deferred to Release 2). |
-| NFR-10 | Bundle size | Web initial JS ≤ 600 KB gz excluding WASM; PDFium WASM loaded on demand (≤ 6 MB gz). |
+| NFR-10 | Bundle size | Web initial JS ≤ 600 KB gz excluding WASM; PDFium WASM, OCR and the digital-signature code (pkijs and the signing services) load on demand and are not counted (PDFium ≤ 6 MB gz). |
 | NFR-11 | Accessibility | WCAG 2.2 AA for UI; keyboard-only completion of all P0 flows. |
 | NFR-12 | i18n | English UI in Release 1, but zero hard-coded strings (lint rule) so languages can be added without code changes. |
 | NFR-13 | Code quality | TypeScript `strict`, ESLint + Prettier, `svelte-check` clean, ≥ 80% unit-test coverage on `core` and `features`, Rust `clippy -D warnings`. |

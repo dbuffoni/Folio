@@ -27,7 +27,7 @@ import {
   validateSignatures,
   verifyDetached,
   TimestampError,
-} from '../index.ts';
+} from './index.ts';
 
 const bytesOf = (s: string) => new TextEncoder().encode(s);
 const latin1 = (b: Uint8Array) => new TextDecoder('latin1').decode(b);

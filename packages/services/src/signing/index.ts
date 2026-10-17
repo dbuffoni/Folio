@@ -1,3 +1,4 @@
+export * from './errors.ts';
 export * from './certs.ts';
 export * from './cms.ts';
 export * from './sign.ts';

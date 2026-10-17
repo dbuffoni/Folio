@@ -13,6 +13,8 @@ import {
   setEngine,
   CryptoEngine,
 } from 'pkijs';
+import { CertificateError } from './errors.ts';
+export { CertificateError };
 
 export type KeyAlgorithm = 'RSA' | 'ECDSA-P256' | 'ECDSA-P384';
 
@@ -34,15 +36,6 @@ export interface CertificateInfo {
   keyAlgorithm: KeyAlgorithm | 'unsupported';
 }
 
-export class CertificateError extends Error {
-  constructor(
-    readonly code: 'bad-password' | 'unsupported' | 'invalid' | 'no-key' | 'no-certificate',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'CertificateError';
-  }
-}
 
 let engineReady = false;
 export function ensureEngine(): void {

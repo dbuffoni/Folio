@@ -1,7 +1,7 @@
 // Deterministic-enough X.509 builders for signing tests: roots, intermediates, leaves, RSA or ECDSA.
 import * as asn1js from 'asn1js';
 import { AccessDescription, AttributeTypeAndValue, BasicConstraints, BasicOCSPResponse, CertificateRevocationList, CRLDistributionPoints, DistributionPoint, GeneralName, InfoAccess, OCSPRequest, OCSPResponse, ResponseBytes, ResponseData, RevokedCertificate, SingleResponse, Certificate, ContentInfo, EncapsulatedContentInfo, Extension, IssuerAndSerialNumber, MessageImprint, PKIStatusInfo, SignedData, SignerInfo, TimeStampReq, TimeStampResp, TSTInfo, Time, getCrypto } from 'pkijs';
-import { describeCertificate, ensureEngine, type SigningIdentity, type TimestampTransport } from '@folio/services';
+import { describeCertificate, ensureEngine, type SigningIdentity, type TimestampTransport } from '@folio/services/signing';
 
 export interface TestCert {
   certificate: Certificate;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { migrate, CertificateRepo } from '@folio/db';
 import type { SecretStore } from '@folio/ports';
 import { FakeClock, InMemoryDatabase, opensslPkcs12, pki } from '@folio/testkit';
-import { CertificateError, CertificateService, certDer, certFingerprint, signPdf, validateSignatures } from '../index.ts';
+import { CertificateError, CertificateService, certDer, certFingerprint, signPdf, validateSignatures } from './index.ts';
 import { textDoc } from '@folio/testkit';
 
 class Secrets implements SecretStore {

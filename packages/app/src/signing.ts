@@ -7,15 +7,15 @@ import {
   CertificateError,
   SigningError,
   TimestampError,
-  listSignatureFields,
-  signPdf,
-  validateSignatures,
   type CertificateEntry,
   type CertificateKind,
   type SignatureAppearance,
   type SignatureField,
   type SignatureReport,
 } from '@folio/services';
+// The signing code (pkijs and friends) is large; it loads the first time a signature is read or made.
+const signingCode = () => import('@folio/services/signing');
+
 import type { AppModel } from './app.ts';
 import { ViewModel } from './features.ts';
 import type { DocumentSession } from './session.ts';
@@ -252,7 +252,7 @@ export class DigitalSignModel extends ViewModel {
       this.embedValidation = this.settings.embedValidation && this.networkAvailable;
       this.target = 'copy';
       const bytes = await this.currentBytes();
-      this.fields = await listSignatureFields(bytes).catch(() => []);
+      this.fields = await (await signingCode()).listSignatureFields(bytes).catch(() => []);
       const free = this.openFields[0];
       if (free) {
         this.placement = 'field';
@@ -367,7 +367,7 @@ export class DigitalSignModel extends ViewModel {
                 lines: this.lines(chosen),
                 image: await this.artworkImage(),
               };
-      signed = await signPdf(bytes, {
+      signed = await (await signingCode()).signPdf(bytes, {
         identity,
         fieldName: this.placement === 'field' ? this.fieldName : undefined,
         appearance,
@@ -493,7 +493,7 @@ export class SignaturePanelModel extends ViewModel {
         ref && !this.session.dirty
           ? await this.app.services.platform.files.read(ref)
           : await this.session.doc.save({ incremental: true });
-      this.reports = await validateSignatures(bytes, {
+      this.reports = await (await signingCode()).validateSignatures(bytes, {
         trusted: await this.app.services.certificates.trustedDer(),
         now: this.app.services.platform.clock.now(),
         revocation: this.revocationOn ? this.app.services.platform.network : undefined,

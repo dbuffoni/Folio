@@ -17,6 +17,8 @@ import {
 } from 'pkijs';
 import { ab, commonNameOf, ensureEngine } from './certs.ts';
 import { OID_TIMESTAMP_TOKEN, parseCms, sha256 } from './cms.ts';
+import { TimestampError } from './errors.ts';
+export { TimestampError };
 
 const OID_SHA256 = '2.16.840.1.101.3.4.2.1';
 
@@ -35,15 +37,6 @@ export interface TimestampInfo {
   trusted: boolean;
 }
 
-export class TimestampError extends Error {
-  constructor(
-    readonly code: 'network' | 'rejected' | 'invalid' | 'url',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'TimestampError';
-  }
-}
 
 export function checkAuthorityUrl(url: string): URL {
   let u: URL;

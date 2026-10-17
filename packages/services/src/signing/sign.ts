@@ -14,16 +14,9 @@ import { embedValidationData } from './dss.ts';
 import { checkChainRevocation } from './revocation.ts';
 import { addTimestamp, requestTimestamp, type BinaryTransport, type TimestampTransport } from './timestamp.ts';
 import { appendUpdate, DamagedPdfError, readTail } from './incremental.ts';
+import { SigningError } from './errors.ts';
+export { SigningError };
 
-export class SigningError extends Error {
-  constructor(
-    readonly code: 'encrypted' | 'damaged' | 'field-not-found' | 'field-signed' | 'bad-page' | 'too-large' | 'revoked',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'SigningError';
-  }
-}
 
 export interface SignatureAppearance {
   /** Rectangle in PDF user space on `page`. */
