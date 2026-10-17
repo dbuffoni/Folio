@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/folio-logo-horizontal-dark.svg">
+    <img src="assets/branding/folio-logo-horizontal.svg" alt="Folio" width="320">
+  </picture>
+</p>
+
 # Folio
 
 Folio is an open-source editor for everyday PDF work: reorder, rotate and delete pages, merge and
