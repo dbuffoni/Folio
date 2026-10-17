@@ -172,7 +172,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div id="canvas" class:finding={findOpen} bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} {onscroll} {onwheel} {onkeydown}>
+<div id="canvas" class:finding={findOpen} class:scrolling bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} {onscroll} {onwheel} {onkeydown}>
   {#if hint}
     <div class="callout canvashint" role="status">
       <Icon name="info" /><span>{tm(hint)}</span>

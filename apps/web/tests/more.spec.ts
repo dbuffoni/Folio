@@ -220,3 +220,19 @@ test('a damaged file opens in recovery mode with a notice @FR-APP-13', async ({ 
   await choose(app, () => app.keyboard.press('Control+o'), 'damaged.pdf');
   await expect(app.locator('.pv canvas').first().or(app.getByRole('alert')).first()).toBeVisible();
 });
+
+test('view: pages drop their blurred shadow while scrolling and get it back at rest @NFR-03', async ({ app }) => {
+  await openPdf(app, 'text.pdf');
+  const shadow = () => firstPage(app).evaluate((el) => getComputedStyle(el).boxShadow);
+  const rest = await shadow();
+  // Read in the same task as the scroll event so the 80 ms idle timer cannot beat the check.
+  const during = await app.locator('#canvas').evaluate(
+    (el) =>
+      new Promise<string>((resolve) => {
+        el.addEventListener('scroll', () => queueMicrotask(() => resolve(getComputedStyle(el.querySelector('.pv')!).boxShadow)), { once: true });
+        el.scrollBy(0, 40);
+      }),
+  );
+  expect(during).toContain('0px 0px 0px 1px');
+  await expect.poll(shadow).toBe(rest);
+});
