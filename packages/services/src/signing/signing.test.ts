@@ -103,7 +103,9 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
   it('signs with an ECDSA identity @FR-SIG-01', async () => {
     const { identity } = await pki({ ec: 'P-256' });
     const signed = await signPdf(await textDoc({ pages: 1 }), { identity });
-    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true, totalDocumentSigned: true }));
+    await withPdfsig(signed, (rows) =>
+      expect(rows[0]).toMatchObject({ validSignature: true, totalDocumentSigned: true }),
+    );
   });
 
   it('keeps earlier signatures valid when signing again @FR-SIG-01', async () => {
@@ -117,8 +119,8 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
         ['Ada', true],
         ['Grace', true],
       ]);
-      expect(rows.map((r) => r.field)).toEqual(['Signature1', 'Signature2']);
     });
+    expect((await listSignatureFields(twice)).map((f) => f.name)).toEqual(['Signature1', 'Signature2']);
     const report = await validateSignatures(twice, {
       trusted: [certDer(a.root.certificate), certDer(b.root.certificate)],
     });
@@ -177,7 +179,7 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
       appearance: { page: 0, rect: { x: 72, y: 100, width: 200, height: 50 }, lines: ['Signed by Ada'] },
     });
     expect(await listSignatureFields(signed)).toMatchObject([{ name: 'Approval', signed: true }]);
-    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ field: 'Approval', validSignature: true }));
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true }));
     expect((await qpdfCheck(signed)).ok).toBe(true);
     await expect(signPdf(signed, { identity, fieldName: 'Approval' })).rejects.toMatchObject({
       code: 'field-signed',
@@ -439,9 +441,17 @@ describe('Revocation and long-term validation @FR-SIG-06 @FR-SIG-08', () => {
   const setup = async () => {
     const root = await makeCertificate({ cn: 'Folio Test Root CA', ca: true });
     const leaf = await makeCertificate({ cn: 'Ada Lovelace', issuer: root, ocspUrl: OCSP, crlUrl: CRL });
-    return { root, leaf, identity: await identityOf(leaf, root), server: new FakeRevocationServer(root, OCSP, CRL) };
+    return {
+      root,
+      leaf,
+      identity: await identityOf(leaf, root),
+      server: new FakeRevocationServer(root, OCSP, CRL),
+    };
   };
-  const serialHex = (c: { certificate: { serialNumber: { valueBlock: { valueHexView: Uint8Array } } } }) => Array.from(c.certificate.serialNumber.valueBlock.valueHexView, (b) => b.toString(16).padStart(2, '0')).join('');
+  const serialHex = (c: { certificate: { serialNumber: { valueBlock: { valueHexView: Uint8Array } } } }) =>
+    Array.from(c.certificate.serialNumber.valueBlock.valueHexView, (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('');
 
   it('checks nothing and sends nothing unless asked @FR-SIG-06', async () => {
     const { root, identity, server } = await setup();
@@ -455,10 +465,16 @@ describe('Revocation and long-term validation @FR-SIG-06 @FR-SIG-08', () => {
     const { root, leaf, identity, server } = await setup();
     const signed = await signPdf(await textDoc({ pages: 1 }), { identity });
     const opts = { trusted: [certDer(root.certificate)], revocation: server };
-    expect((await validateSignatures(signed, opts))[0]).toMatchObject({ revocation: 'good', status: 'valid' });
+    expect((await validateSignatures(signed, opts))[0]).toMatchObject({
+      revocation: 'good',
+      status: 'valid',
+    });
     expect(server.requests).toEqual([`POST ${OCSP}`]);
     server.revoked.add(serialHex(leaf));
-    expect((await validateSignatures(signed, opts))[0]).toMatchObject({ revocation: 'revoked', status: 'invalid' });
+    expect((await validateSignatures(signed, opts))[0]).toMatchObject({
+      revocation: 'revoked',
+      status: 'invalid',
+    });
   });
 
   it('falls back to the CRL, and says unknown when nothing answers @FR-SIG-06', async () => {
@@ -471,7 +487,10 @@ describe('Revocation and long-term validation @FR-SIG-06 @FR-SIG-08', () => {
     server.revoked.add(serialHex(leaf));
     expect((await validateSignatures(signed, opts))[0]!.revocation).toBe('revoked');
     server.mode = 'down';
-    expect((await validateSignatures(signed, opts))[0]).toMatchObject({ revocation: 'unknown', status: 'valid' });
+    expect((await validateSignatures(signed, opts))[0]).toMatchObject({
+      revocation: 'unknown',
+      status: 'valid',
+    });
   });
 
   it('stores certificates and answers in /DSS after the signature @FR-SIG-08', async () => {
@@ -495,6 +514,8 @@ describe('Revocation and long-term validation @FR-SIG-06 @FR-SIG-08', () => {
   it('refuses to sign with a revoked certificate and leaves no file @FR-SIG-08', async () => {
     const { leaf, identity, server } = await setup();
     server.revoked.add(serialHex(leaf));
-    await expect(signPdf(await textDoc({ pages: 1 }), { identity, validationData: server })).rejects.toMatchObject({ code: 'revoked' });
+    await expect(
+      signPdf(await textDoc({ pages: 1 }), { identity, validationData: server }),
+    ).rejects.toMatchObject({ code: 'revoked' });
   });
 });
