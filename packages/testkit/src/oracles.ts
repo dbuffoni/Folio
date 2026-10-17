@@ -271,3 +271,14 @@ export async function opensslPkcs12(opts: { cn: string; password: string; ec?: b
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+/** Runs `check` on the pdfsig verdicts, or does nothing where pdfsig does not exist (Windows). */
+export async function withPdfsig(pdf: Uint8Array, check: (rows: PdfsigRow[]) => void): Promise<void> {
+  try {
+    await exec('pdfsig', ['-v']);
+  } catch {
+    if (process.platform === 'win32') return;
+    throw new Error('Oracle tool "pdfsig" is not installed');
+  }
+  check(await pdfsig(pdf));
+}

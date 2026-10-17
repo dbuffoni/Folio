@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FakeRevocationServer, FakeTimestampAuthority, makeCertificate, opensslPkcs12, pdfsig, qpdfCheck } from '@folio/testkit';
+import { FakeRevocationServer, FakeTimestampAuthority, makeCertificate, opensslPkcs12, withPdfsig, qpdfCheck } from '@folio/testkit';
 import { createTestApp, type TestApp } from './testing.ts';
 
 async function app(opts: Parameters<typeof createTestApp>[0] = {}): Promise<TestApp> {
@@ -82,7 +82,7 @@ describe('Digital signature dialog model @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () =
     expect(await m.run()).toBe('signed.pdf');
     const out = t.files.get('/out/signed.pdf')!;
     expect((await qpdfCheck(out)).ok).toBe(true);
-    expect((await pdfsig(out))[0]!.validSignature).toBe(true);
+    await withPdfsig(out, (rows) => expect(rows[0]!.validSignature).toBe(true));
     expect(t.files.get('/docs/multilingual.pdf')).toEqual(before);
     expect(t.toastKeys()).toContain('dsig.done');
     expect(t.app.settings.signing.lastIdentity).toBe(m.identity);

@@ -5,7 +5,7 @@ import {
   makeCertificate,
   identityOf,
   opensslPkcs12,
-  pdfsig,
+  withPdfsig,
   pdftoppm,
   pki,
   qpdfCheck,
@@ -85,12 +85,13 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
     const signed = await signPdf(pdf, { identity, reason: 'I approve', location: 'Rome' });
     expect(startsWith(signed, pdf)).toBe(true); // earlier revision untouched
     expect((await qpdfCheck(signed)).ok).toBe(true);
-    const rows = await pdfsig(signed);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      signer: 'Ada Lovelace',
-      validSignature: true,
-      totalDocumentSigned: true,
+    await withPdfsig(signed, (rows) => {
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        signer: 'Ada Lovelace',
+        validSignature: true,
+        totalDocumentSigned: true,
+      });
     });
     const text = latin1(signed);
     const m = /\/ByteRange \[0 (\d+) (\d+) (\d+)\]/.exec(text)!;
@@ -102,7 +103,7 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
   it('signs with an ECDSA identity @FR-SIG-01', async () => {
     const { identity } = await pki({ ec: 'P-256' });
     const signed = await signPdf(await textDoc({ pages: 1 }), { identity });
-    expect((await pdfsig(signed))[0]).toMatchObject({ validSignature: true, totalDocumentSigned: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true, totalDocumentSigned: true }));
   });
 
   it('keeps earlier signatures valid when signing again @FR-SIG-01', async () => {
@@ -111,12 +112,13 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
     const once = await signPdf(await textDoc({ pages: 1 }), { identity: a.identity });
     const twice = await signPdf(once, { identity: b.identity });
     expect(startsWith(twice, once)).toBe(true);
-    const rows = await pdfsig(twice);
-    expect(rows.map((r) => [r.signer, r.validSignature])).toEqual([
-      ['Ada', true],
-      ['Grace', true],
-    ]);
-    expect(rows.map((r) => r.field)).toEqual(['Signature1', 'Signature2']);
+    await withPdfsig(twice, (rows) => {
+      expect(rows.map((r) => [r.signer, r.validSignature])).toEqual([
+        ['Ada', true],
+        ['Grace', true],
+      ]);
+      expect(rows.map((r) => r.field)).toEqual(['Signature1', 'Signature2']);
+    });
     const report = await validateSignatures(twice, {
       trusted: [certDer(a.root.certificate), certDer(b.root.certificate)],
     });
@@ -134,7 +136,7 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
     expect(latin1(packed)).toMatch(/\/Type\s*\/XRef/);
     const signed = await signPdf(packed, { identity });
     expect((await qpdfCheck(signed)).ok).toBe(true);
-    expect((await pdfsig(signed))[0]).toMatchObject({ validSignature: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true }));
     expect(latin1(signed.subarray(packed.length))).toMatch(/\/Type \/XRef/);
   });
 
@@ -175,7 +177,7 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
       appearance: { page: 0, rect: { x: 72, y: 100, width: 200, height: 50 }, lines: ['Signed by Ada'] },
     });
     expect(await listSignatureFields(signed)).toMatchObject([{ name: 'Approval', signed: true }]);
-    expect((await pdfsig(signed))[0]).toMatchObject({ field: 'Approval', validSignature: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ field: 'Approval', validSignature: true }));
     expect((await qpdfCheck(signed)).ok).toBe(true);
     await expect(signPdf(signed, { identity, fieldName: 'Approval' })).rejects.toMatchObject({
       code: 'field-signed',
@@ -222,7 +224,7 @@ describe('Signing @FR-SIG-01 @FR-SIG-02 @FR-SIG-03', () => {
     expect(changed).toBeGreaterThan(rect.width * rect.height * 0.5);
     // Outside the rectangle nothing moved.
     expect(after.data[(10 * after.width + 10) * 4]).toBe(before.data[(10 * before.width + 10) * 4]);
-    expect((await pdfsig(signed))[0]).toMatchObject({ validSignature: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true }));
   });
 
   it('embeds PNG artwork in the appearance @FR-SIG-03', async () => {
@@ -298,7 +300,7 @@ describe('Validation @FR-SIG-04', () => {
     tampered[7] = '4'.charCodeAt(0); // the header's version digit lies inside the signed range
     const [r] = await validateSignatures(tampered, { trusted: [certDer(root.certificate)] });
     expect(r).toMatchObject({ status: 'invalid', integrity: 'tampered' });
-    expect((await pdfsig(tampered))[0]!.validSignature).toBe(false);
+    await withPdfsig(tampered, (rows) => expect(rows[0]!.validSignature).toBe(false));
   });
 
   it('reports bytes appended after the last signature as a change after signing @FR-SIG-04', async () => {
@@ -361,7 +363,7 @@ describe('Timestamps @FR-SIG-07', () => {
     });
     expect(fake.requests).toBe(1);
     expect(fake.urls).toEqual(['https://tsa.example/tsr']);
-    expect((await pdfsig(signed))[0]).toMatchObject({ validSignature: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true }));
     expect((await qpdfCheck(signed)).ok).toBe(true);
     const [r] = await validateSignatures(signed, {
       trusted: [certDer(root.certificate), certDer(tsaRoot.certificate)],
@@ -481,7 +483,7 @@ describe('Revocation and long-term validation @FR-SIG-06 @FR-SIG-08', () => {
     expect(text).toMatch(/\/DSS/);
     expect(text).toMatch(/\/VRI/);
     expect((await qpdfCheck(signed)).ok).toBe(true);
-    expect((await pdfsig(signed))[0]).toMatchObject({ validSignature: true });
+    await withPdfsig(signed, (rows) => expect(rows[0]).toMatchObject({ validSignature: true }));
     const [r] = await validateSignatures(signed, { trusted: [certDer(root.certificate)] });
     expect(r).toMatchObject({ status: 'valid', integrity: 'ok', changedAfterSigning: true });
     const { PDFDocument, PDFName, PDFArray, PDFDict } = await import('pdf-lib');
