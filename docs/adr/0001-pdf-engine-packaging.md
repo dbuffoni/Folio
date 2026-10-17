@@ -15,7 +15,7 @@ Use `@embedpdf/pdfium` pinned to **2.15.1** behind `packages/engine-pdfium`. No 
 ## Consequences
 - Same code path in Node (tests, CLI) and in a Web Worker. Init ≈ 20 ms, a Letter page renders in ≈ 2 ms at 72 dpi in Node.
 - The UI talks to the worker through `rpc.ts`; the whole conformance suite also runs through that boundary.
-- WebKitGTK (Tauri on Linux): the walking-skeleton AppImage runs under Xvfb with `WEBKIT_DISABLE_DMABUF_RENDERER=1`; rendering uses `ImageData` transfers, so `OffscreenCanvas` is not required.
+- WebKitGTK (Tauri on Linux): the walking-skeleton AppImage runs under Xvfb with `WEBKIT_DISABLE_DMABUF_RENDERER=1`; rendering first used `ImageData` transfers (so `OffscreenCanvas` is not required); the worker now hands over an `ImageBitmap` where the browser supports it (see ARCHITECTURE).
 - Upgrading the engine is a version bump plus `pnpm test:conformance`.
 
 ## Evidence
