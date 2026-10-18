@@ -17,3 +17,10 @@ INSERT INTO profile_fields_new (id, profile_id, key, label, type, value, sensiti
   SELECT id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json FROM profile_fields;
 DROP TABLE profile_fields;
 ALTER TABLE profile_fields_new RENAME TO profile_fields;
+-- The signature a profile named before becomes a signature entry, so there is one place to choose it.
+INSERT INTO profile_fields (id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json)
+  SELECT 'sigentry-' || p.id, p.id, 'signature', 'Signature', 'signature', p.signature_id, 0, '[]',
+         COALESCE((SELECT MAX(sort_order) FROM profile_fields f WHERE f.profile_id = p.id), -1) + 1, '[]'
+  FROM profiles p
+  WHERE p.signature_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM profile_fields f WHERE f.profile_id = p.id AND f.key = 'signature');

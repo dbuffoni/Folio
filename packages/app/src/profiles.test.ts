@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
 import { flatFormDoc, inkRatio, samplePng, scannedFormDoc } from '@folio/testkit';
+import { vectorFromStrokes, vectorToSvg } from '@folio/services';
 import { createTestApp } from './testing.ts';
 
 describe('Profiles and field templates editor @FR-FRM-20', () => {
@@ -289,7 +290,9 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const { pdf } = await flatFormDoc(labels.map((label) => ({ key: '', label, kind: 'dots' as const })), 'ISCRIZIONE');
     t.files.put('/doposcuola.pdf', pdf);
     const s = (await t.app.openRef(t.files.ref('/doposcuola.pdf')))!;
-    const sig = await t.services.signaturesRepo.add({ name: 'Daniele', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    // A drawn signature, as the signature pad stores it: a vector path and its raster.
+    const vector = vectorFromStrokes([[{ x: 0, y: 30 }, { x: 40, y: 0 }, { x: 80, y: 30 }, { x: 120, y: 5 }], [{ x: 10, y: 38 }, { x: 110, y: 36 }]]);
+    const sig = await t.services.signaturesRepo.add({ name: 'Daniele', kind: 'signature', source: 'drawn', svg: vectorToSvg(vector), png: samplePng(120, 40), width: vector.width, height: vector.height }, { encrypt: false });
     const m = t.profiles();
     await m.load();
     const p = (await m.create('Daniele'))!;
@@ -317,7 +320,11 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     expect(sf.suggestions.find((x) => /tutore/.test(x.label))).toMatchObject({ profileKey: 'father', value: 'Marco Rossi', confidence: 'high', accepted: true });
     expect(sf.signFields).toBe(2);
     await sf.apply(false);
-    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(2);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.length).toBe(2);
+    // The page shows the drawn signature where the stamps are.
+    const page = await s.doc.render(0, { scale: 1 });
+    for (const st of stamps) expect(inkRatio(page, { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height })).toBeGreaterThan(0.01);
     expect((await s.doc.listFormFields()).map((f) => f.value)).toContain('Marco Rossi');
   });
   it('e-mail, phone and signature entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {

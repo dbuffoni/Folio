@@ -66,13 +66,6 @@
     {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => m.setDefault(p.id)}>{t('action.setDefault')}</button>{/if}
     <button class="btn sm" style="flex:none" onclick={() => m.duplicate(p.id)}>{t('profiles.duplicate')}</button>
   </div>
-  <div class="row psign">
-    <label for="psig">{t('profiles.signature')}</label>
-    <select id="psig" value={p.signatureId ?? ''} onchange={(e) => m.setSignature(p.id, e.currentTarget.value || null)}>
-      <option value="">{t('profiles.signatureNone')}</option>
-      {#each m.signatures as sg (sg.id)}<option value={sg.id}>{sg.name}</option>{/each}
-    </select>
-  </div>
   {#if m.signatures.length === 0}<p class="note">{t('profiles.signatureHint')}</p>{/if}
   <div class="pfields">
     {#each p.fields as f, i (f.key)}

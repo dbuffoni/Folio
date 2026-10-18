@@ -81,7 +81,7 @@ test('profile editor keeps every control inside the window at any size @FR-FRM-2
   }
 });
 
-test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app }) => {
+test('a profile signature is a typed entry with a saved signature and aliases @FR-STM-01 @FR-AIF-01', async ({ app }) => {
   await openPdf(app, 'text.pdf');
   await mode(app, 'Fill & Sign');
   await tool(app, 'Sign').click();
@@ -101,16 +101,8 @@ test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app 
   await settings.getByRole('button', { name: 'Profiles' }).click();
   await settings.getByRole('textbox', { name: 'New profile' }).fill('Signer');
   await settings.getByRole('button', { name: 'Add', exact: true }).click();
-  const pick = settings.getByRole('combobox', { name: 'Signature for signature fields' });
-  await expect(pick).toHaveValue('');
-  const options = await pick.locator('option').allTextContents();
-  expect(options.length).toBe(2);
-  await pick.selectOption({ index: 1 });
-  await settings.getByRole('button', { name: 'Back' }).click();
-  await settings.getByRole('button', { name: 'Edit' }).click();
-  await expect(pick).not.toHaveValue('');
-
   // A signature entry: type first (no label asked), then a saved signature and the names it answers to.
+  await expect(settings.getByRole('combobox', { name: 'Signature for signature fields' })).toHaveCount(0);
   await settings.getByRole('combobox', { name: 'Type', exact: true }).selectOption({ label: 'Signature' });
   await expect(settings.getByRole('textbox', { name: 'New entry' })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Add entry' }).click();

@@ -53,6 +53,20 @@ describe.each(drivers)('database on %s', (_name, open) => {
     expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(5);
   });
 
+  it('the signature a profile named before becomes a signature entry @FR-FRM-20', async () => {
+    const db = await open();
+    await migrate(db, MIGRATIONS.slice(0, 4));
+    await db.execute("INSERT INTO signatures (id, name, kind, source, png, width, height) VALUES ('s1', 'Mine', 'signature', 'drawn', x'00', 10, 5)");
+    await db.execute("INSERT INTO profiles (id, name, signature_id) VALUES ('p1', 'A', 's1'), ('p2', 'B', NULL)");
+    await db.execute("INSERT INTO profile_fields (id, profile_id, key, label, type, value) VALUES ('f1', 'p1', 'first_name', 'First name', 'text', 'Ada')");
+    expect(await migrate(db)).toEqual([5]);
+    const rows = await db.select<{ profile_id: string; key: string; type: string; value: string; sort_order: number }>('SELECT profile_id, key, type, value, sort_order FROM profile_fields ORDER BY profile_id, sort_order');
+    expect(rows).toEqual([
+      { profile_id: 'p1', key: 'first_name', type: 'text', value: 'Ada', sort_order: 0 },
+      { profile_id: 'p1', key: 'signature', type: 'signature', value: 's1', sort_order: 1 },
+    ]);
+  });
+
   it('stores settings per key, validates them and resets to defaults @FR-APP-10', async () => {
     const { db, clock } = await setup();
     const repo = new SettingsRepo(db, clock);

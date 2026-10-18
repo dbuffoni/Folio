@@ -2224,9 +2224,9 @@ export class SmartFillModel extends ViewModel {
       const stored = f.value ? await repo.get(f.value) : null;
       if (stored) named.push({ names: [f.label, ...f.aliases].filter((n) => n.trim() !== ''), stored });
     }
+    // The first signature entry is the default; a profile from before signature entries existed falls back to its own.
     const id = this.profile?.signatureId;
-    const base = id ? await repo.get(id) : null;
-    const stored = base ?? named[0]?.stored ?? null;
+    const stored = named[0]?.stored ?? (id ? await repo.get(id) : null);
     return { named, fallback: stored ? { stored } : null };
   }
   private async signCommand() {

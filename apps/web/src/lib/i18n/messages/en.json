@@ -663,7 +663,6 @@
  "profiles.newTemplate": "New template",
  "profiles.options": "Choices",
  "profiles.saveAsTemplate": "Save as template",
- "profiles.signature": "Signature for signature fields",
  "profiles.signatureHint": "Save a signature first (Fill & Sign), then pick it here.",
  "profiles.signatureNone": "None",
  "profiles.signaturePick": "Saved signature",
