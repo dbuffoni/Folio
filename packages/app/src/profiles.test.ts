@@ -282,4 +282,42 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await again.apply(false);
     expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
   });
+  it("the reported 'doposcuola' form: Haiku leaves the tutore line empty, the profile's father and signature still arrive @FR-AIF-07 @FR-STM-01", async () => {
+    const ai = new FakeAiProvider();
+    const t = await createTestApp({ ai });
+    const labels = ['Il/la sottoscritto/a', 'codice fiscale', 'indirizzo di residenza (comune, via e cap)', 'genitore o tutore legale dell’alunno/a', 'appartenente alla classe', 'Firma', 'Numero di telefono per eventuali comunicazioni', '(Indirizzo email per ricevere copia della fattura', 'Firma', 'Data'];
+    const { pdf } = await flatFormDoc(labels.map((label) => ({ key: '', label, kind: 'dots' as const })), 'ISCRIZIONE');
+    t.files.put('/doposcuola.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/doposcuola.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Daniele', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Daniele'))!;
+    const father = (await m.addField(p.id, 'Father'))!;
+    await m.updateField(p.id, father, { value: 'Marco Rossi', aliases: ['genitore di', 'padre di', 'tutore di', 'tutore legale di'] });
+    const classe = (await m.addField(p.id, 'Classe'))!;
+    await m.updateField(p.id, classe, { value: '3A' });
+    await m.setSignature(p.id, sig.id);
+    await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
+    ai.enqueue((req) => ({
+      fields: req.candidates.map((c) => ({
+        ref: c.ref,
+        label: c.label ?? '',
+        fieldType: /^Firma/.test(c.label ?? '') ? 'signature' : 'text',
+        profileKey: c.label === 'appartenente alla classe' ? 'classe' : null,
+        transform: 'none',
+        choiceValue: null,
+        confidence: /tutore/.test(c.label ?? '') ? 0.3 : 0.9,
+      })),
+      newAreas: [],
+    }));
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.result!.source).toBe('ai');
+    expect(sf.suggestions.find((x) => /tutore/.test(x.label))).toMatchObject({ profileKey: 'father', value: 'Marco Rossi', confidence: 'high', accepted: true });
+    expect(sf.signFields).toBe(2);
+    await sf.apply(false);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(2);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toContain('Marco Rossi');
+  });
 });
