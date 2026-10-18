@@ -300,6 +300,7 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await m.updateField(p.id, father, { value: 'Marco Rossi', aliases: ['genitore di', 'padre di', 'tutore di', 'tutore legale di'] });
     const classe = (await m.addField(p.id, 'Classe'))!;
     await m.updateField(p.id, classe, { value: '3A' });
+    expect(await m.addField(p.id, '', 'today')).toBe('today');
     await m.setSignature(p.id, sig.id);
     await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
     ai.enqueue((req) => ({
@@ -318,6 +319,10 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await sf.start();
     expect(sf.result!.source).toBe('ai');
     expect(sf.suggestions.find((x) => /tutore/.test(x.label))).toMatchObject({ profileKey: 'father', value: 'Marco Rossi', confidence: 'high', accepted: true });
+    // "Data" gets the date of the day, written day/month/year, although the model left it without a key.
+    const day = t.app.services.platform.clock.now();
+    const expected = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}/${day.getFullYear()}`;
+    expect(sf.suggestions.find((x) => x.label === 'Data')).toMatchObject({ profileKey: 'today', value: expected });
     expect(sf.signFields).toBe(2);
     await sf.apply(false);
     const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
@@ -325,7 +330,7 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     // The page shows the drawn signature where the stamps are.
     const page = await s.doc.render(0, { scale: 1 });
     for (const st of stamps) expect(inkRatio(page, { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height })).toBeGreaterThan(0.01);
-    expect((await s.doc.listFormFields()).map((f) => f.value)).toContain('Marco Rossi');
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toEqual(expect.arrayContaining(['Marco Rossi', expected]));
   });
   it('e-mail, phone and signature entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();

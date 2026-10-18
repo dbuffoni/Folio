@@ -11,7 +11,7 @@
   const profiles = $derived(dep(v, m.profiles));
   const templates = $derived(dep(v, m.templates));
   const current = $derived(dep(v, m.current));
-  const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature'];
+  const TYPES: ProfileFieldType[] = ['text', 'date', 'today', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature'];
   /** Template entries hold no values, so a saved signature cannot be one of them. */
   const TEMPLATE_TYPES = TYPES.filter((ty) => ty !== 'signature');
   const fixedLabel = (ty: ProfileFieldType): boolean => FIXED_LABEL_TYPES.includes(ty);
@@ -81,6 +81,8 @@
               <option value="">{t('profiles.signatureNone')}</option>
               {#each m.signatures as sg (sg.id)}<option value={sg.id}>{sg.name}</option>{/each}
             </select>
+          {:else if f.type === 'today'}
+            <span class="plabel note">{t('profiles.todayHint')}</span>
           {:else}
             <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
           {/if}

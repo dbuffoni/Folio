@@ -42,15 +42,15 @@ describe.each(drivers)('database on %s', (_name, open) => {
 
   it('applies migrations once, in order, transactionally @FR-APP-10', async () => {
     const db = await open();
-    expect(await migrate(db)).toEqual([1, 2, 3, 4, 5]);
+    expect(await migrate(db)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(await migrate(db)).toEqual([]);
     const tables = (await db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
     expect(tables).toEqual(['ai_runs', 'certificates', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
     expect(splitStatements(MIGRATIONS[0]!.sql).length).toBe(10);
-    const bad = [...MIGRATIONS, { version: 6, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
+    const bad = [...MIGRATIONS, { version: 7, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
     await expect(migrate(db, bad)).rejects.toThrow();
     expect((await db.select("SELECT name FROM sqlite_master WHERE name='x'")).length).toBe(0);
-    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(5);
+    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(6);
   });
 
   it('the signature a profile named before becomes a signature entry @FR-FRM-20', async () => {
@@ -58,11 +58,12 @@ describe.each(drivers)('database on %s', (_name, open) => {
     await migrate(db, MIGRATIONS.slice(0, 4));
     await db.execute("INSERT INTO signatures (id, name, kind, source, png, width, height) VALUES ('s1', 'Mine', 'signature', 'drawn', x'00', 10, 5)");
     await db.execute("INSERT INTO profiles (id, name, signature_id) VALUES ('p1', 'A', 's1'), ('p2', 'B', NULL)");
-    await db.execute("INSERT INTO profile_fields (id, profile_id, key, label, type, value) VALUES ('f1', 'p1', 'first_name', 'First name', 'text', 'Ada')");
-    expect(await migrate(db)).toEqual([5]);
+    await db.execute("INSERT INTO profile_fields (id, profile_id, key, label, type, value) VALUES ('f1', 'p1', 'first_name', 'First name', 'text', 'Ada'), ('f2', 'p1', 'today', 'Today''s date', 'date', '')");
+    expect(await migrate(db)).toEqual([5, 6]);
     const rows = await db.select<{ profile_id: string; key: string; type: string; value: string; sort_order: number }>('SELECT profile_id, key, type, value, sort_order FROM profile_fields ORDER BY profile_id, sort_order');
     expect(rows).toEqual([
       { profile_id: 'p1', key: 'first_name', type: 'text', value: 'Ada', sort_order: 0 },
+      { profile_id: 'p1', key: 'today', type: 'today', value: '', sort_order: 0 },
       { profile_id: 'p1', key: 'signature', type: 'signature', value: 's1', sort_order: 1 },
     ]);
   });

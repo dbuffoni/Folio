@@ -752,7 +752,9 @@ export class SmartFillService {
             const c = byRef.get(m.ref);
             if (m.profileKey || !c || m.fieldType === 'signature') return;
             const texts = [c.label, m.label].filter((t): t is string => !!t);
-            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0)));
+            // A date entry is also found by a label that is just one of its names ("Data" for "data"): dates are rarely ambiguous.
+            const exact = (t: string, n: string): boolean => tokens(n).length === 1 && tokens(t).join(' ') === tokens(n).join(' ');
+            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0 || (f.type === 'date' && exact(t, n)))));
             if (hit) mappings[i] = { ...m, profileKey: hit.key, confidence: Math.max(m.confidence, 0.9) };
           });
           // Candidates beyond the page cap (or skipped by the model) still get a local suggestion.

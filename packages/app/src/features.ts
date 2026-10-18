@@ -17,7 +17,7 @@ import {
   type DateFormat,
   type Msg,
 } from '@folio/core';
-import { FIXED_LABEL_TYPES, FIXED_TYPE_LABELS, uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
+import { FIXED_LABEL_TYPES, FIXED_TYPE_ALIASES, FIXED_TYPE_LABELS, uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
 import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
@@ -1344,7 +1344,7 @@ export class ProfilesModel extends ViewModel {
     const text = fixed ? FIXED_TYPE_LABELS[type]! : label;
     const key = uniqueKey(fixed ? type : label, p?.fields.map((f) => f.key) ?? []);
     return this.run(async () => {
-      await this.s.profiles.setField(profileId, { key, label: text.trim() || key, type, value: '' });
+      await this.s.profiles.setField(profileId, { key, label: text.trim() || key, type, value: '', aliases: FIXED_TYPE_ALIASES[type] ?? [] });
       return key;
     });
   }
@@ -2099,11 +2099,16 @@ export class SmartFillModel extends ViewModel {
       ? Array.from({ length: this.session.pageCount }, (_, i) => i)
       : [this.session.view.page];
   }
+  /** The date of the day as day/month/year: what a "today" entry holds while a form is filled. */
+  private today(): string {
+    const d = this.app.services.platform.clock.now();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  }
   async loadProfiles(): Promise<void> {
     // Signature entries are not text to fill in: they pick saved signatures, so the matching service never sees them.
     const all = await this.app.services.profiles.list();
     this.signatureEntries = new Map(all.map((p) => [p.id, p.fields.filter((f) => f.type === 'signature')] as const));
-    this.profiles = all.map((p) => ({ ...p, fields: p.fields.filter((f) => f.type !== 'signature').map((f) => (isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
+    this.profiles = all.map((p) => ({ ...p, fields: p.fields.filter((f) => f.type !== 'signature').map((f) => (f.type === 'today' ? { ...f, type: 'date' as const, value: this.today() } : isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
     this.profile =
       this.profiles.find((p) => p.id === this.profile?.id) ??
       this.profiles.find((p) => (p as { isDefault?: boolean }).isDefault) ??
