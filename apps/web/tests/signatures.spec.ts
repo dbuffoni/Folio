@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { downloads, expect, fx, menu, openPdf, qpdfCheck, tabs, test } from './helpers.ts';
+import { downloads, expect, fx, menu, mode, openPdf, qpdfCheck, tabs, test, tool } from './helpers.ts';
 import { ROOT } from './paths.ts';
 import type { Page } from '@playwright/test';
 
@@ -84,4 +84,16 @@ test('an unsigned document says so in the signatures dialog @FR-SIG-04', async (
   await openPdf(app, 'text.pdf');
   await menu(app, 'Check digital signatures…');
   await expect(app.getByRole('dialog', { name: 'Digital signatures' }).getByTestId('sig-none')).toBeVisible();
+});
+
+test('the Sign tool menu also offers the certificate commands @FR-SIG-01 @FR-SIG-04', async ({ app }) => {
+  await openPdf(app, 'text.pdf');
+  await mode(app, 'Fill & Sign');
+  await tool(app, 'Sign').click();
+  await app.getByRole('menuitem', { name: 'Sign with a certificate…' }).click();
+  await expect(app.getByRole('dialog', { name: 'Sign with a certificate' })).toBeVisible();
+  await app.keyboard.press('Escape');
+  await tool(app, 'Sign').click();
+  await app.getByRole('menuitem', { name: 'Check digital signatures…' }).click();
+  await expect(app.getByRole('dialog', { name: 'Digital signatures' })).toBeVisible();
 });
