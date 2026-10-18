@@ -12,6 +12,16 @@ export async function encryptedDoc(): Promise<Uint8Array> {
   return qpdfEncrypt(await b.invoiceDoc(), FIXTURE_PASSWORD);
 }
 
+export const FIXTURE_OWNER_PASSWORD = 'owner-sesame';
+/** Invoice that opens without a password but forbids printing, copying and editing (flags only). */
+export async function restrictedDoc(): Promise<Uint8Array> {
+  return qpdfEncrypt(await b.invoiceDoc(), '', FIXTURE_OWNER_PASSWORD, ['--print=none', '--extract=n', '--modify=none', '--annotate=n', '--form=n', '--assemble=n']);
+}
+/** Invoice that only forbids copying text and images. */
+export async function copyRestrictedDoc(): Promise<Uint8Array> {
+  return qpdfEncrypt(await b.invoiceDoc(), '', FIXTURE_OWNER_PASSWORD, ['--extract=n']);
+}
+
 export interface FixtureEntry {
   description: string;
   build: () => Promise<Uint8Array>;
@@ -56,6 +66,9 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   attachment: { description: 'Embedded file attachment', build: b.attachmentDoc, expectValid: true },
   signed: { description: 'Signature field with a dummy signature value', build: b.signedDoc, expectValid: true },
   encrypted: { description: 'AES-256 password protected', build: encryptedDoc, expectValid: true, password: FIXTURE_PASSWORD },
+  restricted: { description: 'AES-256, no print/copy/modify (owner password set)', build: restrictedDoc, expectValid: true },
+  'copy-restricted': { description: 'AES-256, copy forbidden only', build: copyRestrictedDoc, expectValid: true },
+  'hidden-data': { description: 'Info, XMP, thumbnail, JavaScript, attachment, annotation author and an old revision', build: b.hiddenDataDoc, expectValid: true },
   damaged: { description: 'Truncated file (xref must be rebuilt)', build: b.damagedDoc, expectValid: false },
   garbage: { description: 'Not a PDF', build: async () => b.garbageBytes(), expectValid: false },
   'big-500': { description: '500 pages', build: () => b.bigDoc(500), expectValid: true, heavy: true },

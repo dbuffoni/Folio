@@ -1,5 +1,5 @@
 import { Emitter, History, type Command, type HistoryState, type Invalidation } from '@folio/core';
-import type { Annotation, AnnotId, DocMeta, FileRef, FormField, ObjId, PageIndex, PageInfo, PdfDocument, Size } from '@folio/ports';
+import type { Annotation, AnnotId, DocMeta, FileRef, FormField, ObjId, PageIndex, PageInfo, PdfDocument, Permissions, Size } from '@folio/ports';
 import { NavigationService, RenderService, TextService, type TextRange } from '@folio/services';
 import type { Services } from './services.ts';
 import { fitZoom, type Layout, type PageTheme, type ViewState, type ZoomMode } from './viewer.ts';
@@ -50,6 +50,8 @@ export class DocumentSession {
   byteSize?: number;
   meta: DocMeta;
   recentId?: string;
+  /** Set by "Remove hidden data": the next save must rewrite the whole file so removed data cannot survive in earlier revisions. */
+  fullRewrite = false;
   mode: Mode = 'view';
   selection: Selection = { kind: 'none' };
   view: ViewState;
@@ -106,6 +108,7 @@ export class DocumentSession {
       this.renderer.invalidate();
       this.selection = { kind: 'none' };
       void this.refreshPages();
+      if (inv.kind === 'all') void this.doc.getMeta().then((m) => ((this.meta = m), this.changed.emit()));
     } else if (inv.kind === 'pages') {
       this.text.invalidate(pages);
       this.renderer.invalidate(pages);
@@ -127,6 +130,19 @@ export class DocumentSession {
     }
     this.invalidated.emit(inv);
     this.changed.emit();
+  }
+
+  /**
+   * Whether the file's usage permissions allow `p` (FR-SEC-07). Unprotected files, files opened with the
+   * owner password and files whose flags could not be read allow everything. These flags are a request
+   * to the viewer, not security: Folio honours them but does not pretend they protect the content.
+   */
+  can(p: keyof Permissions): boolean {
+    return this.meta.permissions?.[p] !== false;
+  }
+  /** i18n key of the reason `p` is unavailable, or undefined when it is allowed. */
+  denial(p: keyof Permissions): string | undefined {
+    return this.can(p) ? undefined : `perm.denied.${p}`;
   }
 
   get pageCount(): number {
@@ -164,6 +180,7 @@ export class DocumentSession {
     }
     if (byteSize !== undefined) this.byteSize = byteSize;
     this.startsDirty = false;
+    this.fullRewrite = false;
     this.history.markSaved();
     this.changed.emit();
   }

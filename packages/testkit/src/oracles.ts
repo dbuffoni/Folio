@@ -209,10 +209,16 @@ export async function pdfcpuFormFields(pdf: Uint8Array): Promise<FieldRow[]> {
   });
 }
 /** Encrypts with AES-256 (fixtures only — Folio itself never writes encrypted files in Release 1). */
-export async function qpdfEncrypt(pdf: Uint8Array, userPassword: string, ownerPassword = userPassword): Promise<Uint8Array> {
+export async function qpdfEncrypt(
+  pdf: Uint8Array,
+  userPassword: string,
+  ownerPassword = userPassword,
+  /** Extra qpdf restriction flags, for example `--print=none --modify=none` (256-bit: print/modify/extract/annotate/form/assemble/accessibility). */
+  restrictions: string[] = [],
+): Promise<Uint8Array> {
   return withTempPdf(pdf, async (path, dir) => {
     const out = join(dir, 'enc.pdf');
-    const r = await exec('qpdf', ['--static-id', '--encrypt', userPassword, ownerPassword, '256', '--', path, out]);
+    const r = await exec('qpdf', ['--static-id', '--encrypt', userPassword, ownerPassword, '256', ...restrictions, '--', path, out]);
     if (r.code !== 0 && r.code !== 3) throw new Error(`qpdf --encrypt failed: ${r.stderr}`);
     return new Uint8Array(await readFile(out));
   });

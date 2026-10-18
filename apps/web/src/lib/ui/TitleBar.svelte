@@ -81,6 +81,7 @@
         <button class="tabb" aria-current={s.id === activeId ? 'page' : undefined} title={s.name} onclick={() => app.activate(s.id)}>
           <Icon name="file-text" />
           <span class="nm">{s.title}</span>
+          {#if s.meta.isEncrypted}<span class="lock" title={s.meta.permissions ? t('perm.lockRestricted') : s.meta.ownerUnlocked ? t('perm.unlocked') : t('perm.lock')}><Icon name={s.meta.ownerUnlocked ? 'lock-open' : 'lock'} /></span>{/if}
           {#if s.dirty}<i class="dot" title={t('ui.unsaved')}></i>{/if}
         </button>
         <button class="x" style="border:0;background:none;color:inherit;cursor:pointer;padding:0" onclick={() => void app.closeTab(s.id)} aria-label={t('ui.closeTab', { name: s.name })}><Icon name="x" /></button>

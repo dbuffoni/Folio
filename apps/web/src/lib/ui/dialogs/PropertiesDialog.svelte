@@ -31,10 +31,11 @@
     }
     ui.closeDialog();
   }
-  async function removeAll(): Promise<void> {
-    await app.guard(() => session.run(services.documents.removeAllMetadata()));
-    ui.closeDialog();
+  function removeAll(): void {
+    ui.openDialog('hiddenData');
   }
+  const PERMS = ['print', 'printHighQuality', 'modify', 'copy', 'annotate', 'fillForms', 'accessibility', 'assemble'] as const;
+  const denied = $derived(session.meta.permissions ? PERMS.filter((p) => session.meta.permissions![p] === false) : []);
 </script>
 
 <Dialog title={t('props.title')} width={620} onclose={() => ui.closeDialog()}>
@@ -52,7 +53,19 @@
   </div>
   <div class="kvlist">
     <div class="kv"><span>{t('props.version')} · {t('props.pages')} · {t('props.pageSize')} · {t('props.fileSize')}</span><b>{session.meta.pdfVersion} · {session.pageCount} · {sizes} · {session.byteSize ? formatBytes(session.byteSize) : '—'}</b></div>
-    <div class="kv"><span>{t('props.encryption')}</span><b>{session.meta.isEncrypted ? t('props.encrypted') : t('props.notEncrypted')}</b></div>
+    <div class="kv"><span>{t('props.encryption')}</span><b>{session.meta.isEncrypted ? t('props.methodValue') : t('props.notEncrypted')}</b></div>
+    {#if session.meta.isEncrypted}
+      <div class="kv" style="align-items:flex-start">
+        <span>{t('props.restrictions')}</span>
+        <b>
+          {#if session.meta.ownerUnlocked}{t('props.unlockedOwner')}
+          {:else if !session.meta.permissions}{t('props.unreadable')}
+          {:else if denied.length === 0}{t('props.noRestrictions')}
+          {:else}{#each denied as p (p)}<div>{t(`props.perm.${p}`)}: <span class="note">{t('props.denied')}</span></div>{/each}{/if}
+          <div class="note" style="font-weight:400">{t('props.restrictionsNote')}</div>
+        </b>
+      </div>
+    {/if}
     <div class="kv"><span>{t('props.signatures')}</span><b>{session.meta.hasSignatures ? t('props.present') : t('props.none')}</b></div>
     <div class="kv" style="align-items:flex-start"><span>{t('props.fonts')}</span>
       <b>{#each info?.fonts ?? [] as f (f.name)}<div>{f.name} <span class="note">({f.embedded ? (f.subset ? t('props.subset') : t('props.embedded')) : t('props.notEmbedded')})</span></div>{:else}—{/each}</b>
@@ -60,7 +73,8 @@
   </div>
   {#snippet footer()}
     <span class="l">{t('props.applied')}</span>
-    <button class="btn danger" onclick={removeAll}>{t('props.removeAll')}</button>
+    {#if session.meta.permissions && session.ref}<button class="btn" onclick={() => (ui.closeDialog(), void app.unlockRestrictions(session))}>{t('cmd.unlock')}</button>{/if}
+    <button class="btn danger" onclick={removeAll}>{t('cmd.hiddenData')}</button>
     <button class="btn" onclick={() => ui.closeDialog()}>{t('action.cancel')}</button>
     <button class="btn primary" onclick={apply}>{t('action.apply')}</button>
   {/snippet}

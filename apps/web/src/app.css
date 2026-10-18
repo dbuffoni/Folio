@@ -541,3 +541,9 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .seg.seg-inline{display:inline-flex;align-self:flex-start}
   .reduce-motion *{animation:none!important;transition:none!important}
 }
+
+/* Permission-denied commands stay focusable and show their reason on hover (FR-SEC-07). */
+.tool[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.tool[aria-disabled=true]:hover{background:none}
+.tab .lock,#statusbar .lock{display:inline-flex;align-items:center;color:var(--color-fg-2)}
+.tab .lock svg,#statusbar .lock svg{width:13px;height:13px}

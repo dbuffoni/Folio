@@ -5,6 +5,7 @@
   import Canvas from '#lib/ui/Canvas.svelte';
   import Coach from '#lib/ui/Coach.svelte';
   import ExportDialog from '#lib/ui/dialogs/ExportDialog.svelte';
+  import HiddenDataDialog from '#lib/ui/dialogs/HiddenDataDialog.svelte';
   import ImagesDialog from '#lib/ui/dialogs/ImagesDialog.svelte';
   import MergeDialog from '#lib/ui/dialogs/MergeDialog.svelte';
   import PropertiesDialog from '#lib/ui/dialogs/PropertiesDialog.svelte';
@@ -189,6 +190,7 @@
   {:else if dialog === 'ocr' && session}<OcrDialog {session} />
   {:else if (dialog === 'tables' || tablesOpen) && session}<TablesDialog {session} />
   {:else if dialog === 'aiDebug'}<AiDebugDialog />
+  {:else if dialog === 'hiddenData' && session}<HiddenDataDialog {session} />
   {:else if dialog === 'signature'}<SignatureDialog />
   {:else if dialog === 'stampEditor'}<StampsDialog />
   {:else if (dialog === 'properties' || dialog === 'metadata') && session}<PropertiesDialog {session} />

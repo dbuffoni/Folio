@@ -9,7 +9,7 @@ import {
   type SettingsKey,
 } from '@folio/core';
 import type { RecentFile } from '@folio/db';
-import type { FileRef, PageIndex, PdfDocument } from '@folio/ports';
+import type { FileRef, HiddenDataOptions, HiddenDataReport, PageIndex, PdfDocument } from '@folio/ports';
 import { RecoveryScheduler, isImageName, type Ticker } from '@folio/services';
 import type { Prompts, Toast, ToastKind } from './prompts.ts';
 import type { Services } from './services.ts';
@@ -337,12 +337,89 @@ export class AppModel {
     await session.settled();
     if (!session.ref) return this.saveAs(session);
     let incremental = false;
-    if (session.meta.hasSignatures) {
+    if (session.meta.hasSignatures && !session.fullRewrite) {
       const choice = await this.prompts.confirmSignedSave(session.name);
       if (choice === 'cancel') return false;
       incremental = choice === 'incremental';
     }
     return this.write(session, session.ref, { incremental, backup: this.settings.keepBackup });
+  }
+  /**
+   * FR-SEC-07: reopens a restricted file with its owner password, which lifts the restrictions for the session.
+   * The restrictions come back the next time the file is opened normally.
+   */
+  async unlockRestrictions(session = this.active): Promise<boolean> {
+    if (!session?.ref || !session.meta.permissions) return false;
+    if (session.dirty) {
+      this.toast('warning', msg('perm.saveFirst'));
+      return false;
+    }
+    let wrong = false;
+    for (;;) {
+      const password = await this.prompts.askPassword(session.name, wrong);
+      if (password === null || password === '') return false;
+      let opened;
+      try {
+        opened = await this.services.documents.open(session.ref, { password });
+      } catch (e) {
+        if (isFolioError(e) && e.code === 'wrongPassword') {
+          wrong = true;
+          continue;
+        }
+        this.reportError(e);
+        return false;
+      }
+      if (!opened.meta.ownerUnlocked) {
+        opened.doc.dispose();
+        this.toast('warning', msg('perm.notOwner'));
+        wrong = true;
+        continue;
+      }
+      const old = session;
+      await this.addSession({
+        id: this.services.newId(),
+        doc: opened.doc,
+        name: old.name,
+        ref: old.ref,
+        fingerprint: opened.fingerprint,
+        byteSize: opened.byteSize,
+        meta: opened.meta,
+        recentId: old.recentId,
+      });
+      await this.closeTab(old.id);
+      this.toast('success', msg('perm.liftedToast'));
+      return true;
+    }
+  }
+
+  /**
+   * FR-SEC-12. Removes the selected hidden data in place (one undo step) and returns what was verified as gone.
+   * The next save rewrites the whole file. Signed files lose their signatures: the caller warns first.
+   */
+  async removeHiddenData(session: DocumentSession, opts: HiddenDataOptions): Promise<HiddenDataReport | undefined> {
+    await session.settled();
+    const report = await this.guard(() => session.run(this.services.documents.removeHiddenData(opts)));
+    if (report) session.fullRewrite = true;
+    return report ?? undefined;
+  }
+  /** FR-SEC-12 for signed files: writes a cleaned copy and leaves the open document and its signatures alone. */
+  async saveCleanedCopy(session: DocumentSession, opts: HiddenDataOptions): Promise<HiddenDataReport | undefined> {
+    await session.settled();
+    const [stem] = splitExt(session.name);
+    const ref = await this.services.platform.files.pickSave({ suggestedName: `${stem} (clean).pdf`, kind: 'pdf' });
+    if (!ref) return undefined;
+    const res = await this.guard(async () => {
+      const copy = await this.services.engine.open(await session.doc.save());
+      try {
+        const report = await copy.removeHiddenData(opts);
+        await this.services.documents.save(copy, ref, { incremental: false, backup: false });
+        return report;
+      } finally {
+        copy.dispose();
+      }
+    });
+    if (res) this.toast('success', msg('toast.exported', { name: ref.name }));
+    return res ?? undefined;
   }
   async saveAs(session = this.active): Promise<boolean> {
     if (!session) return false;

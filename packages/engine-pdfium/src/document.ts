@@ -25,6 +25,9 @@ import type {
   FieldValue,
   FontInfo,
   FormField,
+  HiddenDataInventory,
+  HiddenDataOptions,
+  HiddenDataReport,
   ImageSpec,
   LinkInfo,
   LinkTarget,
@@ -37,6 +40,7 @@ import type {
   PageInfo,
   PageObject,
   PdfDocument,
+  Permissions,
   RasterImage,
   Rect,
   RectSpec,
@@ -57,11 +61,27 @@ import * as forms from './forms.ts';
 import { compact } from './compact.ts';
 import { addFields, deleteField, moveWidget, patchField } from './fieldedit.ts';
 import { ensureFieldsArray, importWithForms } from './formrepair.ts';
+import { scanHiddenData, scrubHiddenData } from './hidden.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
 import * as objects from './objects.ts';
 import type { FontRegistry } from './fonts.ts';
 
 const FPDF_ERR_PASSWORD = 4;
+
+/** Table 22 of ISO 32000-1: bit n (1-based) of /P; unknown bits are "allowed". */
+function decodePermissions(p: number): Permissions {
+  const bit = (n: number): boolean => (p & (1 << (n - 1))) !== 0;
+  return {
+    print: bit(3),
+    modify: bit(4),
+    copy: bit(5),
+    annotate: bit(6),
+    fillForms: bit(9),
+    accessibility: bit(10),
+    assemble: bit(11),
+    printHighQuality: bit(12),
+  };
+}
 const FPDF_ANNOT = 0x01;
 const FPDF_REVERSE_BYTE_ORDER = 0x10;
 const FPDF_INCREMENTAL = 1;
@@ -237,6 +257,8 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
       return m.FPDF_GetFileVersion(this.doc, p) ? a.i32(p) : 0;
     });
     const formType = m.FPDF_GetFormType(this.doc);
+    const encrypted = !!m.EPDF_IsEncrypted(this.doc);
+    const ownerUnlocked = encrypted && !!m.EPDF_IsOwnerUnlocked(this.doc);
     return {
       title: text('Title'),
       author: text('Author'),
@@ -249,9 +271,11 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
       pdfVersion: version ? `${Math.floor(version / 10)}.${version % 10}` : '',
       hasXfa: formType === 2 || formType === 3,
       hasAcroForm: formType !== 0,
-      isEncrypted: !!m.EPDF_IsEncrypted(this.doc),
+      isEncrypted: encrypted,
       hasSignatures: m.FPDF_GetSignatureCount(this.doc) > 0,
       wasRepaired: this.repaired,
+      ...(ownerUnlocked ? { ownerUnlocked } : {}),
+      ...(encrypted && !ownerUnlocked ? { permissions: decodePermissions(m.FPDF_GetDocUserPermissions(this.doc) >>> 0) } : {}),
     };
   }
 
@@ -276,21 +300,80 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
 
   async clearMetadata(): Promise<void> {
     this.alive();
+    for (const key of this.infoKeys()) this.m.EPDF_SetMetaText(this.doc, key, 0);
+  }
+
+  async inspectHiddenData(): Promise<HiddenDataInventory> {
+    this.alive();
     const m = this.m;
-    const keys = new Set([
-      'Title',
-      'Author',
-      'Subject',
-      'Keywords',
-      'Creator',
-      'Producer',
-      'CreationDate',
-      'ModDate',
-    ]);
+    const info: string[] = [];
+    for (const key of this.infoKeys()) if (getUtf16(m, (buf, len) => m.FPDF_GetMetaText(this.doc, key, buf, len))) info.push(key);
+    const attachments = await this.listAttachments();
+    if (m.EPDF_IsEncrypted(this.doc)) {
+      return { info, xmp: false, thumbnails: 0, scripts: 0, annotationAuthors: 0, attachments, structural: false };
+    }
+    const found = await scanHiddenData(this.bytesNow());
+    return { info, ...found, attachments, structural: true };
+  }
+
+  async removeHiddenData(opts: HiddenDataOptions): Promise<HiddenDataReport> {
+    this.alive();
+    const m = this.m;
+    const report: HiddenDataReport = {
+      removed: { info: false, xmp: false, thumbnails: 0, scripts: 0, annotationAuthors: 0, attachments: 0 },
+      skipped: [],
+    };
+    const before = await this.inspectHiddenData();
+    if (opts.info) {
+      await this.clearMetadata();
+      report.removed.info = before.info.length > 0;
+    }
+    if (before.structural) {
+      const res = await scrubHiddenData(this.bytesNow(), opts);
+      this.reload(res.bytes);
+      Object.assign(report.removed, { xmp: res.removed.xmp, thumbnails: res.removed.thumbnails, scripts: res.removed.scripts, annotationAuthors: res.removed.annotationAuthors, attachments: res.removed.attachments });
+      if (opts.info) report.removed.info = before.info.length > 0 || res.removed.info;
+    } else {
+      // Protected files cannot be rewritten structurally: attachments are removed through the engine, the rest is reported.
+      if (opts.attachments) {
+        this.closePages();
+        for (let i = m.FPDFDoc_GetAttachmentCount(this.doc) - 1; i >= 0; i--) {
+          if (m.FPDFDoc_DeleteAttachment(this.doc, i)) report.removed.attachments++;
+        }
+      }
+      for (const k of ['xmp', 'thumbnails', 'scripts', 'annotationAuthors'] as const) if (opts[k]) report.skipped.push(k);
+    }
+    // Nothing is claimed unless the check below confirms it.
+    const after = await this.inspectHiddenData();
+    if (opts.info && after.info.length > 0) {
+      report.removed.info = false;
+      report.skipped.push('info');
+    }
+    if (opts.attachments && after.attachments.length > 0) {
+      report.removed.attachments = before.attachments.length - after.attachments.length;
+      report.skipped.push('attachments');
+    }
+    if (after.structural) {
+      for (const k of ['xmp', 'thumbnails', 'scripts', 'annotationAuthors'] as const) {
+        const left = after[k];
+        if (opts[k] && (typeof left === 'number' ? left > 0 : left)) {
+          if (k === 'xmp') report.removed.xmp = false;
+          else report.removed[k] = Math.max(0, (before[k] as number) - (left as number));
+          report.skipped.push(k);
+        }
+      }
+    }
+    return report;
+  }
+
+  private infoKeys(): string[] {
+    const m = this.m;
+    const keys = new Set(['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate', 'ModDate']);
     const n = m.EPDF_GetMetaKeyCount(this.doc, false);
-    for (let i = 0; i < n; i++)
-      keys.add(getAscii(m, (buf, len) => m.EPDF_GetMetaKeyName(this.doc, i, false, buf, len)));
-    for (const key of keys) if (key && key !== 'Trapped') m.EPDF_SetMetaText(this.doc, key, 0);
+    for (let i = 0; i < n; i++) keys.add(getAscii(m, (buf, len) => m.EPDF_GetMetaKeyName(this.doc, i, false, buf, len)));
+    keys.delete('');
+    keys.delete('Trapped');
+    return [...keys];
   }
 
   // ---- pages -------------------------------------------------------------------------------
