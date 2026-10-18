@@ -272,7 +272,7 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-STM-02 | Create signature by **drawing** (mouse, touch, pen; undo, clear, ink colour black/blue/custom, smooth strokes stored as vector paths), **typing** (name rendered in one of ~8 bundled OFL handwriting fonts), or **image import** (PNG/JPG; auto background removal via threshold slider, crop, preview on checkerboard). | P0 |
 | FR-STM-03 | **Place** a signature: choose from library → ghost follows pointer → click to drop; drag, resize (aspect locked), rotate; nudge with arrows; `Esc` cancels. | P0 |
 | FR-STM-04 | **Apply to multiple pages**: "Initial every page" (position-matched, bottom-right default), "Pages: 1,3,5-7" or "All pages", with live preview of placement. | Post-R1 |
-| FR-STM-05 | **Date stamp**: inserts today's date; format selectable (ISO, DD/MM/YYYY, MM/DD/YYYY, long); text auto-sizes. | P0 |
+| FR-STM-05 | **Date stamp**: inserts today's date; format selectable (ISO, DD/MM/YYYY, MM/DD/YYYY, long); text auto-sizes. The default size of a date stamp and of a placed signature is a percentage (Settings, per kind, default 100 % = 12 pt body text) of the page's predominant text size, with a fixed fallback on pages without usable text and internal minimum and maximum limits. | P0 |
 | FR-STM-06 | **Built-in stamps**: APPROVED, REJECTED, DRAFT, CONFIDENTIAL, PAID, COPY, FINAL, NOT APPROVED; check mark, cross, dot. Localised. | P0 |
 | FR-STM-07 | **Custom stamps**: from text (font, colour, border style, rotation), from image, or from a selected area of the page ("Save selection as stamp"). Manage in the stamp library (rename, delete, reorder). | P1 |
 | FR-STM-08 | Stamps are inserted as Stamp annotations (editable), flatten-on-save option. | P0 |

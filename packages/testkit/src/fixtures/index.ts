@@ -26,6 +26,7 @@ export interface FixtureEntry {
 export const FIXTURES: Record<string, FixtureEntry> = {
   text: { description: '3 pages of standard-font text', build: () => b.textDoc(), expectValid: true },
   'text-25': { description: '25 pages (split every N)', build: () => b.textDoc({ pages: 25, title: 'Twenty-five' }), expectValid: true },
+  'body-sizes': { description: 'Three pages with body text at 9, 12 and 18 pt (default stamp sizes)', build: () => b.bodySizesDoc(), expectValid: true },
   invoice: { description: 'Invoice with a typo, table and coloured text', build: b.invoiceDoc, expectValid: true },
   'subset-font': { description: 'Embedded subset CID TrueType font', build: b.subsetFontDoc, expectValid: true },
   'multi-column': { description: 'Two text columns', build: b.multiColumnDoc, expectValid: true },
