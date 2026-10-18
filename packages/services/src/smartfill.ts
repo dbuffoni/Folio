@@ -902,7 +902,7 @@ export class SmartFillService {
     for (const page of wanted) {
       const layer = await doc.getTextLayer(page);
       for (const a of detectAreas(page, await doc.listObjects(page), layer))
-        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label)) lines.push({ page, rect: a.rect });
+        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label ?? '')) lines.push({ page, rect: a.rect });
     }
     const inside = (r: Rect, p: { x: number; y: number }): boolean => p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
     for (const e of lines) {
