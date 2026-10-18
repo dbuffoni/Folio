@@ -119,9 +119,4 @@ test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app 
   await settings.getByLabel('Other names').last().fill('genitore, tutore');
   await settings.getByLabel('Other names').last().blur();
   await expect(entry).not.toHaveValue('');
-  for (const [width, height] of [[1360, 860], [1024, 700], [800, 600], [480, 800]] as const) {
-    await app.setViewportSize({ width, height });
-    await entry.scrollIntoViewIfNeeded();
-    await settings.screenshot({ path: `/mnt/project-files/screenshots/profile-editor/${width}x${height}.png` });
-  }
 });
