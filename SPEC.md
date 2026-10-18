@@ -264,7 +264,7 @@ All annotations are written as **standard PDF annotation objects with appearance
 
 ### 6.6 Stamps and signatures (STM)
 
-> A "signature" here means an **image/vector signature stamp** (what most people mean by "sign this PDF"). Cryptographic certificate signatures are out of scope (§17).
+> A "signature" here means an **image/vector signature stamp** (what most people mean by "sign this PDF"). Cryptographic certificate signatures are specified in §6.13 (Release 0.1.2).
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -314,7 +314,7 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-EDT-05 | **Whiteout / cover** (visual cover only, not a secure redaction; the UI says so): rectangle that covers content with a colour sampled from the page background (eyedropper); optional "remove content under it" using true object removal when the rectangle fully covers objects. | P0 |
 | FR-EDT-06 | **Add text** anywhere (same as free text, but written as page content when "Add as page content" is selected, otherwise as FreeText annotation). | P0 |
 | FR-EDT-07 | **Images**: select, move, resize (aspect lock), rotate, delete, replace, extract-to-file for existing image objects; insert new image (file, paste from clipboard, drag and drop) as page content. | P0 |
-| FR-EDT-08 | Scanned pages (image-only): the Edit text tool shows "No selectable text on this page" and offers Cover & type (OCR arrives in Release 2). | P0 |
+| FR-EDT-08 | Scanned pages (image-only): the Edit text tool shows "No selectable text on this page" and offers Cover & type and, since Release 0.1.1, Recognise text (FR-OCR-01). | P0 |
 | FR-EDT-09 | **Find & replace** text across the document (each replacement uses FR-EDT-02 rules; preview list; skip substitutions that need font change unless confirmed). | Post-R1 |
 | FR-EDT-10 | Add **watermark** (text/image; position, opacity, rotation, pages) and **header/footer & page numbers** (tokens `{page}`, `{pages}`, `{date}`, `{filename}`; margins; font). Both inserted as page content. | Post-R1 |
 | FR-EDT-11 | **Bookmark editor** (Release 0.1.1): add at the current page, rename (F2), delete (Del, confirmation for entries with children), nest and move (Tab, Shift+Tab, Alt+↑/↓, drag and drop), "Set target to current view"; every operation is one undoable step; signed documents warn first. The link editor stays Post-R1 (FR-ANN-10). | P1 |
@@ -336,7 +336,7 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-OPT-05 | Export extracted text (plain `.txt`) of selected pages. | Post-R1 |
 | FR-OPT-06 | Flatten (annotations, forms, or both) as dedicated action. | P1 |
 
-### 6.10 OCR (OCR) — deferred to Release 2
+### 6.10 OCR (OCR) — Release 0.1.1
 
 > Not part of Release 1. Kept here so the design stays consistent when it is added.
 
@@ -359,6 +359,8 @@ All annotations are written as **standard PDF annotation objects with appearance
 | FR-SEC-03 | **Redaction (simple)**: draw rectangles on content, click Apply; redacted pages are **rasterised** at selectable DPI (default 200) so no underlying text/data survives; confirmation dialog explains it; text on non-redacted pages is untouched. Metadata scrub toggle. | Post-R1 |
 | FR-SEC-04 | **Metadata editor**: title, author, subject, keywords; "Remove all metadata" action. | P1 |
 | FR-SEC-05 | Never execute embedded JavaScript, launch actions, or auto-open attachments. Attachments can be saved only after explicit user action. | P0 |
+| FR-SEC-07 | **Respect protected files** (Release 0.1.3): a lock icon with a tooltip in the tab and the status bar for password-protected files; Properties lists the protection and the denied permissions (print, high-quality print, edit, copy, comments, forms, pages, accessibility); commands the permission flags forbid stay visible but disabled with the reason on hover, in menus, toolbar and command palette (one gate in the command registry); viewing, search, zoom and reading for accessibility are never disabled; "Save as copy" keeps the protection; opening with the owner password (command *Lift restrictions with the owner password…*) lifts the restrictions for the session and says so. Unreadable flags count as allowed and Properties says so. The flags are a request to the viewer, not security; Folio neither sets nor changes them. | P1 |
+| FR-SEC-12 | **Remove hidden data** (Release 0.1.3): the command *Remove hidden data…* (File menu, Properties, palette) opens a dialog with checkboxes, all on: attached files (listed first, nothing removed silently), document info, XMP metadata, page thumbnails, JavaScript and open actions, comment authors. One undoable step; the summary lists only what was verified as gone. The next save rewrites the whole file, so nothing survives in earlier revisions. Signed files: a warning that signatures become invalid and the option to save a cleaned copy instead. Password-protected files keep their protection; only document info and attachments are handled and the dialog says so. Visible content, form data and bookmarks are untouched. | P1 |
 
 ---
 
@@ -1325,8 +1327,9 @@ The plan decides **what** and **when**; this SPEC stays the reference for **how*
 | Version | Content | State |
 |---|---|---|
 | 0.1.0 | Release 1, phases P0–P9 (§5) | Delivered |
-| 0.1.1 | 13 cards: Make scanned pages searchable, OCR language packs, Multi-language OCR, Read difficult scans with AI, Create form fields, Edit existing form fields, Field templates, Bookmark editor, Reduce file size, Extract tables, Local AI server presets, Model capability check, Smart Fill on scanned paper forms | Analysed, waiting for acceptance (Candidate) |
-| 0.1.2 | 5 cards: Certificate management, Sign with a digital certificate, Visible digital signature appearance, Validate existing digital signatures, Signature timestamps | In progress |
+| 0.1.1 | 13 cards: Make scanned pages searchable, OCR language packs, Multi-language OCR, Read difficult scans with AI, Create form fields, Edit existing form fields, Field templates, Bookmark editor, Reduce file size, Extract tables, Local AI server presets, Model capability check, Smart Fill on scanned paper forms | Delivered |
+| 0.1.2 | 5 cards: Certificate management, Sign with a digital certificate, Visible digital signature appearance, Validate existing digital signatures, Signature timestamps | Delivered |
+| 0.1.3 | 13 cards: Remove metadata (hidden data), Respect protected files, Usability and screen-reader pass (partly: needs people), Browser tests for remaining screens, Release pipeline checks, and eight quality tasks (code review, code and test consolidation, zero warnings in tests and in build, visual polish, performance, branding) | In progress |
 
 ---
 
@@ -1393,7 +1396,7 @@ These were designed in this document and then consciously moved out of Release 1
 ### 17.4 Content protection and compliance
 | Feature | Note |
 |---|---|
-| Pattern/regex based automatic redaction, "sanitise document" wizard, hidden-data scan | Simple manual redaction only (FR-SEC-03). |
+| Pattern/regex based automatic redaction, "sanitise document" wizard, hidden-data report or scan for personal data (removal is FR-SEC-12) | Simple manual redaction only (FR-SEC-03). |
 | Permission flags (print/copy/edit restrictions), certificate encryption, rights management / DRM | No password protection of any kind in Release 1 (see 17.0). |
 | Document-level audit logs and compliance reports | Enterprise. |
 
