@@ -897,7 +897,21 @@ export class SmartFillService {
     const wanted = new Set(pages);
     const widgets: Array<{ page: PageIndex; rect: Rect }> = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
     // A signature line found on a flat form or a scan is only a few points high: the signature may rise above it.
-    for (const e of extra) if (wanted.has(e.page)) widgets.push({ page: e.page, rect: { ...e.rect, height: Math.max(e.rect.height, 36) } });
+    // Lines are looked for in the page itself, so they are still found after a run created fields on the page.
+    const lines: Array<{ page: PageIndex; rect: Rect }> = [...extra];
+    for (const page of wanted) {
+      const layer = await doc.getTextLayer(page);
+      for (const a of detectAreas(page, await doc.listObjects(page), layer))
+        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label)) lines.push({ page, rect: a.rect });
+    }
+    const inside = (r: Rect, p: { x: number; y: number }): boolean => p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+    for (const e of lines) {
+      if (!wanted.has(e.page)) continue;
+      const box = { ...e.rect, height: Math.max(e.rect.height, 36) };
+      const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      if (widgets.some((w) => w.page === e.page && inside(w.rect, c))) continue;
+      widgets.push({ page: e.page, rect: box });
+    }
     const items: Array<{ page: PageIndex; annotation: Annotation }> = [];
     const existing = new Map<PageIndex, Annotation[]>();
     for (const w of widgets) {

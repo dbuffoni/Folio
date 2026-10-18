@@ -255,4 +255,31 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await sf2.start();
     expect(sf2.result!.source).toBe('remembered');
   });
+
+  it('a second run on a form where Smart Fill already created fields still finds the "Firma" line @FR-STM-01 @FR-AIF-14', async () => {
+    const t = await createTestApp();
+    const { pdf } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+    ]);
+    t.files.put('/flat3.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat3.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    const first = t.smartFill(s);
+    await first.start();
+    first.setSignIt(false);
+    await first.apply(false);
+    expect((await s.doc.listFormFields()).length).toBe(1);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(0);
+    const again = t.smartFill(s);
+    await again.start();
+    expect(again.signFields).toBe(1);
+    await again.apply(false);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
+  });
 });
