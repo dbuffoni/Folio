@@ -27,7 +27,12 @@ export const test = base.extend<Fixtures>({
   app: async ({ page, outbound }, use, testInfo) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
-    page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && errors.push(m.text()));
+    page.on('console', (m) => {
+      if (m.type() !== 'error' && m.type() !== 'warning') return;
+      // WebKit's own advisory whenever WebCrypto decrypts with AES-CBC, which the PKCS#12 format prescribes.
+      if (/AES-CBC and AES-CTR do not provide authentication/.test(m.text())) return;
+      errors.push(m.text());
+    });
     // Without the File System Access API the app falls back to file inputs and downloads, which is
     // what Playwright can drive in every browser.
     await page.addInitScript(() => {

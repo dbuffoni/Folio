@@ -8,7 +8,11 @@ import { downloads, expect, fx, menu, mode, openPdf, qpdfCheck, tabs, test, tool
 import { ROOT } from './paths.ts';
 import type { Page } from '@playwright/test';
 
+// Documentation screenshots are rewritten only on request (FOLIO_SHOTS=1), so a test run leaves the tree clean.
 const SHOTS = join(ROOT, 'docs/screenshots/0.1.2');
+const shot = async (page: Page, path: string): Promise<void> => {
+  if (process.env.FOLIO_SHOTS) await page.screenshot({ path });
+};
 
 function makeP12(cn: string, password: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'folio-cert-'));
@@ -40,7 +44,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await importIdentity(app, p12, 'pw');
     const settings = app.getByRole('dialog', { name: 'Settings' });
     await expect(settings.getByTestId('cert-detail')).toBeVisible();
-    await app.screenshot({ path: join(SHOTS, `certificates-${scheme}.png`) });
+    await shot(app, join(SHOTS, `certificates-${scheme}.png`));
     await settings.getByRole('button', { name: 'Close' }).click();
 
     await openPdf(app, 'text.pdf');
@@ -48,7 +52,7 @@ for (const scheme of ['light', 'dark'] as const) {
     const dialog = app.getByRole('dialog', { name: 'Sign with a certificate' });
     await expect(dialog.getByLabel('Certificate')).toContainText('Ada Lovelace');
     await dialog.getByLabel('Reason').fill('I approve this document');
-    await app.screenshot({ path: join(SHOTS, `sign-dialog-${scheme}.png`) });
+    await shot(app, join(SHOTS, `sign-dialog-${scheme}.png`));
     const [signed] = await downloads(app, 1, () => dialog.getByRole('button', { name: 'Sign', exact: true }).click());
     expect(signed!.name).toMatch(/signed/i);
     qpdfCheck(signed!);
@@ -64,7 +68,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await menu(app, 'Check digital signatures…');
     const panel = app.getByRole('dialog', { name: 'Digital signatures' });
     await expect(panel.getByTestId('sig-summary')).toBeVisible();
-    await app.screenshot({ path: join(SHOTS, `signatures-${scheme}.png`) });
+    await shot(app, join(SHOTS, `signatures-${scheme}.png`));
     await app.keyboard.press('Escape');
     await expect(panel).toBeHidden();
   });

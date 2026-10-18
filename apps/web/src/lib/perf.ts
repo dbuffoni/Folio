@@ -3,6 +3,7 @@
 // anywhere: a run returns its numbers to whoever calls `window.__folioPerf` (a test harness, the
 // DevTools console), and `download()` saves them as a JSON file on the device.
 import type { PdfDocument, PdfEngine } from '@folio/ports';
+import { bumpCount } from './live.svelte.ts';
 
 export interface PerfReport {
   scenario: string;
@@ -188,6 +189,8 @@ export function installPerf(host: PerfHost): void {
     },
     reports,
     renderSamples,
+    /** Model-change notifications so far: each one re-evaluates every template that reads a model. */
+    bumps: bumpCount,
     /** Saves every report so far as a JSON file (for the AppImage, where there is no harness). */
     download: () => {
       const a = document.createElement('a');

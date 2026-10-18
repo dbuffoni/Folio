@@ -239,7 +239,15 @@ export async function openPkcs12(bytes: Uint8Array, password: string): Promise<S
           if (bag.bagId === OID_CERT_BAG) certs.push((bag.bagValue as CertBag).parsedValue as Certificate);
           else if (bag.bagId === OID_SHROUDED_KEY_BAG) {
             const shrouded = bag.bagValue as PKCS8ShroudedKeyBag;
-            await (shrouded as unknown as { parseInternalValues(p: { password: ArrayBuffer }): Promise<void> }).parseInternalValues({ password: candidate });
+            try {
+              await (shrouded as unknown as { parseInternalValues(p: { password: ArrayBuffer }): Promise<void> }).parseInternalValues({ password: candidate });
+            } catch (e) {
+              // The password was right (the MAC verified and the key decrypted) but the key structure
+              // names something pkijs cannot read, such as a secp256k1 curve: unsupported, not a bad password.
+              if (e instanceof Error && /PrivateKeyInfo|ECPrivateKey/.test(e.message))
+                throw new CertificateError('unsupported', 'This key type is not supported');
+              throw e;
+            }
             keyDer = new Uint8Array((shrouded.parsedValue as PrivateKeyInfo).toSchema().toBER(false));
           } else if (bag.bagId === OID_KEY_BAG)
             keyDer = new Uint8Array((bag.bagValue as PrivateKeyInfo).toSchema().toBER(false));
@@ -248,6 +256,7 @@ export async function openPkcs12(bytes: Uint8Array, password: string): Promise<S
       lastError = undefined;
       break;
     } catch (e) {
+      if (e instanceof CertificateError) throw e;
       lastError = e;
     }
   }

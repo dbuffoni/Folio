@@ -1,9 +1,10 @@
 // Validation of the signatures a PDF already carries (FR-SIG-04…06): integrity of the signed bytes,
 // signer certificate and chain against the user's trusted certificates, validity period, and bytes
 // appended after the last signature. Offline; revocation is a separate, opt-in step.
-import type { PDFDict as PDFDictT } from 'pdf-lib';
+import type { PDFDict as PDFDictT, PDFNumber as PDFNumberT } from 'pdf-lib';
 import type { Certificate } from 'pkijs';
 import { certDer, describeCertificate, certFingerprint, type CertificateInfo } from './certs.ts';
+import { chainTo } from './chain.ts';
 import { parseCms, verifyDetached } from './cms.ts';
 import { checkChainRevocation } from './revocation.ts';
 import { verifyTimestampToken, type BinaryTransport, type TimestampInfo } from './timestamp.ts';
@@ -89,9 +90,11 @@ export async function readSignatures(bytes: Uint8Array): Promise<RawSignature[]>
     const range = v.lookupMaybe(n('ByteRange'), PDFArray);
     const contents = v.lookup(n('Contents'));
     if (!range || !(contents instanceof PDFHexString)) return;
-    const byteRange = Array.from({ length: range.size() }, (_, i) =>
-      (range.lookup(i, PDFNumber) as { asNumber(): number }).asNumber(),
-    );
+    // A range that is not all numbers stays empty, and the signature is reported as malformed.
+    const items = Array.from({ length: range.size() }, (_, i) => range.lookup(i));
+    const byteRange = items.every((x) => x instanceof PDFNumber)
+      ? items.map((x) => (x as PDFNumberT).asNumber())
+      : [];
     out.push({
       fieldName: name,
       byteRange,
@@ -114,46 +117,52 @@ export async function readSignatures(bytes: Uint8Array): Promise<RawSignature[]>
   return out.sort((a, b) => a.order - b.order);
 }
 
-function sameName(a: Certificate, b: Certificate): boolean {
-  return a.subject.isEqual(b.issuer);
+const isHexDigit = (ch: number): boolean =>
+  (ch >= 0x30 && ch <= 0x39) || (ch >= 0x41 && ch <= 0x46) || (ch >= 0x61 && ch <= 0x66);
+
+/** Length of the DER value at the start of `der` (tag, length and content), or -1. */
+function derLength(der: Uint8Array): number {
+  if (der.length < 2) return -1;
+  const first = der[1]!;
+  if (first < 0x80) return 2 + first;
+  const n = first & 0x7f;
+  if (n === 0 || n > 4 || der.length < 2 + n) return -1;
+  let len = 0;
+  for (let i = 0; i < n; i++) len = len * 256 + der[2 + i]!;
+  return 2 + n + len;
 }
 
-async function chainTo(
-  signer: Certificate,
-  pool: Certificate[],
-  trustedFp: Set<string>,
-): Promise<{ path: Certificate[]; trusted: boolean }> {
-  const path = [signer];
-  let cur = signer;
-  for (let depth = 0; depth < 10; depth++) {
-    if (trustedFp.has(await certFingerprint(cur))) return { path, trusted: true };
-    if (cur.issuer.isEqual(cur.subject)) return { path, trusted: false };
-    let next: Certificate | undefined;
-    for (const c of pool) {
-      if (!sameName(c, cur) || path.includes(c)) continue;
-      try {
-        if (await cur.verify(c)) {
-          next = c;
-          break;
-        }
-      } catch {
-        /* wrong issuer */
-      }
-    }
-    if (!next) return { path, trusted: false };
-    path.push(next);
-    cur = next;
+/** Why the ByteRange gap `[b, c)` is not exactly `<hex of contents>`, or undefined when it is. */
+function checkGap(bytes: Uint8Array, b: number, c: number, contents: Uint8Array): string | undefined {
+  const bad = 'The signed byte range does not hold exactly the signature value';
+  if (c - b < 2 || bytes[b] !== 0x3c /* < */ || bytes[c - 1] !== 0x3e /* > */) return bad;
+  const digits = c - b - 2;
+  if (digits % 2 !== 0 || digits / 2 !== contents.length) return bad;
+  for (let i = b + 1; i < c - 1; i++) if (!isHexDigit(bytes[i]!)) return bad;
+  for (let i = 0; i < contents.length; i++) {
+    const at = b + 1 + i * 2;
+    const v = parseInt(String.fromCharCode(bytes[at]!, bytes[at + 1]!), 16);
+    if (v !== contents[i]) return bad;
   }
-  return { path, trusted: false };
+  const used = derLength(contents);
+  if (used < 0 || used > contents.length) return bad;
+  for (let i = used; i < contents.length; i++) if (contents[i] !== 0) return bad;
+  return undefined;
 }
 
 export function pdfDateToIso(d: string | undefined): string | undefined {
   const m = /^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(Z|[+-]\d{2}'?\d{2}'?)?/.exec(d ?? '');
   if (!m) return undefined;
+  const [y, mo, day, h, mi, s] = [m[1], m[2] ?? '01', m[3] ?? '01', m[4] ?? '00', m[5] ?? '00', m[6] ?? '00'].map(Number) as [number, number, number, number, number, number];
+  // Out-of-range parts (month 13, 31 February, 25 h) mean no usable date, not an invalid ISO string.
+  const check = new Date(Date.UTC(y, mo - 1, day, h, mi, s));
+  if (check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== day || check.getUTCHours() !== h || check.getUTCMinutes() !== mi || check.getUTCSeconds() !== s)
+    return undefined;
   const iso = `${m[1]}-${m[2] ?? '01'}-${m[3] ?? '01'}T${m[4] ?? '00'}:${m[5] ?? '00'}:${m[6] ?? '00'}`;
   const tz = m[7];
   if (!tz || tz === 'Z') return `${iso}Z`;
   const t = /([+-])(\d{2})'?(\d{2})/.exec(tz);
+  if (t && (Number(t[2]) > 23 || Number(t[3]) > 59)) return undefined;
   return t ? `${iso}${t[1]}${t[2]}:${t[3]}` : `${iso}Z`;
 }
 
@@ -200,6 +209,13 @@ export async function validateSignatures(
       reports.push({ ...base, message: 'The signed byte range is not valid' });
       continue;
     }
+    // The gap must hold exactly this signature's /Contents as one plain hex string, padded with zeros
+    // after the DER value: anything else is unsigned data hidden in the signature (R13).
+    const gapProblem = checkGap(bytes, b!, c!, s.contents);
+    if (gapProblem) {
+      reports.push({ ...base, message: gapProblem });
+      continue;
+    }
     const lastSigned = c! + d!;
     base.coversWholeFile = lastSigned >= end;
     base.changedAfterSigning = lastSigned < end;
@@ -232,7 +248,9 @@ export async function validateSignatures(
     } catch {
       timestamp = undefined;
     }
-    const at = timestamp?.time ? new Date(timestamp.time) : now;
+    // Only a token that verifies and comes from a trusted authority may move the time the chain is judged
+    // at; anyone can make a token with an earlier time for a certificate that has since expired.
+    const at = timestamp?.time && timestamp.verified && timestamp.trusted ? new Date(timestamp.time) : now;
     const expired = path.some((cert) => at > cert.notAfter.value);
     const early = path.some((cert) => at < cert.notBefore.value);
     const trust: TrustState = expired

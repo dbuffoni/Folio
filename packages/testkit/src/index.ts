@@ -4,4 +4,4 @@ export * from './golden.ts';
 export * from './node-adapters.ts';
 export * from './engine.ts';
 export * from './fakes.ts';
-export { expectWarnings } from './setup.ts';
+export { expectWarnings } from './warnings.ts';

@@ -27,7 +27,9 @@ impl Backend for Keychain {
         }
     }
     fn set(&self, key: &str, value: &str) -> Result<()> {
-        keyring::Entry::new(SERVICE, key).and_then(|e| e.set_password(value)).map_err(|e| Error::Io(e.to_string()))
+        keyring::Entry::new(SERVICE, key)
+            .and_then(|e| e.set_password(value))
+            .map_err(|e| Error::Io(e.to_string()))
     }
     fn remove(&self, key: &str) -> Result<()> {
         match keyring::Entry::new(SERVICE, key).and_then(|e| e.delete_credential()) {
@@ -47,7 +49,10 @@ impl Backend for Memory {
         Ok(self.0.lock().unwrap().get(key).cloned())
     }
     fn set(&self, key: &str, value: &str) -> Result<()> {
-        self.0.lock().unwrap().insert(key.to_string(), value.to_string());
+        self.0
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), value.to_string());
         Ok(())
     }
     fn remove(&self, key: &str) -> Result<()> {
@@ -68,7 +73,8 @@ impl Secrets {
     }
     pub fn select(candidate: Box<dyn Backend>) -> Self {
         let probe = "folio.probe";
-        let works = candidate.set(probe, "1").is_ok() && matches!(candidate.get(probe), Ok(Some(_)));
+        let works =
+            candidate.set(probe, "1").is_ok() && matches!(candidate.get(probe), Ok(Some(_)));
         let _ = candidate.remove(probe);
         if works {
             Secrets(candidate)
@@ -79,8 +85,46 @@ impl Secrets {
     }
 }
 
+/// Longest secret name accepted from the webview. `folio.cert.<SHA-256 hex>` (75 characters) must fit.
+const MAX_KEY_LEN: usize = 80;
+
+/// Name under which a signing identity keeps its PKCS#12 data; mirrors `certSecretKey` in @folio/core.
+pub fn cert_secret_key(fingerprint: &str) -> String {
+    format!("folio.cert.{fingerprint}")
+}
+
+/// Removes every secret Folio stores: the fixed names, and one entry per signing identity. The keyring
+/// crate cannot list the entries of a service, so identity names come from the `certificates` table of
+/// the application database, which records every imported identity by fingerprint.
+pub fn wipe(backend: &dyn Backend, db: &crate::db::Db) -> Result<()> {
+    // A database without the table (never migrated) simply has no identities.
+    let rows = crate::db::select(
+        db,
+        "SELECT fingerprint FROM certificates WHERE kind = 'identity'",
+        &[],
+    )
+    .unwrap_or_default();
+    for row in rows {
+        if let Some(fp) = row.get("fingerprint").and_then(|v| v.as_str()) {
+            let key = cert_secret_key(fp);
+            if check_key(&key).is_ok() {
+                backend.remove(&key)?;
+            }
+        }
+    }
+    for key in [crate::http::AI_KEY, "folio.data-key"] {
+        backend.remove(key)?;
+    }
+    Ok(())
+}
+
 fn check_key(key: &str) -> Result<()> {
-    if key.starts_with("folio.") && key.len() <= 64 && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+    if key.starts_with("folio.")
+        && key.len() <= MAX_KEY_LEN
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
         Ok(())
     } else {
         Err(Error::Invalid("invalid secret name".into()))
@@ -157,5 +201,63 @@ mod tests {
         assert!(check_key("other.key").is_err());
         assert!(check_key("folio.bad key").is_err());
         assert!(check_key(&format!("folio.{}", "a".repeat(80))).is_err());
+    }
+
+    /// A signing identity is stored as `folio.cert.<SHA-256 hex>` (75 characters, `certSecretKey` in @folio/core).
+    #[test]
+    fn accepts_the_signing_identity_key_shape() {
+        let key = cert_secret_key(&"0123456789abcdef".repeat(4));
+        assert_eq!(key.len(), 75);
+        assert!(check_key(&key).is_ok());
+        assert!(check_key("folio.cert.0123").is_ok());
+    }
+
+    #[test]
+    fn wipe_removes_fixed_secrets_and_every_identity_recorded_in_the_database() {
+        use serde_json::json;
+        let db = crate::db::Db::memory();
+        crate::db::execute(
+            &db,
+            "CREATE TABLE certificates (fingerprint TEXT, kind TEXT)",
+            &[],
+        )
+        .unwrap();
+        let fp = "ab".repeat(32);
+        let trusted = "cd".repeat(32);
+        for (f, k) in [
+            (fp.as_str(), "identity"),
+            (trusted.as_str(), "trusted"),
+            ("bad name", "identity"),
+        ] {
+            crate::db::execute(
+                &db,
+                "INSERT INTO certificates (fingerprint, kind) VALUES (?, ?)",
+                &[json!(f), json!(k)],
+            )
+            .unwrap();
+        }
+        let store = Memory::default();
+        for key in [
+            cert_secret_key(&fp),
+            crate::http::AI_KEY.to_string(),
+            "folio.data-key".into(),
+            "folio.other".into(),
+        ] {
+            store.set(&key, "v").unwrap();
+        }
+        wipe(&store, &db).unwrap();
+        assert_eq!(store.get(&cert_secret_key(&fp)).unwrap(), None);
+        assert_eq!(store.get(crate::http::AI_KEY).unwrap(), None);
+        assert_eq!(store.get("folio.data-key").unwrap(), None);
+        assert_eq!(store.get("folio.other").unwrap().as_deref(), Some("v"));
+    }
+
+    #[test]
+    fn wipe_works_before_the_database_has_its_tables() {
+        let db = crate::db::Db::memory();
+        let store = Memory::default();
+        store.set(crate::http::AI_KEY, "k").unwrap();
+        wipe(&store, &db).unwrap();
+        assert_eq!(store.get(crate::http::AI_KEY).unwrap(), None);
     }
 }

@@ -23,7 +23,10 @@ pub fn file_ref(path: &Path) -> FileRef {
     let p = path.to_string_lossy().to_string();
     FileRef {
         id: p.clone(),
-        name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.clone()),
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| p.clone()),
         path: p,
     }
 }
@@ -31,8 +34,12 @@ pub fn file_ref(path: &Path) -> FileRef {
 /// Temp file in the same directory + fsync + rename, so a crash never leaves a half-written file.
 /// With `backup`, the previous content is kept as `<name>.bak`.
 pub fn write_atomic(path: &Path, data: &[u8], backup: bool) -> Result<()> {
-    let dir = path.parent().ok_or_else(|| Error::Invalid("path has no parent".into()))?;
-    let name = path.file_name().ok_or_else(|| Error::Invalid("path has no file name".into()))?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| Error::Invalid("path has no parent".into()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| Error::Invalid("path has no file name".into()))?;
     let mut tmp_name = name.to_os_string();
     tmp_name.push(".folio-tmp");
     let tmp = dir.join(tmp_name);
@@ -75,15 +82,21 @@ fn decode(value: &str) -> Result<PathBuf> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).map_err(|_| Error::Invalid("bad path encoding".into()))?;
-            out.push(u8::from_str_radix(hex, 16).map_err(|_| Error::Invalid("bad path encoding".into()))?);
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .map_err(|_| Error::Invalid("bad path encoding".into()))?;
+            out.push(
+                u8::from_str_radix(hex, 16)
+                    .map_err(|_| Error::Invalid("bad path encoding".into()))?,
+            );
             i += 3;
         } else {
             out.push(bytes[i]);
             i += 1;
         }
     }
-    Ok(PathBuf::from(String::from_utf8(out).map_err(|_| Error::Invalid("bad path encoding".into()))?))
+    Ok(PathBuf::from(
+        String::from_utf8(out).map_err(|_| Error::Invalid("bad path encoding".into()))?,
+    ))
 }
 
 fn body<'a>(request: &'a Request<'_>) -> Result<&'a [u8]> {
@@ -103,7 +116,11 @@ pub fn read_file(path: String, scope: State<'_, Scope>) -> Result<Response> {
 #[tauri::command]
 pub fn write_file_atomic(request: Request<'_>, scope: State<'_, Scope>) -> Result<()> {
     let path = decode(header(&request, "x-folio-path")?)?;
-    let backup = request.headers().get("x-folio-backup").map(|v| v == "1").unwrap_or(false);
+    let backup = request
+        .headers()
+        .get("x-folio-backup")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     scope.check(&path)?;
     write_atomic(&path, body(&request)?, backup)
 }
@@ -167,7 +184,9 @@ pub fn forget_path(path: String, scope: State<'_, Scope>) {
 pub fn reveal_in_folder(app: AppHandle, path: String, scope: State<'_, Scope>) -> Result<()> {
     scope.check(Path::new(&path))?;
     use tauri_plugin_opener::OpenerExt;
-    app.opener().reveal_item_in_dir(&path).map_err(|e| Error::Io(e.to_string()))
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|e| Error::Io(e.to_string()))
 }
 
 /// Printing fallback: hand a granted file to the system PDF viewer.
@@ -175,7 +194,9 @@ pub fn reveal_in_folder(app: AppHandle, path: String, scope: State<'_, Scope>) -
 pub fn open_in_system_viewer(app: AppHandle, path: String, scope: State<'_, Scope>) -> Result<()> {
     scope.check(Path::new(&path))?;
     use tauri_plugin_opener::OpenerExt;
-    app.opener().open_path(path, None::<&str>).map_err(|e| Error::Io(e.to_string()))
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| Error::Io(e.to_string()))
 }
 
 fn filters(kinds: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
@@ -196,9 +217,16 @@ fn filters(kinds: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
 }
 
 #[tauri::command]
-pub async fn pick_open(app: AppHandle, multiple: bool, accept: Vec<String>) -> Result<Vec<FileRef>> {
+pub async fn pick_open(
+    app: AppHandle,
+    multiple: bool,
+    accept: Vec<String>,
+) -> Result<Vec<FileRef>> {
     let mut dialog = app.dialog().file();
-    let all: Vec<&str> = filters(&accept).iter().flat_map(|(_, e)| e.clone()).collect();
+    let all: Vec<&str> = filters(&accept)
+        .iter()
+        .flat_map(|(_, e)| e.clone())
+        .collect();
     if accept.len() > 1 && !all.is_empty() {
         dialog = dialog.add_filter("Supported files", &all);
     }
@@ -222,7 +250,12 @@ pub async fn pick_open(app: AppHandle, multiple: bool, accept: Vec<String>) -> R
 }
 
 #[tauri::command]
-pub async fn pick_save(app: AppHandle, suggested_name: String, kind: String, directory: Option<String>) -> Result<Option<FileRef>> {
+pub async fn pick_save(
+    app: AppHandle,
+    suggested_name: String,
+    kind: String,
+    directory: Option<String>,
+) -> Result<Option<FileRef>> {
     let mut dialog = app.dialog().file().set_file_name(&suggested_name);
     if let Some(dir) = directory {
         dialog = dialog.set_directory(dir);
@@ -231,19 +264,27 @@ pub async fn pick_save(app: AppHandle, suggested_name: String, kind: String, dir
         dialog = dialog.add_filter(name, &exts);
     }
     let scope = app.state::<Scope>();
-    Ok(dialog.blocking_save_file().and_then(|p| p.into_path().ok()).map(|path| {
-        scope.grant_file(&path);
-        file_ref(&path)
-    }))
+    Ok(dialog
+        .blocking_save_file()
+        .and_then(|p| p.into_path().ok())
+        .map(|path| {
+            scope.grant_file(&path);
+            file_ref(&path)
+        }))
 }
 
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> Result<Option<FileRef>> {
     let scope = app.state::<Scope>();
-    Ok(app.dialog().file().blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|path| {
-        scope.grant_folder(&path);
-        file_ref(&path)
-    }))
+    Ok(app
+        .dialog()
+        .file()
+        .blocking_pick_folder()
+        .and_then(|p| p.into_path().ok())
+        .map(|path| {
+            scope.grant_folder(&path);
+            file_ref(&path)
+        }))
 }
 
 #[cfg(test)]
@@ -280,7 +321,10 @@ mod tests {
 
     #[test]
     fn decodes_percent_encoded_paths() {
-        assert_eq!(decode("/tmp/a%20b/%C3%A9.pdf").unwrap(), PathBuf::from("/tmp/a b/é.pdf"));
+        assert_eq!(
+            decode("/tmp/a%20b/%C3%A9.pdf").unwrap(),
+            PathBuf::from("/tmp/a b/é.pdf")
+        );
         assert!(decode("%zz").is_err());
     }
 }

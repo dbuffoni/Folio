@@ -1,7 +1,7 @@
 // Form field authoring on saved bytes (FR-FRM-08, FR-FRM-11, FR-FRM-16). PDFium's public API has no
 // field creation or deletion, so, like formrepair.ts, pdf-lib does the structural work and the
 // document is reloaded from the result (SPEC §8.7: one writer at a time, hand-over on saved bytes).
-import { InvalidArgumentError, UnsupportedFeatureError } from '@folio/core';
+import { InvalidArgumentError, InvalidPdfError } from '@folio/core';
 import type { FieldPatch, FieldSpec, Rect } from '@folio/ports';
 import type { PDFDocument as PDFDocumentT, PDFField as PDFFieldT, PDFFont as PDFFontT } from 'pdf-lib';
 
@@ -14,7 +14,7 @@ function checkRect(r: Rect): void {
   if (!(r.width > 0 && r.height > 0) || ![r.x, r.y, r.width, r.height].every(Number.isFinite))
     throw new InvalidArgumentError('The field needs a rectangle with a positive size', { reason: 'badFieldRect' });
 }
-export function checkName(name: string): void {
+function checkName(name: string): void {
   if (!name || name.startsWith('.') || name.endsWith('.') || name.includes('..'))
     throw new InvalidArgumentError('Field names must not be empty or contain empty parts', { reason: 'badFieldName' });
 }
@@ -24,8 +24,8 @@ async function load(bytes: Uint8Array): Promise<{ lib: Lib; pdf: PDFDocumentT }>
   try {
     return { lib, pdf: await lib.PDFDocument.load(bytes, { updateMetadata: false }) };
   } catch (e) {
-    // Encrypted documents cannot be rewritten by the structural helper.
-    throw new UnsupportedFeatureError('formEditEncrypted', String(e));
+    // Encrypted documents never get here (`rewriteForms` refuses them first): the structure is unreadable.
+    throw new InvalidPdfError(String(e), 'formEdit');
   }
 }
 const colour = (lib: Lib, c?: { r: number; g: number; b: number }) => (c ? lib.rgb(c.r / 255, c.g / 255, c.b / 255) : undefined);

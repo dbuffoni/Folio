@@ -23,7 +23,10 @@ fn normalize(path: &Path) -> PathBuf {
     if let Ok(p) = path.canonicalize() {
         return p;
     }
-    match (path.parent().and_then(|p| p.canonicalize().ok()), path.file_name()) {
+    match (
+        path.parent().and_then(|p| p.canonicalize().ok()),
+        path.file_name(),
+    ) {
         (Some(parent), Some(name)) => parent.join(name),
         _ => path.to_path_buf(),
     }
@@ -32,7 +35,10 @@ fn normalize(path: &Path) -> PathBuf {
 impl Scope {
     /// `persist` is where granted file paths are remembered so recent files can be reopened.
     pub fn new(persist: Option<PathBuf>) -> Self {
-        let scope = Scope { inner: Mutex::default(), persist };
+        let scope = Scope {
+            inner: Mutex::default(),
+            persist,
+        };
         if let Some(file) = &scope.persist {
             if let Ok(text) = std::fs::read_to_string(file) {
                 if let Ok(list) = serde_json::from_str::<Vec<PathBuf>>(&text) {
@@ -94,7 +100,11 @@ impl Scope {
     }
 
     pub fn allows_folder(&self, path: &Path) -> bool {
-        self.inner.lock().unwrap().folders.contains(&normalize(path))
+        self.inner
+            .lock()
+            .unwrap()
+            .folders
+            .contains(&normalize(path))
     }
 
     pub fn check(&self, path: &Path) -> crate::error::Result<()> {

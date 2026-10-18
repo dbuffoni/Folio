@@ -13,7 +13,7 @@ export class CertificateError extends Error {
 
 export class SigningError extends Error {
   constructor(
-    readonly code: 'encrypted' | 'damaged' | 'field-not-found' | 'field-signed' | 'bad-page' | 'too-large' | 'revoked',
+    readonly code: 'encrypted' | 'damaged' | 'field-not-found' | 'field-signed' | 'bad-page' | 'bad-image' | 'too-large' | 'revoked',
     message: string,
   ) {
     super(message);

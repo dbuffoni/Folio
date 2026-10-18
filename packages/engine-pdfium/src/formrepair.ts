@@ -5,7 +5,7 @@
 // helper where PDFium lacks API; the hand-over happens on saved bytes, never two writers at once).
 import type { PDFDict as PDFDictT, PDFRef as PDFRefT } from 'pdf-lib';
 
-export interface RepairResult {
+interface RepairResult {
   bytes: Uint8Array;
   /** Fields renamed because another field already used the name: old → new fully qualified name. */
   renamed: Array<{ from: string; to: string; page: number }>;
@@ -19,11 +19,6 @@ export async function importWithForms(dest: Uint8Array, src: Uint8Array, pages: 
   const copied = await pdf.copyPages(from, pages);
   copied.forEach((page, k) => pdf.insertPage(at + k, page));
   return repair(pdf);
-}
-
-export async function repairAcroForm(input: Uint8Array): Promise<RepairResult> {
-  const { PDFDocument } = await import('pdf-lib');
-  return repair(await PDFDocument.load(input, { updateMetadata: false }));
 }
 
 async function repair(pdf: import('pdf-lib').PDFDocument): Promise<RepairResult> {
@@ -137,7 +132,7 @@ const latin1 = (b: Uint8Array, from: number, to: number): string =>
   String.fromCharCode(...b.subarray(from, Math.min(b.length, to)));
 
 /** True when the catalog points at an /AcroForm dictionary that has no /Fields entry. */
-export function acroFormLacksFields(pdf: Uint8Array): boolean {
+function acroFormLacksFields(pdf: Uint8Array): boolean {
   const at = indexOf(pdf, ascii('/AcroForm'));
   if (at < 0) return false;
   const ref = /^\/AcroForm\s+(\d+)\s+(\d+)\s+R/.exec(latin1(pdf, at, at + 48));

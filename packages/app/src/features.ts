@@ -1740,6 +1740,14 @@ export class CompressModel extends ViewModel {
   async run(): Promise<string | null> {
     const files = this.app.services.platform.files;
     const svc = this.app.services.compress;
+    // The working copy of an encrypted file is reopened with its password, which the session never keeps
+    // (FR-APP-12): it is asked for again, and the copy keeps the protection (FR-OPT-11).
+    let password: string | undefined;
+    if (this.encrypted) {
+      const answer = await this.app.prompts.askPassword(this.session.name, false);
+      if (!answer) return null;
+      password = answer;
+    }
     this.stage = 'running';
     this.progress = 0;
     this.abort = new AbortController();
@@ -1748,6 +1756,7 @@ export class CompressModel extends ViewModel {
       await this.session.settled();
       return svc.run(this.session.doc, this.settings, {
         originalBytes: this.size || (await this.session.doc.save()).length,
+        password,
         signal: this.abort!.signal,
         progress: (done, total) => {
           this.progress = total ? done / total : 1;

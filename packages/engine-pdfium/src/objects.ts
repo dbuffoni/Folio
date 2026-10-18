@@ -30,7 +30,7 @@ const TYPES: Record<number, PageObjectType> = { 1: 'text', 2: 'path', 3: 'image'
 const FPDFBitmap_BGRA = 4;
 
 export const objId = (index: number): ObjId => `o${index}`;
-export function objIndex(id: ObjId): number {
+function objIndex(id: ObjId): number {
   const m = /^o(\d+)$/.exec(id);
   if (!m) throw new InvalidArgumentError(`Invalid object id "${id}"`);
   return Number(m[1]);
@@ -298,7 +298,7 @@ export function addText(d: DocInternals, i: PageIndex, spec: TextSpec): ObjId {
 // ---- OCR layer (FR-OCR-01, FR-OCR-09) ---------------------------------------------------------
 
 /** Name of the marked-content tag that identifies the layer Folio wrote. */
-export const OCR_MARK = 'Folio:OCR';
+const OCR_MARK = 'Folio:OCR';
 /** FPDFPageObjMark_GetName fills a UTF-16 buffer and reports the length through an out parameter. */
 function scopeLen(m: Pdfium, mark: Ptr, buf: Ptr, len: number): number {
   return scope(m, (a) => {
@@ -406,7 +406,7 @@ export function bitmapFromRaster(m: Pdfium, img: RasterImage): Ptr {
   }
   return bmp;
 }
-export function rasterFromBitmap(m: Pdfium, bmp: Ptr): RasterImage {
+function rasterFromBitmap(m: Pdfium, bmp: Ptr): RasterImage {
   const width = m.FPDFBitmap_GetWidth(bmp);
   const height = m.FPDFBitmap_GetHeight(bmp);
   const stride = m.FPDFBitmap_GetStride(bmp);
@@ -450,7 +450,7 @@ function setImageData(d: DocInternals, a: Arena, obj: Ptr, image: ImageSpec['ima
 }
 
 /** Matrix placing the unit image square onto `rect`, rotated by `angle` around the rect centre. */
-export function imageMatrix(rect: Rect, angle = 0): Matrix {
+function imageMatrix(rect: Rect, angle = 0): Matrix {
   const base: Matrix = [rect.width, 0, 0, rect.height, rect.x, rect.y];
   return angle ? multiply(base, rotation(angle, center(rect))) : base;
 }

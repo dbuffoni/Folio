@@ -28,12 +28,23 @@ pub struct AllowedOrigin {
 
 /// True for a server on this computer (Ollama, LM Studio, llama.cpp): no key is needed there.
 pub fn is_loopback(url: &str) -> bool {
-    url::Url::parse(url).map(|u| matches!(u.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]"))).unwrap_or(false)
+    url::Url::parse(url)
+        .map(|u| {
+            matches!(
+                u.host_str(),
+                Some("localhost") | Some("127.0.0.1") | Some("[::1]")
+            )
+        })
+        .unwrap_or(false)
 }
 
 /// The value of a secret header, or `None` when it can be left out: a local server without a stored
 /// key gets no Authorization header, a remote endpoint without a key is an error.
-pub fn secret_header_value(url: &str, secret: Option<String>, format: Option<&str>) -> Result<Option<String>> {
+pub fn secret_header_value(
+    url: &str,
+    secret: Option<String>,
+    format: Option<&str>,
+) -> Result<Option<String>> {
     match secret {
         Some(s) => Ok(Some(format.unwrap_or("{secret}").replace("{secret}", &s))),
         None if is_loopback(url) => Ok(None),
@@ -43,7 +54,10 @@ pub fn secret_header_value(url: &str, secret: Option<String>, format: Option<&st
 
 pub fn origin_of(url: &str) -> Result<String> {
     let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
-    let local = matches!(u.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]"));
+    let local = matches!(
+        u.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("[::1]")
+    );
     match u.scheme() {
         "https" => {}
         // Plain HTTP only for a model running on this machine.
@@ -51,15 +65,23 @@ pub fn origin_of(url: &str) -> Result<String> {
         _ => return Err(Error::Invalid("the AI endpoint must use https".into())),
     }
     if !u.username().is_empty() || u.password().is_some() {
-        return Err(Error::Invalid("credentials in the URL are not allowed".into()));
+        return Err(Error::Invalid(
+            "credentials in the URL are not allowed".into(),
+        ));
     }
     Ok(u.origin().ascii_serialization())
 }
 
 impl AllowedOrigin {
     pub fn new(file: Option<PathBuf>) -> Self {
-        let stored = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| origin_of(s.trim()).ok());
-        AllowedOrigin { origin: Mutex::new(stored.unwrap_or_else(|| DEFAULT_ORIGIN.to_string())), file }
+        let stored = file
+            .as_ref()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .and_then(|s| origin_of(s.trim()).ok());
+        AllowedOrigin {
+            origin: Mutex::new(stored.unwrap_or_else(|| DEFAULT_ORIGIN.to_string())),
+            file,
+        }
     }
     pub fn get(&self) -> String {
         self.origin.lock().unwrap().clone()
@@ -112,7 +134,11 @@ pub fn ai_origin(allowed: State<'_, AllowedOrigin>) -> String {
 /// Changes the AI endpoint. The user confirms the new host in a native dialog, so page content
 /// cannot silently redirect requests (and the stored key) elsewhere.
 #[tauri::command]
-pub async fn set_ai_origin(app: AppHandle, url: String, allowed: State<'_, AllowedOrigin>) -> Result<bool> {
+pub async fn set_ai_origin(
+    app: AppHandle,
+    url: String,
+    allowed: State<'_, AllowedOrigin>,
+) -> Result<bool> {
     let origin = origin_of(&url)?;
     if origin == allowed.get() {
         return Ok(true);
@@ -130,19 +156,33 @@ pub async fn set_ai_origin(app: AppHandle, url: String, allowed: State<'_, Allow
 }
 
 #[tauri::command]
-pub async fn http_request(req: HttpRequest, allowed: State<'_, AllowedOrigin>, secrets: State<'_, Secrets>) -> Result<HttpResponse> {
+pub async fn http_request(
+    req: HttpRequest,
+    allowed: State<'_, AllowedOrigin>,
+    secrets: State<'_, Secrets>,
+) -> Result<HttpResponse> {
     if !allowed.permits(&req.url) {
-        return Err(Error::Invalid("this host is not the configured AI endpoint".into()));
+        return Err(Error::Invalid(
+            "this host is not the configured AI endpoint".into(),
+        ));
     }
-    let method = reqwest::Method::from_bytes(req.method.to_uppercase().as_bytes()).map_err(|_| Error::Invalid("invalid method".into()))?;
+    let method = reqwest::Method::from_bytes(req.method.to_uppercase().as_bytes())
+        .map_err(|_| Error::Invalid("invalid method".into()))?;
     if method != reqwest::Method::GET && method != reqwest::Method::POST {
         return Err(Error::Invalid("only GET and POST are allowed".into()));
     }
-    if req.body.as_ref().map(|b| b.len() > MAX_BODY).unwrap_or(false) {
+    if req
+        .body
+        .as_ref()
+        .map(|b| b.len() > MAX_BODY)
+        .unwrap_or(false)
+    {
         return Err(Error::Invalid("request body is too large".into()));
     }
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(req.timeout_ms.unwrap_or(60_000).min(MAX_TIMEOUT_MS)))
+        .timeout(Duration::from_millis(
+            req.timeout_ms.unwrap_or(60_000).min(MAX_TIMEOUT_MS),
+        ))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| Error::Network(e.to_string()))?;
@@ -151,21 +191,37 @@ pub async fn http_request(req: HttpRequest, allowed: State<'_, AllowedOrigin>, s
         builder = builder.header(k, v);
     }
     for (name, r) in &req.secret_headers {
-        if let Some(value) = secret_header_value(&req.url, secrets.0.get(&r.secret)?, r.format.as_deref())? {
+        if let Some(value) =
+            secret_header_value(&req.url, secrets.0.get(&r.secret)?, r.format.as_deref())?
+        {
             builder = builder.header(name, value);
         }
     }
     if let Some(body) = req.body {
         builder = builder.body(body);
     }
-    let res = builder.send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let res = builder
+        .send()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     let status = res.status().as_u16();
-    let headers = res.headers().iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
-    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let headers = res
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
+        .collect();
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     if bytes.len() > MAX_BODY {
         return Err(Error::Network("response is too large".into()));
     }
-    Ok(HttpResponse { status, headers, body: String::from_utf8_lossy(&bytes).to_string() })
+    Ok(HttpResponse {
+        status,
+        headers,
+        body: String::from_utf8_lossy(&bytes).to_string(),
+    })
 }
 
 /// Hosts OCR language data may come from (FR-OCR-02). Fixed in the binary: page content cannot extend it.
@@ -174,9 +230,19 @@ pub const DOWNLOAD_HOSTS: &[&str] = &["raw.githubusercontent.com"];
 /// Checks a download request: https only, host on the allow-list, no credentials, no custom port.
 pub fn download_allowed(url: &str) -> Result<url::Url> {
     let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
-    let host_ok = u.host_str().map(|h| DOWNLOAD_HOSTS.contains(&h)).unwrap_or(false);
-    if u.scheme() != "https" || !host_ok || !u.username().is_empty() || u.password().is_some() || u.port().is_some() {
-        return Err(Error::Invalid("downloads are only allowed from the OCR language host".into()));
+    let host_ok = u
+        .host_str()
+        .map(|h| DOWNLOAD_HOSTS.contains(&h))
+        .unwrap_or(false);
+    if u.scheme() != "https"
+        || !host_ok
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.port().is_some()
+    {
+        return Err(Error::Invalid(
+            "downloads are only allowed from the OCR language host".into(),
+        ));
     }
     Ok(u)
 }
@@ -191,14 +257,21 @@ pub async fn download_file(url: String, max_bytes: u64) -> Result<tauri::ipc::Re
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| Error::Network(e.to_string()))?;
-    let res = client.get(u).send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let res = client
+        .get(u)
+        .send()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     if !res.status().is_success() {
         return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
     }
     if res.content_length().map(|n| n > max_bytes).unwrap_or(false) {
         return Err(Error::Network("the file is larger than expected".into()));
     }
-    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     if bytes.len() as u64 > max_bytes {
         return Err(Error::Network("the file is larger than expected".into()));
     }
@@ -215,13 +288,19 @@ const SIGNATURE_MAX_RESPONSE: usize = 8 * 1024 * 1024;
 /// Checks a signature-network request: http or https, no credentials, GET or POST. Returns the host.
 pub fn signature_target(url: &str, method: &str) -> Result<(url::Url, String)> {
     let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
-    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() {
-        return Err(Error::Invalid("only http and https addresses without credentials are allowed".into()));
+    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some()
+    {
+        return Err(Error::Invalid(
+            "only http and https addresses without credentials are allowed".into(),
+        ));
     }
     if !matches!(method.to_uppercase().as_str(), "GET" | "POST") {
         return Err(Error::Invalid("only GET and POST are allowed".into()));
     }
-    let host = u.host_str().ok_or_else(|| Error::Invalid("the address has no host".into()))?.to_string();
+    let host = u
+        .host_str()
+        .ok_or_else(|| Error::Invalid("the address has no host".into()))?
+        .to_string();
     Ok((u, host))
 }
 
@@ -238,7 +317,11 @@ pub async fn binary_request(
     approved: State<'_, ApprovedNetworkHosts>,
 ) -> Result<tauri::ipc::Response> {
     let (u, host) = signature_target(&url, &method)?;
-    if body.as_ref().map(|b| b.len() > SIGNATURE_MAX_BODY).unwrap_or(false) {
+    if body
+        .as_ref()
+        .map(|b| b.len() > SIGNATURE_MAX_BODY)
+        .unwrap_or(false)
+    {
         return Err(Error::Invalid("request body is too large".into()));
     }
     let known = approved.0.lock().unwrap().contains(&host);
@@ -259,7 +342,11 @@ pub async fn binary_request(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| Error::Network(e.to_string()))?;
-    let m = if method.eq_ignore_ascii_case("POST") { reqwest::Method::POST } else { reqwest::Method::GET };
+    let m = if method.eq_ignore_ascii_case("POST") {
+        reqwest::Method::POST
+    } else {
+        reqwest::Method::GET
+    };
     let mut builder = client.request(m, u);
     if let Some(ct) = content_type {
         builder = builder.header("Content-Type", ct);
@@ -267,11 +354,17 @@ pub async fn binary_request(
     if let Some(b) = body {
         builder = builder.body(b);
     }
-    let res = builder.send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let res = builder
+        .send()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     if !res.status().is_success() {
         return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
     }
-    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
     if bytes.len() > SIGNATURE_MAX_RESPONSE {
         return Err(Error::Network("response is too large".into()));
     }
@@ -284,9 +377,18 @@ mod tests {
 
     #[test]
     fn only_https_or_local_origins_are_accepted() {
-        assert_eq!(origin_of("https://api.openai.com/v1/chat").unwrap(), "https://api.openai.com");
-        assert_eq!(origin_of("http://localhost:11434/v1").unwrap(), "http://localhost:11434");
-        assert_eq!(origin_of("http://127.0.0.1:8080/x").unwrap(), "http://127.0.0.1:8080");
+        assert_eq!(
+            origin_of("https://api.openai.com/v1/chat").unwrap(),
+            "https://api.openai.com"
+        );
+        assert_eq!(
+            origin_of("http://localhost:11434/v1").unwrap(),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            origin_of("http://127.0.0.1:8080/x").unwrap(),
+            "http://127.0.0.1:8080"
+        );
         assert!(origin_of("http://example.com/v1").is_err());
         assert!(origin_of("ftp://example.com").is_err());
         assert!(origin_of("https://user:pw@example.com").is_err());
@@ -308,19 +410,43 @@ mod tests {
 
     #[test]
     fn local_servers_need_no_key_remote_ones_do() {
-        assert_eq!(secret_header_value("http://localhost:11434/v1/models", None, Some("Bearer {secret}")).unwrap(), None);
-        assert_eq!(secret_header_value("http://127.0.0.1:1234/v1/models", None, None).unwrap(), None);
         assert_eq!(
-            secret_header_value("http://localhost:11434/v1/models", Some("sk-1".into()), Some("Bearer {secret}")).unwrap(),
+            secret_header_value(
+                "http://localhost:11434/v1/models",
+                None,
+                Some("Bearer {secret}")
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            secret_header_value("http://127.0.0.1:1234/v1/models", None, None).unwrap(),
+            None
+        );
+        assert_eq!(
+            secret_header_value(
+                "http://localhost:11434/v1/models",
+                Some("sk-1".into()),
+                Some("Bearer {secret}")
+            )
+            .unwrap(),
             Some("Bearer sk-1".into())
         );
-        assert!(secret_header_value("https://api.openai.com/v1/models", None, Some("Bearer {secret}")).is_err());
+        assert!(secret_header_value(
+            "https://api.openai.com/v1/models",
+            None,
+            Some("Bearer {secret}")
+        )
+        .is_err());
         assert!(!is_loopback("https://localhost.evil.example/v1"));
     }
 
     #[test]
     fn downloads_are_limited_to_the_language_host() {
-        assert!(download_allowed("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/deu.traineddata").is_ok());
+        assert!(download_allowed(
+            "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/deu.traineddata"
+        )
+        .is_ok());
         assert!(download_allowed("http://raw.githubusercontent.com/x").is_err());
         assert!(download_allowed("https://raw.githubusercontent.com.evil.example/x").is_err());
         assert!(download_allowed("https://evil.example/raw.githubusercontent.com").is_err());
@@ -334,7 +460,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("ai-origin");
         AllowedOrigin::new(Some(file.clone())).set("https://llm.example.org".into());
-        assert_eq!(AllowedOrigin::new(Some(file.clone())).get(), "https://llm.example.org");
+        assert_eq!(
+            AllowedOrigin::new(Some(file.clone())).get(),
+            "https://llm.example.org"
+        );
         std::fs::write(&file, "javascript:alert(1)").unwrap();
         assert_eq!(AllowedOrigin::new(Some(file)).get(), DEFAULT_ORIGIN);
     }

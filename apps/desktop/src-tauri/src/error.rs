@@ -28,7 +28,11 @@ impl Serialize for Error {
             Error::Network(_) => "network",
             Error::Invalid(_) => "invalidArgument",
         };
-        Payload { code, message: self.to_string() }.serialize(s)
+        Payload {
+            code,
+            message: self.to_string(),
+        }
+        .serialize(s)
     }
 }
 

@@ -87,7 +87,7 @@ export function scope<T>(m: Pdfium, fn: (a: Arena) => T): T {
 }
 
 /** Reads a UTF-16LE string of `byteLen` bytes (terminator included or not). */
-export function readUtf16(m: Pdfium, p: Ptr, byteLen: number): string {
+function readUtf16(m: Pdfium, p: Ptr, byteLen: number): string {
   let s = '';
   const n = byteLen >> 1;
   const base = p >> 1;
@@ -123,8 +123,4 @@ export function getAscii(m: Pdfium, call: (buf: Ptr, len: number) => number): st
     while (end < buf + got && m.pdfium.HEAPU8[end] !== 0) end++;
     return new TextDecoder().decode(m.pdfium.HEAPU8.subarray(buf, end));
   });
-}
-
-export function copyOut(m: Pdfium, p: Ptr, len: number): Uint8Array {
-  return m.pdfium.HEAPU8.slice(p, p + len);
 }

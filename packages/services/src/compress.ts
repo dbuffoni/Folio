@@ -130,7 +130,13 @@ export class CompressService {
 
   /** Images of the document with their effective resolution (highest among identical images). */
   async images(doc: PdfDocument, signal?: AbortSignal): Promise<ImageEntry[]> {
-    const groups = new Map<string, ImageEntry>();
+    // Size, stored length and filters name a candidate group; images that share them (always the case for
+    // two uncompressed images of the same size) are compared pixel by pixel before they count as one.
+    const groups = new Map<string, ImageEntry[]>();
+    const all: ImageEntry[] = [];
+    const pixels = new Map<ImageEntry, Uint8ClampedArray>();
+    const pixelsOf = async (page: PageIndex, id: string): Promise<Uint8ClampedArray> => (await doc.getImage(page, id)).data;
+    const same = (a: Uint8ClampedArray, b: Uint8ClampedArray): boolean => a.length === b.length && a.every((v, k) => v === b[k]);
     for (let p = 0; p < doc.pageCount; p++) {
       throwIfAborted(signal);
       for (const o of await doc.listObjects(p)) {
@@ -139,14 +145,25 @@ export class CompressService {
         const drawn = Math.hypot(o.matrix[0], o.matrix[1]) || o.bounds.width;
         const dpi = drawn > 0 ? o.imageSize.width / (drawn / 72) : Infinity;
         const key = `${o.imageSize.width}x${o.imageSize.height}:${o.imageInfo.byteSize}:${o.imageInfo.filters.join(',')}`;
-        const known = groups.get(key);
+        const candidates = groups.get(key) ?? [];
+        let known: ImageEntry | undefined;
+        if (candidates.length) {
+          const mine = await pixelsOf(p, o.id);
+          for (const c of candidates) {
+            if (!pixels.has(c)) pixels.set(c, await pixelsOf(c.page, c.id));
+            if (same(pixels.get(c)!, mine)) {
+              known = c;
+              break;
+            }
+          }
+        }
         if (known) {
           known.uses++;
           known.places.push({ page: p, id: o.id });
           known.dpi = Math.min(known.dpi, dpi);
           continue;
         }
-        groups.set(key, {
+        const entry: ImageEntry = {
           page: p,
           id: o.id,
           width: o.imageSize.width,
@@ -157,10 +174,12 @@ export class CompressService {
           uses: 1,
           places: [{ page: p, id: o.id }],
           skip: o.imageInfo.bitsPerPixel === 1 ? 'oneBit' : o.imageSize.width * o.imageSize.height < 64 * 64 ? 'tiny' : undefined,
-        });
+        };
+        groups.set(key, [...candidates, entry]);
+        all.push(entry);
       }
     }
-    return [...groups.values()];
+    return all;
   }
 
   /** Decides and encodes one image; null leaves it as it is. */
