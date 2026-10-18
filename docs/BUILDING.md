@@ -79,6 +79,8 @@ It unpacks the AppImage (so it also works where FUSE is unavailable), starts it 
 PDF as argument and checks start-up, the file association, scoped file access, an atomic save and a
 rotate-and-save flow through the real screens.
 
+Other distributions: `apps/desktop/scripts/smoke-distro.sh <image> <AppImage> <pdf>` (see Release).
+
 ## Tests
 
 ```bash
@@ -104,5 +106,70 @@ and fetched with `pnpm fixtures:fetch`.
 
 ## Release
 
-Pushing a tag `v*` runs `.github/workflows/release.yml`: build, smoke test, checksums, SBOM and a
-draft GitHub release. The AppImage is not signed yet (see docs/PROGRESS.md).
+`.github/workflows/release.yml` builds, tests and packages; it **never publishes**. Every path ends
+in a draft (`draft: true`, asserted again through the API after the upload); a person reads it and
+presses Publish.
+
+### Procedure
+
+1. Merge everything into the release branch, bump the version, run `pnpm gate` locally.
+2. **Dry run**: tag a release candidate, `git tag v0.1.3-rc1 && git push origin v0.1.3-rc1`, or start
+   the workflow by hand (Actions > Release > Run workflow, any branch). Both run the distribution
+   smoke matrix (below). The tag creates a draft pre-release; the manual run only uploads the
+   `release-bundle` workflow artifact and creates no release. Check the run is green, download the
+   bundle, try the AppImage, then delete the draft pre-release and the rc tag.
+3. Tag the release (`git tag v0.1.3 && git push origin v0.1.3`). The jobs are:
+   `appimage` (build + smoke under Xvfb) and `windows`, `macos` (installers), then `release`
+   (CycloneDX SBOM, SBOM validation, `SHA256SUMS`, GPG signatures, draft release), then `verify`
+   (`sha256sum -c` and `gpg --verify` on the bundle as uploaded).
+4. Open the draft, read the generated notes, check the assets (AppImage, `.exe`, `.dmg`,
+   `SHA256SUMS`, `SHA256SUMS.asc`, `*.AppImage.asc`, `folio-release-key.asc`, `sbom.cdx.json`,
+   `THIRD-PARTY-NOTICES.md`), then publish.
+
+### Distribution smoke matrix
+
+`distro-smoke` runs only for tags matching `v*-rc*` and for manual runs. It runs
+`apps/desktop/scripts/smoke-distro.sh <image> <appimage> <pdf>`, which starts a container
+(docker or podman), installs Xvfb, D-Bus, qpdf and the WebKit driver with the distribution's package
+manager and runs the normal `smoke.mjs` scenario against the unpacked AppImage (no FUSE). Images:
+`fedora:42`, `archlinux:latest` (both must pass) and `ubuntu:20.04` (glibc 2.31, informational: the
+AppImage is built on Ubuntu 22.04 and probably needs a newer glibc, so a failure there is the answer
+to "what is the minimum glibc?", not a broken release). `FOLIO_SMOKE_NO_SANDBOX=1` (the default)
+turns off WebKit's own sandbox, which cannot start in an unprivileged container.
+
+### Secrets
+
+| Secret | Used for | If missing |
+|---|---|---|
+| `GPG_PRIVATE_KEY` | ASCII-armoured secret key (`gpg --armor --export-secret-keys <id>`) that signs the AppImage and `SHA256SUMS` | the signing step is skipped with a `::notice::` "Release is NOT signed"; `verify` prints a notice too |
+| `GPG_PASSPHRASE` | passphrase of that key | treated as empty |
+
+`GITHUB_TOKEN` is the only other credential. Jobs run with `contents: read`; only `release` has
+`contents: write`. Add the secrets under Settings > Secrets and variables > Actions. Put the public
+fingerprint into README.md ("Verifying a download") when the key is created.
+
+### SBOM and checksums
+
+`sbom.cdx.json` is made by `@cyclonedx/cdxgen` (version pinned in the workflow) and checked by
+`node tools/validate-sbom.mjs sbom.cdx.json pnpm-lock.yaml apps/web`: valid JSON, `bomFormat`
+CycloneDX, a `specVersion`, a non-empty `components` list, and every production package that
+`apps/web` reaches in `pnpm-lock.yaml` (workspace packages followed, dev dependencies ignored) is
+listed. `SHA256SUMS` covers every release file; `verify` runs `sha256sum -c` on it.
+
+### Unsigned installers
+
+- **Windows**: the NSIS installer is not code-signed. SmartScreen shows "Windows protected your PC" /
+  "unknown publisher"; choose More info > Run anyway.
+- **macOS**: the DMG is ad-hoc signed and not notarised. Gatekeeper refuses a double click; right-click
+  the app, choose Open, confirm (or `xattr -dr com.apple.quarantine /Applications/Folio.app`).
+- **Linux**: the AppImage carries a detached GPG signature when the secrets are set (README).
+
+### What was verified where
+
+Verified on the authoring machine: YAML of both workflows parses; `bash -n` on `smoke-distro.sh`;
+`tools/validate-sbom.mjs` rejects invalid JSON and an SBOM missing lockfile packages; action versions
+exist and declare `using: node24`. **Not run locally, first proof is the CI run of an rc tag**:
+`smoke-distro.sh` (no docker or podman on the machine; package names for Fedora, Arch and Ubuntu 20.04
+are best effort), the distribution matrix, GPG signing and verification, the validator against real
+cdxgen output, the draft-release steps, and the pinned runner images (`windows-2025`, `macos-15`).
+Expect to adjust package names or the SBOM name matching after the first rc run.
