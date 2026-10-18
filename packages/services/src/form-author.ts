@@ -101,9 +101,12 @@ export class FormAuthoringService {
     return this.command('cmd.editField', (doc) => doc.updateField(field.id, patch));
   }
   rename(field: FormField, name: string, taken: ReadonlySet<string>): Command<void> {
-    // A hierarchical name is changed as a whole: the partial name of the last part is what PDFium renames.
-    const fresh = this.validName(name, taken, field.name);
+    // PDFium renames the partial name (the last part); the full name it produces keeps the parent path,
+    // so that full name is what must be free.
+    const fresh = name.trim();
     if (fresh.includes('.')) throw new InvalidArgumentError('The partial name cannot contain a dot', { reason: 'badFieldName' });
+    const parent = field.name.includes('.') ? field.name.slice(0, field.name.lastIndexOf('.') + 1) : '';
+    this.validName(parent + fresh, taken, field.name);
     return this.command('cmd.renameField', (doc) => doc.renameField(field.id, fresh));
   }
   move(field: FormField, widget: number, rect: Rect): Command<void> {

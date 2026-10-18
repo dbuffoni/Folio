@@ -5,6 +5,7 @@
   import Canvas from '#lib/ui/Canvas.svelte';
   import Coach from '#lib/ui/Coach.svelte';
   import ExportDialog from '#lib/ui/dialogs/ExportDialog.svelte';
+  import Logo from '#lib/ui/Logo.svelte';
   import HiddenDataDialog from '#lib/ui/dialogs/HiddenDataDialog.svelte';
   import ImagesDialog from '#lib/ui/dialogs/ImagesDialog.svelte';
   import MergeDialog from '#lib/ui/dialogs/MergeDialog.svelte';
@@ -130,7 +131,7 @@
 {#if !boot.ready}
   <div class="splash" role="status">
     <div class="box">
-      <div class="logo">F</div>
+      <Logo size={48} />
       {#if boot.error}
         <b>{t('ui.engineFailed')}</b><code style="font-size:12px;word-break:break-all">{boot.error}</code>
       {:else}

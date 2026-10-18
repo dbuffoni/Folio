@@ -3,6 +3,7 @@
   import { t } from '#lib/i18n/index.ts';
   import { dep, app, isMac, run, track, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
+  import Logo from './Logo.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import { tip } from './tip.ts';
 
@@ -64,7 +65,7 @@
 
 <header id="titlebar">
   <button class="ib" onclick={openMenu} use:tip={t('ui.mainMenu')} aria-label={t('ui.mainMenu')} aria-haspopup="menu"><Icon name="menu" /></button>
-  <button class="brand" onclick={() => app.showHome()} use:tip={t('ui.home')}><i class="logo">F</i><span>Folio</span></button>
+  <button class="brand" onclick={() => app.showHome()} use:tip={t('ui.home')}><Logo size={20} /><span>Folio</span></button>
   <nav id="tabs" bind:this={strip} aria-label={t('ui.openDocuments')}>
     {#each sessions as s, i (s.id)}
       <!-- Document tabs are navigation buttons with a sibling close button: a control nested in a tab cannot be reached by assistive technology. -->

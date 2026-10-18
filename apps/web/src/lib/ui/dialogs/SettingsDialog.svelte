@@ -8,6 +8,7 @@
   import { dep, app, desktop, services, track, ui, VERSION, wizards } from '#lib/state.svelte.ts';
   import { tm } from '#lib/i18n/index.ts';
   import Dialog from '../Dialog.svelte';
+  import Logo from '../Logo.svelte';
   import Icon from '../Icon.svelte';
   import ProfilesPane from '../ProfilesPane.svelte';
   import OcrLanguagesPane from '../OcrLanguagesPane.svelte';
@@ -230,7 +231,7 @@
         <p style="margin:0">{t('settings.privacy.body3')}</p>
         <p style="margin:0">{t('settings.privacy.body4')}</p>
       {:else}
-        <div class="row"><span class="brand" style="cursor:default;flex:none"><i class="logo" style="width:36px;height:36px;font-size:18px;border-radius:10px">F</i></span><div><b style="font-size:15px">Folio</b><div class="note">{t('settings.about.version', { version: services.platform.app.version || VERSION })}</div></div></div>
+        <div class="row"><span class="brand" style="cursor:default;flex:none"><Logo size={36} /></span><div><b style="font-size:15px">Folio</b><div class="note">{t('settings.about.version', { version: services.platform.app.version || VERSION })}</div></div></div>
         <p class="note">{t('settings.about.body')}</p>
         {#if desktop}<p class="note">{t('settings.safeGraphics')}</p>{/if}
         <div class="row"><button class="btn" style="flex:none" onclick={copyDiagnostics}>{copied ? t('action.copied') : t('action.copyDiagnostics')}</button></div>

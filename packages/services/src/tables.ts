@@ -1,4 +1,4 @@
-import { InvalidArgumentError, detectTable, toCsv, toTsv, type CsvOptions, type TableWord } from '@folio/core';
+import { InvalidArgumentError, applyToRect, detectTable, pageToViewMatrix, toCsv, toTsv, type CsvOptions, type TableWord } from '@folio/core';
 import type { AiProvider, ImageCodec, PageIndex, PdfDocument, Rect, TextLayer } from '@folio/ports';
 
 export type TableNotice = 'rotated' | 'nothing';
@@ -84,12 +84,13 @@ export class TableService {
     const info = await doc.getPageInfo(page);
     const region = area ?? info.cropBox;
     const scale = Math.min(3, 1600 / Math.max(region.width, region.height));
-    // Render the page at the chosen scale and cut the area out (user space → pixels, rotation 0 only here).
+    // Render the page at the chosen scale (as shown, with its /Rotate) and cut the area out.
     const img = await doc.render(page, { scale, annotations: true });
-    const x = Math.round((region.x - info.cropBox.x) * scale);
-    const y = Math.round((info.cropBox.y + info.cropBox.height - (region.y + region.height)) * scale);
-    const w = Math.max(1, Math.min(img.width - x, Math.round(region.width * scale)));
-    const h = Math.max(1, Math.min(img.height - y, Math.round(region.height * scale)));
+    const view = applyToRect(pageToViewMatrix(info.size, info.rotation, scale), { ...region, x: region.x - info.cropBox.x, y: region.y - info.cropBox.y });
+    const x = Math.min(img.width - 1, Math.max(0, Math.round(view.x)));
+    const y = Math.min(img.height - 1, Math.max(0, Math.round(view.y)));
+    const w = Math.max(1, Math.min(img.width - x, Math.round(view.width)));
+    const h = Math.max(1, Math.min(img.height - y, Math.round(view.height)));
     const data = new Uint8ClampedArray(w * h * 4);
     for (let row = 0; row < h; row++) data.set(img.data.subarray(((y + row) * img.width + x) * 4, ((y + row) * img.width + x + w) * 4), row * w * 4);
     const jpeg = await images.encode({ width: w, height: h, data }, 'jpeg', { quality: 0.85 });

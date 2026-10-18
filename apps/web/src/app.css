@@ -93,7 +93,11 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 #titlebar{display:flex;align-items:center;gap:4px;height:40px;padding:0 8px;background:var(--color-bg);border-bottom:1px solid var(--color-border)}
 .brand{display:flex;align-items:center;gap:8px;font-weight:600;padding:0 8px 0 4px;height:30px;border-radius:var(--radius-md);border:0;background:none;cursor:pointer}
 .brand:hover{background:var(--color-surface-2)}
-.brand i.logo{width:20px;height:20px;border-radius:6px;background:var(--color-accent);display:grid;place-items:center;color:var(--color-accent-fg);font:700 12px var(--font-ui);font-style:normal}
+.brand .lg{display:block}
+.lg-dark{display:none!important}
+:root[data-theme="dark"] .lg-light{display:none!important}
+:root[data-theme="dark"] .lg-dark{display:block!important}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .lg-light{display:none!important}:root:not([data-theme="light"]) .lg-dark{display:block!important}}
 #tabs{display:flex;align-items:flex-end;gap:2px;flex:1;min-width:0;overflow-x:auto;height:100%;padding-top:6px;scrollbar-width:none}
 .tab{display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 11px;border-radius:9px 9px 0 0;color:var(--color-fg-2);cursor:pointer;max-width:200px;border:0;background:none;white-space:nowrap}
 .tab:hover{background:var(--color-surface-2)}
@@ -417,7 +421,6 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .splash{height:100%;display:grid;place-items:center;color:var(--color-fg-2)}
   .splash .box{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:420px;text-align:center}
-  .splash .logo{width:48px;height:48px;border-radius:14px;background:var(--color-accent);color:var(--color-accent-fg);display:grid;place-items:center;font:700 26px var(--font-ui)}
   /* document canvas */
   #canvas{display:block;padding:0;position:relative;gap:0}
   .pages{position:relative;margin:0 auto}
