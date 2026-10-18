@@ -456,7 +456,7 @@
   use:pooledCanvas={(c) => (canvas = c)}
 >
   {#if tiled}
-    <canvas class="tile" bind:this={tile} aria-hidden="true" style="left:{tileBox.left}px;top:{tileBox.top}px;width:{tileBox.width}px;height:{tileBox.height}px;{tileBox.width ? '' : 'display:none'}"></canvas>
+    <canvas class="sharp" bind:this={tile} aria-hidden="true" style="left:{tileBox.left}px;top:{tileBox.top}px;width:{tileBox.width}px;height:{tileBox.height}px;{tileBox.width ? '' : 'display:none'}"></canvas>
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
