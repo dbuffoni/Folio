@@ -19,6 +19,9 @@ async function fresh(viewport = { width: 1360, height: 860 }) {
   const page = await context.newPage();
   await page.addInitScript(() => {
     localStorage.setItem('folio.perf', '1');
+    // File inputs instead of native pickers, as in the e2e suite.
+    delete window.showOpenFilePicker;
+    delete window.showSaveFilePicker;
     window.__long = 0;
     window.__frames = { over50: 0, n: 0 };
     new PerformanceObserver((l) => {
@@ -114,6 +117,24 @@ async function measure(page, name, action) {
     await page.getByRole('tablist', { name: 'Mode' }).getByRole('tab', { name: 'Organise' }).click();
     await page.keyboard.press('Control+a');
   });
+  await context.close();
+}
+import { existsSync } from 'node:fs';
+if (existsSync(resolve(fixtures, 'perf-300.pdf'))) {
+  // 300 pages: npx tsx tests/perf/scroll/make-doc.mts fixtures/generated/perf-300.pdf
+  const { page, context } = await fresh();
+  results.openPerf300Ms = await openFile(page, 'perf-300.pdf');
+  results.heapAfterPerf300MB = Math.round((await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0)) / 1e6);
+  await measure(page, '300 pages: scroll 60 wheel steps', async () => {
+    const box = await page.locator('#canvas').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 60; i++) await page.mouse.wheel(0, 900);
+  });
+  await measure(page, '300 pages: Organise mode (thumbnails)', async () => {
+    await page.getByRole('tablist', { name: 'Mode' }).getByRole('tab', { name: 'Organise' }).click();
+    await page.locator('.ocard').first().waitFor();
+  });
+  results.heapAfterOrganise300MB = Math.round((await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0)) / 1e6);
   await context.close();
 }
 {
