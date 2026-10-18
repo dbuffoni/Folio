@@ -187,6 +187,8 @@ fn filters(kinds: &[String]) -> Vec<(&'static str, Vec<&'static str>)> {
             "json" => out.push(("JSON files", vec!["json"])),
             "zip" => out.push(("ZIP archives", vec!["zip"])),
             "csv" => out.push(("CSV files", vec!["csv"])),
+            "pkcs12" => out.push(("Certificate files with a private key", vec!["p12", "pfx"])),
+            "certificate" => out.push(("Certificates", vec!["cer", "crt", "pem", "der"])),
             _ => {}
         }
     }

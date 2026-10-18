@@ -16,5 +16,10 @@ export const EMBEDDED: Migration[] = [
     "version": 3,
     "name": "0003_profile_signature",
     "sql": "-- 0003_profile_signature.sql — a profile can name one saved signature to put into signature fields (Smart Fill).\nALTER TABLE profiles ADD COLUMN signature_id TEXT REFERENCES signatures(id) ON DELETE SET NULL;\n"
+  },
+  {
+    "version": 4,
+    "name": "0004_certificates",
+    "sql": "-- 0004_certificates.sql — public data of signing identities and trusted certificates (digital signatures).\n-- Private keys never enter the database: they stay in the OS keychain or in the user's original file.\nCREATE TABLE certificates (\n  fingerprint TEXT NOT NULL,\n  kind TEXT NOT NULL CHECK (kind IN ('identity','trusted')),\n  common_name TEXT NOT NULL,\n  subject TEXT NOT NULL,\n  issuer TEXT NOT NULL,\n  serial TEXT NOT NULL,\n  not_before TEXT NOT NULL,\n  not_after TEXT NOT NULL,\n  key_algorithm TEXT NOT NULL,\n  key_usage_json TEXT NOT NULL DEFAULT '[]',\n  self_signed INTEGER NOT NULL DEFAULT 0,\n  is_ca INTEGER NOT NULL DEFAULT 0,\n  der TEXT NOT NULL,\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  PRIMARY KEY (fingerprint, kind)\n);\n"
   }
 ];

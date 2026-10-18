@@ -1,5 +1,5 @@
 export type Unsubscribe = () => void;
-export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'csv' | 'any';
+export type FileKind = 'pdf' | 'image' | 'json' | 'zip' | 'csv' | 'pkcs12' | 'certificate' | 'any';
 
 export interface FileRef {
   id: string;
@@ -67,6 +67,14 @@ export interface HttpResponse {
 }
 export interface HttpClient {
   request(req: HttpRequest): Promise<HttpResponse>;
+}
+
+/**
+ * Binary HTTP for the optional network steps of digital signatures (timestamps, revocation checks).
+ * Absent where the shell cannot do it. Desktop asks the user to approve each new host first.
+ */
+export interface BinaryTransport {
+  request(req: { url: string; method: 'GET' | 'POST'; body?: Uint8Array; contentType?: string; signal?: AbortSignal }): Promise<Uint8Array>;
 }
 
 export interface Shell {
@@ -141,6 +149,8 @@ export interface Platform {
   db: Database;
   secrets: SecretStore;
   http: HttpClient;
+  /** Timestamp and revocation traffic of digital signatures; absent when the shell has no network access for it. */
+  network?: BinaryTransport;
   shell: Shell;
   clipboard: Clipboard;
   window: WindowService;

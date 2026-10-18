@@ -37,6 +37,21 @@ export const settingsSchema = z.object({
       languages: z.array(z.string().regex(/^[a-z]{3}(_[a-z]+)?$/i)).max(3).default([]),
     })
     .default({}),
+  /** Digital signatures (FR-SIG-06, FR-SIG-07, FR-SIG-08). Every network step is off until the user turns it on. */
+  signing: z
+    .object({
+      /** Remembers the last identity used in the sign dialog. */
+      lastIdentity: z.string().default(''),
+      /** Ask OCSP/CRL responders about the certificates of a signature when validating. */
+      revocationCheck: z.boolean().default(false),
+      /** Add an RFC 3161 timestamp when signing; needs `tsaUrl`. */
+      timestamp: z.boolean().default(false),
+      /** Address of the timestamp authority; empty by default, Folio ships none. */
+      tsaUrl: z.string().default(''),
+      /** Store certificates and revocation answers in the file when signing (PAdES-LT). */
+      embedValidation: z.boolean().default(false),
+    })
+    .default({}),
   onboardingDone: z.boolean().default(false),
   signatureNoteShown: z.boolean().default(false),
   ai: z

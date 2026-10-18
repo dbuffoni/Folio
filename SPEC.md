@@ -362,6 +362,32 @@ All annotations are written as **standard PDF annotation objects with appearance
 
 ---
 
+### 6.12 Certificates (CRT)
+
+> Release 0.1.2. Certificate-based signing is implemented in TypeScript on WebCrypto and pkijs, so desktop and web behave the same. Folio never creates or renews certificates; it uses files the user already has.
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-CRT-01 | **Import a signing certificate** (Release 0.1.2) from a PKCS#12 file (`.p12`, `.pfx`) with its password (asked in a dialog, wrong password asks again; UTF-8 and legacy BMP password encodings are tried). RSA and ECDSA P-256 / P-384 keys are supported; other key types and files without a private key are refused with a message that says why. Settings ▸ Certificates and the Sign dialog. | P1 |
+| FR-CRT-02 | **Trusted certificates** (Release 0.1.2): the user adds certificate authorities or individual signers from DER or PEM files (several certificates per file). Folio ships no trust list; a signature is "trusted" only when its chain reaches a certificate in this list. | P1 |
+| FR-CRT-03 | **Manage certificates** (Release 0.1.2): list with name, issuer, validity dates, key type and SHA-256 fingerprint; status Valid, Expired or Not valid yet; remove with confirmation (removing an identity deletes its private key from this computer). | P1 |
+| FR-CRT-04 | **Key storage** (Release 0.1.2): the database holds public certificate data only. The PKCS#12 file and its password go to the OS keychain on desktop (`folio.cert.<fingerprint>`); where there is no keychain (web) they stay in memory for the session and the UI says the file must be imported again after a restart. Private keys never appear in logs, diagnostics or the database. | P0 |
+
+### 6.13 Digital signatures (SIG)
+
+> Release 0.1.2. This is the certificate-based signature of PDF (PAdES). It is different from the image signature stamp of §6.6 (FR-STM), which stays as it is.
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-SIG-01 | **Sign with a certificate** (Release 0.1.2): command *Sign with a certificate…* (menu and palette) opens a dialog with the certificate (last used preselected), position, reason, place, contact, optional picture from the signature library, and Save as copy (`name-signed.pdf`) or Replace this file (with backup). Encrypted files are refused with a message; without a certificate the dialog points to Settings. | P1 |
+| FR-SIG-02 | **PAdES baseline B-B signature** (Release 0.1.2): the signature is appended as an incremental update, so earlier bytes and earlier signatures are untouched; detached CMS (`adbe.pkcs7.detached`, SHA-256, signing-certificate-v2) over the exact `/ByteRange`; classic and cross-reference-stream files are both supported; a visible box (page, corner, signer, date, reason, place, optional picture) or an invisible signature. Poppler `pdfsig` reports the signature as valid and `qpdf --check` passes. | P1 |
+| FR-SIG-03 | **Fields and several signatures** (Release 0.1.2): an empty signature field of the file can be signed in place; a file can carry several signatures, each covering the previous ones; a signed field cannot be signed again. | P1 |
+| FR-SIG-04 | **Check signatures** (Release 0.1.2): command *Check digital signatures…* lists every signature with signer, time, status (Valid, Valid but not trusted, Not valid, Cannot be checked), whether the signed bytes still match, and whether the file changed after signing. Works offline. | P1 |
+| FR-SIG-05 | **Trust** (Release 0.1.2): the signer chain is built against the trusted certificates and the validity dates; "Trust this signer" adds the signer certificate after a confirmation that shows its fingerprint. | P1 |
+| FR-SIG-06 | **Revocation** (Release 0.1.2, opt-in): when the user turns it on and the shell allows network access, OCSP is asked first and the CRL is the fallback; a revoked certificate marks the signature, and signing with a revoked certificate is refused. Off by default because each request tells a server which certificate is checked. | P2 |
+| FR-SIG-07 | **Timestamp** (Release 0.1.2, opt-in): an RFC 3161 token from the authority the user entered (none is preset) is added to the signature (PAdES-T) only when the user turned it on; only the hash of the signature leaves the device. The token is verified before it is stored, and checked again when validating. | P2 |
+| FR-SIG-08 | **Validation data in the file** (Release 0.1.2, opt-in): certificates, OCSP answers and CRLs are stored in `/DSS` and `/VRI` (PAdES-B-LT) as a further incremental update after the signature, so the signature can be checked later without the network. | P2 |
+
 ## 7. GUI and usability specification
 
 The GUI is the product. This section is normative: acceptance of each feature includes its UX behaviour here.
@@ -971,7 +997,7 @@ take_pending_open_paths() -> [path]  // CLI/file-association launch args
 | NFR-07 | Reliability | Crash in a worker never loses user work (recovery snapshot ≤ 30 s old); save is atomic. |
 | NFR-08 | Compatibility | Output validated by `qpdf --check` and opens in Acrobat Reader, Preview, Okular, Chromium, pdf.js for the test corpus. |
 | NFR-09 | Portability | Release 1: Linux x86_64 (AppImage, glibc ≥ 2.31 / Ubuntu 22.04 baseline) and modern evergreen browsers for web (Chromium, Firefox, Safari). Code must stay compatible with Windows 10+, macOS 12+ and Linux aarch64 (verified by compile-only CI jobs; shipped builds deferred to Release 2). |
-| NFR-10 | Bundle size | Web initial JS ≤ 600 KB gz excluding WASM; PDFium WASM loaded on demand (≤ 6 MB gz). |
+| NFR-10 | Bundle size | Web initial JS ≤ 600 KB gz excluding WASM; PDFium WASM, OCR and the digital-signature code (pkijs and the signing services) load on demand and are not counted (PDFium ≤ 6 MB gz). |
 | NFR-11 | Accessibility | WCAG 2.2 AA for UI; keyboard-only completion of all P0 flows. |
 | NFR-12 | i18n | English UI in Release 1, but zero hard-coded strings (lint rule) so languages can be added without code changes. |
 | NFR-13 | Code quality | TypeScript `strict`, ESLint + Prettier, `svelte-check` clean, ≥ 80% unit-test coverage on `core` and `features`, Rust `clippy -D warnings`. |
@@ -1300,6 +1326,7 @@ The plan decides **what** and **when**; this SPEC stays the reference for **how*
 |---|---|---|
 | 0.1.0 | Release 1, phases P0–P9 (§5) | Delivered |
 | 0.1.1 | 13 cards: Make scanned pages searchable, OCR language packs, Multi-language OCR, Read difficult scans with AI, Create form fields, Edit existing form fields, Field templates, Bookmark editor, Reduce file size, Extract tables, Local AI server presets, Model capability check, Smart Fill on scanned paper forms | Analysed, waiting for acceptance (Candidate) |
+| 0.1.2 | 5 cards: Certificate management, Sign with a digital certificate, Visible digital signature appearance, Validate existing digital signatures, Signature timestamps | In progress |
 
 ---
 
@@ -1336,8 +1363,7 @@ These were designed in this document and then consciously moved out of Release 1
 ### 17.1 Signatures and trust
 | Feature | Note |
 |---|---|
-| Cryptographic / certificate-based digital signatures (PAdES, PKCS#7, X.509, qualified/eIDAS signatures, smart cards, timestamps/TSA, LTV) | Explicitly excluded by the product owner. Would add a `SigningService` port with Rust (OpenSSL/ring/PKCS#11) implementation. |
-| Signature validation and trust-store management | Same as above. Release 1 only warns about existing signatures (FR-APP-11). |
+| Qualified/eIDAS signatures, smart cards and tokens (PKCS#11), signing services, EU trusted lists, archive timestamps (PAdES-LTA), certify documents (DocMDP) | Certificate signing, validation, trust-store management, timestamps and LTV shipped in Release 0.1.2 (§6.12, §6.13) for software certificates (PKCS#12). The rest needs hardware or server infrastructure. |
 | Certify documents, signature fields with workflows, remote signing / e-sign requests, audit trails | Server and legal infrastructure. |
 
 ### 17.2 Advanced editing

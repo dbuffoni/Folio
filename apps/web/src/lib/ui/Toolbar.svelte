@@ -68,6 +68,9 @@
       { icon: 'plus', label: t('sign.createNew'), run: () => (sign.openCreate('signature'), ui.openDialog('signature')) },
       { icon: 'pen-line', label: t('sign.createInitials'), run: () => (sign.openCreate('initials'), ui.openDialog('signature')) },
       { icon: 'calendar', label: t('cmd.insertDate'), shortcut: k('Mod+Shift+D'), run: () => void run('sign.date') },
+      { kind: 'sep' },
+      { icon: 'badge-check', label: t('cmd.digitalSign'), run: () => void run('sign.digital') },
+      { icon: 'shield-check', label: t('cmd.verifySignatures'), run: () => void run('sign.verify') },
     ];
   };
   const stampMenu = (): MenuItem[] => [
@@ -145,6 +148,8 @@
           { icon: 'scan-text', label: t('cmd.ocr.open'), run: () => void run('task.ocr') },
           { icon: 'table', label: t('cmd.tableWholePage'), run: () => void run('task.tableWhole') },
           { icon: 'file-down', label: t('cmd.compress'), run: () => void run('export.compress') },
+          { icon: 'badge-check', label: t('cmd.digitalSign'), run: () => void run('sign.digital') },
+          { icon: 'shield-check', label: t('cmd.verifySignatures'), run: () => void run('sign.verify') },
           { icon: 'info', label: t('cmd.properties'), run: () => void run('file.properties') },
         ])}><Icon name="chevron-down" /></button>
   </div>

@@ -11,9 +11,10 @@
   import Icon from '../Icon.svelte';
   import ProfilesPane from '../ProfilesPane.svelte';
   import OcrLanguagesPane from '../OcrLanguagesPane.svelte';
+  import CertificatesPane from '../CertificatesPane.svelte';
 
   let { initial = 'appearance' }: { initial?: string } = $props();
-  const PANES = ['appearance', 'smartFill', 'profiles', 'ocr', 'general', 'privacy', 'about'] as const;
+  const PANES = ['appearance', 'smartFill', 'profiles', 'ocr', 'certificates', 'general', 'privacy', 'about'] as const;
   // svelte-ignore state_referenced_locally
   let pane = $state<(typeof PANES)[number]>(initial === 'profiles' ? 'profiles' : initial === 'privacy' ? 'privacy' : initial === 'about' ? 'about' : 'appearance');
   const v = $derived(track());
@@ -202,6 +203,8 @@
         <ProfilesPane />
       {:else if pane === 'ocr'}
         <OcrLanguagesPane />
+      {:else if pane === 'certificates'}
+        <CertificatesPane />
       {:else if pane === 'general'}
         <div class="g2">
           <div class="field"><label for="un">{t('settings.units')}</label><select id="un" value={s.units} onchange={(e) => set('units', e.currentTarget.value as 'mm')}><option value="mm">{t('settings.units.mm')}</option><option value="in">{t('settings.units.in')}</option><option value="pt">{t('settings.units.pt')}</option></select></div>

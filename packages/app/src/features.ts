@@ -78,7 +78,7 @@ import type { AppModel } from './app.ts';
 import type { DocumentSession } from './session.ts';
 import type { ToolController } from './tools.ts';
 
-abstract class ViewModel {
+export abstract class ViewModel {
   readonly changed = new Emitter<void>();
   protected emit(): void {
     this.changed.emit();
