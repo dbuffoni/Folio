@@ -14,7 +14,25 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 | P7 Platform shell | done | web and Tauri adapters, Rust commands with tests, AppImage smoke test; `services-complete` gate passed 2026-10-11 |
 | P8 User interface | done | Svelte screens bound to `packages/app`; Playwright on Chromium, Firefox and WebKit (epics E1–E7, screens, axe in both themes, no-network); visual baselines; AppImage ships the real UI |
 | P9 Release hardening | done locally | interop, golden and performance suites; i18n lint; licence review and notices; bundle budget; CI and release workflows written; `tools/gate.sh P9` passed 2026-10-12 |
-| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1: 13 cards analysed, waiting for acceptance |
+| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 delivered (PR #7); 0.1.2 (digital signatures, 5 cards) built, in review |
+
+## Release 0.1.2
+
+Five cards of the Folio Kanban (Notion), all in the digital-signature area (ADR 0007).
+
+| Card | Requirements | Where |
+|---|---|---|
+| Certificate management | FR-CRT-01…04 | `signing/certs.ts`, `CertificateService`, migration 0004, `CertificatesModel`, Settings ▸ Certificates |
+| Sign with a digital certificate | FR-SIG-01…03 | `signing/sign.ts`, `signing/incremental.ts`, `DigitalSignModel`, `DigitalSignDialog.svelte` |
+| Visible digital signature appearance | FR-SIG-02 | appearance in `signPdf`, corner presets and picture in the dialog |
+| Validate existing digital signatures | FR-SIG-04…06 | `signing/validate.ts`, `signing/revocation.ts`, `SignaturePanelModel`, `SignaturesDialog.svelte` |
+| Signature timestamps | FR-SIG-07, 08 | `signing/timestamp.ts`, `signing/dss.ts`, Rust `binary_request`, `WebBinaryTransport` |
+
+Screenshots of the new screens (light and dark) are in `docs/screenshots/0.1.2`.
+
+Known limits: in the browser, timestamp and revocation requests need servers that allow CORS; on the web the
+imported key lives for the session only; only RSA and ECDSA P-256/P-384 keys; no smart cards or qualified
+signatures (§17.1). The Rust command was checked only as a unit test of its request filter (no GTK in the build environment).
 
 ## Release 0.1.1
 

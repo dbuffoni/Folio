@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AI_PROVIDERS } from './ai-endpoints.ts';
+import { STAMP_SIZE_PCT } from './stamp-size.ts';
 
 export const DATE_FORMATS = ['iso', 'dmy', 'mdy', 'long'] as const;
 export type DateFormat = (typeof DATE_FORMATS)[number];
@@ -19,6 +20,9 @@ export const settingsSchema = z.object({
   recoveryIntervalSec: z.number().int().min(5).max(600).default(30),
   authorName: z.string().default(''),
   dateFormat: z.enum(DATE_FORMATS).default('iso'),
+  /** Default size of a placed signature / date stamp as a percentage of the page's body text size. */
+  signatureSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
+  dateSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
   highlightFields: z.boolean().default(true),
   flattenStampsOnSave: z.boolean().default(false),
   /** Smart Fill closes the filled form (flattens it) after applying (FR-AIF-14). */
@@ -31,6 +35,21 @@ export const settingsSchema = z.object({
     .object({
       /** Languages of the last run, in priority order (at most three, FR-OCR-06). */
       languages: z.array(z.string().regex(/^[a-z]{3}(_[a-z]+)?$/i)).max(3).default([]),
+    })
+    .default({}),
+  /** Digital signatures (FR-SIG-06, FR-SIG-07, FR-SIG-08). Every network step is off until the user turns it on. */
+  signing: z
+    .object({
+      /** Remembers the last identity used in the sign dialog. */
+      lastIdentity: z.string().default(''),
+      /** Ask OCSP/CRL responders about the certificates of a signature when validating. */
+      revocationCheck: z.boolean().default(false),
+      /** Add an RFC 3161 timestamp when signing; needs `tsaUrl`. */
+      timestamp: z.boolean().default(false),
+      /** Address of the timestamp authority; empty by default, Folio ships none. */
+      tsaUrl: z.string().default(''),
+      /** Store certificates and revocation answers in the file when signing (PAdES-LT). */
+      embedValidation: z.boolean().default(false),
     })
     .default({}),
   onboardingDone: z.boolean().default(false),

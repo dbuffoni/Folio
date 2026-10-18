@@ -6,6 +6,7 @@ export * from './ranges.ts';
 export * from './util.ts';
 export * from './history.ts';
 export * from './text-layer.ts';
+export * from './stamp-size.ts';
 export * from './settings.ts';
 export * from './ai-endpoints.ts';
 export * from './tables.ts';

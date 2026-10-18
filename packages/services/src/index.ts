@@ -22,3 +22,8 @@ export * from './form-author.ts';
 export * from './field-detection.ts';
 export * from './ocr.ts';
 export * from './tables.ts';
+// Only the light parts of signing are in the main entry; the rest (pkijs) is `@folio/services/signing`,
+// imported on demand so it stays out of the initial bundle.
+export * from './signing/errors.ts';
+export * from './signing/certificates.ts';
+export type * from './signing/index.ts';

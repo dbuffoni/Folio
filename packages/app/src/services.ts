@@ -1,9 +1,10 @@
 import { AiExchangeLog, OpenAiProvider } from '@folio/ai';
 import { DEFAULT_SETTINGS, aiCapabilities, uuid, type Settings } from '@folio/core';
-import { AiRunsRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
+import { AiRunsRepo, CertificateRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, migrate } from '@folio/db';
 import type { AiProvider, OcrEngine, PdfEngine, Platform } from '@folio/ports';
 import {
   AnnotationService,
+  CertificateService,
   CompressService,
   DocumentService,
   ExportService,
@@ -53,6 +54,8 @@ export class Services {
   readonly templates: FieldTemplateRepo;
   readonly mappings: FormMappingRepo;
   readonly aiRuns: AiRunsRepo;
+  readonly certificatesRepo: CertificateRepo;
+  readonly certificates: CertificateService;
   readonly documents: DocumentService;
   readonly pages: PageService;
   readonly merge: MergeService;
@@ -92,6 +95,8 @@ export class Services {
     this.templates = new FieldTemplateRepo(platform.db, clock, newId);
     this.mappings = new FormMappingRepo(platform.db, clock, newId);
     this.aiRuns = new AiRunsRepo(platform.db, clock, newId);
+    this.certificatesRepo = new CertificateRepo(platform.db, clock);
+    this.certificates = new CertificateService({ repo: this.certificatesRepo, secrets: platform.secrets, clock });
     this.documents = new DocumentService({ engine, files: platform.files, crypto: platform.crypto });
     this.pages = new PageService(engine);
     this.merge = new MergeService({ engine, images: platform.images });

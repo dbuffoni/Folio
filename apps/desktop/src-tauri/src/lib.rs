@@ -159,6 +159,7 @@ pub fn run() {
             app.manage(db::Db::open(&data.join("folio.sqlite3"))?);
             app.manage(secrets::Secrets::detect());
             app.manage(http::AllowedOrigin::new(Some(config.join("ai-origin"))));
+            app.manage(http::ApprovedNetworkHosts::default());
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
             let refs = accept_paths(app.handle(), paths_from_args(&args, cwd.as_deref()));
@@ -202,6 +203,7 @@ pub fn run() {
             http::set_ai_origin,
             http::http_request,
             http::download_file,
+            http::binary_request,
             db::db_execute,
             db::db_select,
             storage::storage_write,

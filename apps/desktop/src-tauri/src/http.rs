@@ -205,6 +205,79 @@ pub async fn download_file(url: String, max_bytes: u64) -> Result<tauri::ipc::Re
     Ok(tauri::ipc::Response::new(bytes.to_vec()))
 }
 
+/// Hosts the user approved for signature traffic (timestamp, OCSP and CRL servers) in this run.
+#[derive(Default)]
+pub struct ApprovedNetworkHosts(Mutex<Vec<String>>);
+
+const SIGNATURE_MAX_BODY: usize = 1024 * 1024;
+const SIGNATURE_MAX_RESPONSE: usize = 8 * 1024 * 1024;
+
+/// Checks a signature-network request: http or https, no credentials, GET or POST. Returns the host.
+pub fn signature_target(url: &str, method: &str) -> Result<(url::Url, String)> {
+    let u = url::Url::parse(url).map_err(|_| Error::Invalid("invalid URL".into()))?;
+    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() {
+        return Err(Error::Invalid("only http and https addresses without credentials are allowed".into()));
+    }
+    if !matches!(method.to_uppercase().as_str(), "GET" | "POST") {
+        return Err(Error::Invalid("only GET and POST are allowed".into()));
+    }
+    let host = u.host_str().ok_or_else(|| Error::Invalid("the address has no host".into()))?.to_string();
+    Ok((u, host))
+}
+
+/// Timestamp and revocation requests of digital signatures (FR-SIG-06…08). Each new host is approved by
+/// the user in a native dialog before anything is sent, so page content cannot make Folio talk to a server
+/// the user did not choose. Nothing but the request bytes leaves: no cookies, no referrer, no redirects.
+#[tauri::command]
+pub async fn binary_request(
+    app: AppHandle,
+    url: String,
+    method: String,
+    body: Option<Vec<u8>>,
+    content_type: Option<String>,
+    approved: State<'_, ApprovedNetworkHosts>,
+) -> Result<tauri::ipc::Response> {
+    let (u, host) = signature_target(&url, &method)?;
+    if body.as_ref().map(|b| b.len() > SIGNATURE_MAX_BODY).unwrap_or(false) {
+        return Err(Error::Invalid("request body is too large".into()));
+    }
+    let known = approved.0.lock().unwrap().contains(&host);
+    if !known {
+        let ok = app
+            .dialog()
+            .message(format!("Allow Folio to contact\n\n{host}\n\nfor a digital signature (timestamp or revocation check)? The request names the certificate or signature being checked, never the document."))
+            .title("Contact a signature server")
+            .buttons(MessageDialogButtons::OkCancelCustom("Allow".into(), "Cancel".into()))
+            .blocking_show();
+        if !ok {
+            return Err(Error::Network("the server was not approved".into()));
+        }
+        approved.0.lock().unwrap().push(host);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| Error::Network(e.to_string()))?;
+    let m = if method.eq_ignore_ascii_case("POST") { reqwest::Method::POST } else { reqwest::Method::GET };
+    let mut builder = client.request(m, u);
+    if let Some(ct) = content_type {
+        builder = builder.header("Content-Type", ct);
+    }
+    if let Some(b) = body {
+        builder = builder.body(b);
+    }
+    let res = builder.send().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if !res.status().is_success() {
+        return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
+    }
+    let bytes = res.bytes().await.map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if bytes.len() > SIGNATURE_MAX_RESPONSE {
+        return Err(Error::Network("response is too large".into()));
+    }
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +337,15 @@ mod tests {
         assert_eq!(AllowedOrigin::new(Some(file.clone())).get(), "https://llm.example.org");
         std::fs::write(&file, "javascript:alert(1)").unwrap();
         assert_eq!(AllowedOrigin::new(Some(file)).get(), DEFAULT_ORIGIN);
+    }
+
+    #[test]
+    fn signature_targets_are_checked() {
+        assert!(signature_target("http://tsa.example.org/ts", "POST").is_ok());
+        assert!(signature_target("https://ocsp.example.org/", "get").is_ok());
+        assert!(signature_target("ftp://x.example.org/", "GET").is_err());
+        assert!(signature_target("https://user:pw@x.example.org/", "GET").is_err());
+        assert!(signature_target("https://x.example.org/", "DELETE").is_err());
+        assert!(signature_target("not a url", "GET").is_err());
     }
 }

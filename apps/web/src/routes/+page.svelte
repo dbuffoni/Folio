@@ -15,6 +15,8 @@
   import StampsDialog from '#lib/ui/dialogs/StampsDialog.svelte';
   import AiDebugDialog from '#lib/ui/dialogs/AiDebugDialog.svelte';
   import CompressDialog from '#lib/ui/dialogs/CompressDialog.svelte';
+  import DigitalSignDialog from '#lib/ui/dialogs/DigitalSignDialog.svelte';
+  import SignaturesDialog from '#lib/ui/dialogs/SignaturesDialog.svelte';
   import OcrDialog from '#lib/ui/dialogs/OcrDialog.svelte';
   import TablesDialog from '#lib/ui/dialogs/TablesDialog.svelte';
   import Dialog from '#lib/ui/Dialog.svelte';
@@ -182,6 +184,8 @@
   {:else if dialog === 'images'}<ImagesDialog />
   {:else if dialog === 'exportImages' && session}<ExportDialog {session} />
   {:else if dialog === 'compress' && session}<CompressDialog {session} />
+  {:else if dialog === 'digitalSign' && session}<DigitalSignDialog {session} />
+  {:else if dialog === 'signatures' && session}<SignaturesDialog {session} />
   {:else if dialog === 'ocr' && session}<OcrDialog {session} />
   {:else if (dialog === 'tables' || tablesOpen) && session}<TablesDialog {session} />
   {:else if dialog === 'aiDebug'}<AiDebugDialog />

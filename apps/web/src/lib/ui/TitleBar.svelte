@@ -47,6 +47,8 @@
       { icon: 'scan-text', label: t('cmd.ocr.open'), disabled: !has, run: () => void run('task.ocr') },
       { icon: 'table', label: t('cmd.tableWholePage'), disabled: !has, run: () => void run('task.tableWhole') },
       { icon: 'file-down', label: t('cmd.compress'), disabled: !has, run: () => void run('export.compress') },
+      { icon: 'badge-check', label: t('cmd.digitalSign'), disabled: !has, run: () => void run('sign.digital') },
+      { icon: 'shield-check', label: t('cmd.verifySignatures'), disabled: !has, run: () => void run('sign.verify') },
       { kind: 'sep' },
       { icon: 'info', label: t('cmd.properties'), disabled: !has, run: () => void run('file.properties') },
       { icon: 'history', label: t('cmd.history'), disabled: !has, run: () => void run('edit.history') },
