@@ -79,6 +79,22 @@ export async function textDoc(opts: TextDocOptions = {}): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/**
+ * One page per entry of `bodySizes`: a 20 pt heading and eight lines of body text at that size, so the
+ * predominant text size of page N is `bodySizes[N - 1]`.
+ */
+export async function bodySizesDoc(bodySizes: number[] = [9, 12, 18]): Promise<Uint8Array> {
+  const doc = await newDoc('Body sizes');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  bodySizes.forEach((size, k) => {
+    const page = doc.addPage([612, 792]);
+    page.drawText(`Body ${size} pt`, { x: 72, y: 720, size: 20, font: bold });
+    for (let i = 0; i < 8; i++) page.drawText(`Line ${i + 1} of the body text on page ${k + 1}, set at ${size} pt.`, { x: 72, y: 680 - i * size * 1.5, size, font });
+  });
+  return finish(doc);
+}
+
 /** Invoice-like page: misspelt heading, table, coloured text, a second font. */
 export async function invoiceDoc(): Promise<Uint8Array> {
   const doc = await newDoc('Invoice 2026-014');

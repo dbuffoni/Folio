@@ -1,5 +1,6 @@
 import {
   DATE_FORMATS,
+  DATE_HEIGHT_LIMITS,
   Emitter,
   InvalidArgumentError,
   grid,
@@ -9,6 +10,8 @@ import {
   isFolioError,
   isValidPageRanges,
   msg,
+  SIGNATURE_HEIGHT_LIMITS,
+  stampScale,
   parsePageRanges,
   splitExt,
   type DateFormat,
@@ -838,6 +841,7 @@ export class SignModel extends ViewModel {
     tools.beginPlacement({
       kind: 'signature',
       size: { width: sig.width, height: sig.height },
+      scaleFor: async (page) => stampScale(await tools.bodyTextSize(page), this.app.settings.signatureSizePct, sig.height, SIGNATURE_HEIGHT_LIMITS),
       preview: sig.png,
       make: (rect) => ({
         annotation: this.app.services.stamps.signatureAnnotation(
@@ -867,6 +871,9 @@ export class SignModel extends ViewModel {
     tools.beginPlacement({
       kind: 'stamp',
       size: { width: sample.rect.width, height: sample.rect.height },
+      ...(def.kind === 'date'
+        ? { scaleFor: async (page: PageIndex) => stampScale(await tools.bodyTextSize(page), this.app.settings.dateSizePct, sample.rect.height, DATE_HEIGHT_LIMITS) }
+        : {}),
       make: (rect) => ({ annotation: stamps.annotation(def, { x: 0, y: 0 }, { width: 0, height: 0 }, rect) }),
     });
   }

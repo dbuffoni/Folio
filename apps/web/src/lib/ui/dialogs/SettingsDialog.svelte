@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { OPENAI_KEY_SECRET } from '@folio/ai';
   import { deleteAllData } from '@folio/db';
-  import { DATE_FORMATS, formatDate } from '@folio/core';
+  import { DATE_FORMATS, STAMP_SIZE_PCT, formatDate } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
   import { AI_PROVIDERS } from '@folio/core';
   import { dep, app, desktop, services, track, ui, VERSION, wizards } from '#lib/state.svelte.ts';
@@ -106,6 +106,15 @@
     app.toast('success', { key: 'toast.settingsReset' });
   }
   /** Out-of-range values go back to the last good one and the toast says what is allowed. */
+  async function setSizePct(key: 'signatureSizePct' | 'dateSizePct', input: HTMLInputElement): Promise<void> {
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < STAMP_SIZE_PCT.min || value > STAMP_SIZE_PCT.max) {
+      input.value = String(s[key]);
+      app.toast('warning', { key: 'settings.sizePctRange', params: { min: STAMP_SIZE_PCT.min, max: STAMP_SIZE_PCT.max } });
+      return;
+    }
+    await app.guard(() => set(key, value));
+  }
   async function setRecoveryInterval(input: HTMLInputElement): Promise<void> {
     const value = Number(input.value);
     if (!Number.isInteger(value) || value < 5 || value > 600) {
@@ -200,6 +209,11 @@
           <div class="field"><label for="df">{t('settings.dateFormat')}</label><select id="df" value={s.dateFormat} onchange={(e) => set('dateFormat', e.currentTarget.value as 'iso')}>{#each DATE_FORMATS as f (f)}<option value={f}>{formatDate(new Date(), f, 'en')}</option>{/each}</select></div>
           <div class="field"><label for="ri">{t('settings.recoveryInterval')}</label><input id="ri" type="number" min="5" max="600" value={s.recoveryIntervalSec} onchange={(e) => setRecoveryInterval(e.currentTarget)} /></div>
         </div>
+        <div class="g2">
+          <div class="field"><label for="sgp">{t('settings.signatureSize')}</label><input id="sgp" type="number" min={STAMP_SIZE_PCT.min} max={STAMP_SIZE_PCT.max} value={s.signatureSizePct} onchange={(e) => setSizePct('signatureSizePct', e.currentTarget)} /></div>
+          <div class="field"><label for="dtp">{t('settings.dateSize')}</label><input id="dtp" type="number" min={STAMP_SIZE_PCT.min} max={STAMP_SIZE_PCT.max} value={s.dateSizePct} onchange={(e) => setSizePct('dateSizePct', e.currentTarget)} /></div>
+        </div>
+        <div class="field"><span class="hint">{t('settings.sizePctHint')}</span></div>
         <div class="field"><label for="au">{t('settings.author')}</label><input id="au" type="text" value={s.authorName} onchange={(e) => set('authorName', e.currentTarget.value)} /><span class="hint">{t('settings.authorHint', { name: services.platform.app.userName ?? '—' })}</span></div>
         <div class="togrow"><div>{t('settings.keepBackup')}<small>{t('settings.keepBackupHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.keepBackup')} checked={s.keepBackup} onchange={(e) => set('keepBackup', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('settings.flattenStamps')}<small>{t('settings.flattenStampsHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.flattenStamps')} checked={s.flattenStampsOnSave} onchange={(e) => set('flattenStampsOnSave', e.currentTarget.checked)} /></div>

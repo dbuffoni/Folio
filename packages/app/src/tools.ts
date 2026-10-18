@@ -4,6 +4,7 @@ import {
   fitTextBox,
   isFolioError,
   msg,
+  predominantFontSize,
   rectFromPoints,
   translate,
   type Msg,
@@ -130,6 +131,8 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
 export interface Ghost {
   kind: 'signature' | 'stamp' | 'image';
   size: Size;
+  /** Factor applied to `size` on a given page (size relative to that page's text); 1 until it is known. */
+  scaleFor?: (page: PageIndex) => Promise<number>;
   page: PageIndex | null;
   rect: Rect | null;
   /** Builds what is placed once the position is known. */
@@ -272,6 +275,45 @@ export class ToolController {
     this.cancel();
     this.tool = 'place';
     this.ghost = { ...ghost, page: null, rect: null };
+    this.ghostScales.clear();
+    this.ghostPending.clear();
+    this.emit();
+  }
+  /** Predominant body text size of a page in points, or null when it has no usable text or cannot be read. */
+  async bodyTextSize(page: PageIndex): Promise<number | null> {
+    try {
+      return predominantFontSize(await this.session.text.layer(page));
+    } catch {
+      return null;
+    }
+  }
+  private readonly ghostScales = new Map<PageIndex, number>();
+  private readonly ghostPending = new Map<PageIndex, Promise<void>>();
+  /** Size of the ghost on `page`; the page's scale is measured once, in the background, and the ghost re-sized when it arrives. */
+  private ghostSize(ghost: Ghost, page: PageIndex): Size {
+    if (!ghost.scaleFor) return ghost.size;
+    const known = this.ghostScales.get(page);
+    if (known === undefined) {
+      this.ghostScales.set(page, 1);
+      this.ghostPending.set(
+        page,
+        ghost.scaleFor(page).then(
+          (k) => this.applyGhostScale(ghost, page, k),
+          () => undefined,
+        ),
+      );
+      return ghost.size;
+    }
+    return { width: ghost.size.width * known, height: ghost.size.height * known };
+  }
+  private applyGhostScale(ghost: Ghost, page: PageIndex, k: number): void {
+    if (this.ghost?.make !== ghost.make || !(k > 0)) return;
+    this.ghostScales.set(page, k);
+    const cur = this.ghost;
+    if (cur.page === page && cur.rect) {
+      const c = { x: cur.rect.x + cur.rect.width / 2, y: cur.rect.y + cur.rect.height / 2 };
+      this.ghost = { ...cur, rect: placeAt(c, this.ghostSize(cur, page), this.pageSize(page)) };
+    }
     this.emit();
   }
   private pageBounds(page: PageIndex): Rect {
@@ -288,6 +330,8 @@ export class ToolController {
     return this.session.pageInfos[page]?.size ?? { width: 612, height: 792 };
   }
   private async place(page: PageIndex): Promise<void> {
+    // A click right after entering a page waits for that page's size to arrive, so the drop is not the unscaled size.
+    await this.ghostPending.get(page);
     const ghost = this.ghost;
     if (!ghost?.rect) return;
     const made = ghost.make(ghost.rect, page);
@@ -524,7 +568,7 @@ export class ToolController {
 
   async pointerMove(page: PageIndex, p: Point, mods: Modifiers = {}): Promise<void> {
     if (this.ghost) {
-      this.ghost = { ...this.ghost, page, rect: placeAt(p, this.ghost.size, this.pageSize(page)) };
+      this.ghost = { ...this.ghost, page, rect: placeAt(p, this.ghostSize(this.ghost, page), this.pageSize(page)) };
       return this.emit();
     }
     if (this.draft && this.draft.page === page) {

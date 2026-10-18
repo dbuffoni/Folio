@@ -2,10 +2,12 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { TextRun } from '@folio/ports';
 import {
+  DATE_HEIGHT_LIMITS,
   DEFAULT_SETTINGS,
   FolioError,
   PAGE_SIZES,
   PasswordRequiredError,
+  SIGNATURE_HEIGHT_LIMITS,
   applyToPoint,
   applyToRect,
   bytesEqual,
@@ -30,9 +32,12 @@ import {
   parseSettings,
   rectFromPoints,
   rotatedSize,
+  predominantFontSize,
   rotation,
+  scaleSize,
   searchTextLayer,
   splitExt,
+  stampScale,
   toBase64,
   toHex,
   toPdfDate,
@@ -238,5 +243,64 @@ describe('History.idle', () => {
     await history.idle();
     expect(state).toBe(2);
     expect(history.state.canUndo).toBe(true);
+  });
+});
+
+describe('Default signature and date size from the page text', () => {
+  const run = (text: string, fontSize: number, angle = 0): TextRun => ({
+    text,
+    rect: { x: 0, y: 0, width: 10, height: fontSize },
+    origin: { x: 0, y: 0 },
+    angle,
+    font: { name: 'Helvetica' } as TextRun['font'],
+    fontSize,
+    color: { r: 0, g: 0, b: 0 },
+    charStart: 0,
+    charCount: text.length,
+  });
+
+  it('finds the size that carries most of the text, not the largest or the first @FR-STM-03 @FR-STM-05', () => {
+    expect(predominantFontSize({ runs: [run('Title', 24), run('body text of the page', 11), run('more body text', 11), run('foot', 8)] })).toBe(11);
+    expect(predominantFontSize({ runs: [run('abc', 10.1), run('def', 10.2), run('ghi', 14)] })).toBe(10);
+  });
+
+  it('ignores rotated text, whitespace and absurd sizes, and reports no text as null @FR-STM-03 @FR-STM-05', () => {
+    expect(predominantFontSize({ runs: [] })).toBeNull();
+    expect(predominantFontSize({ runs: [run('   ', 12), run('stamp', 12, 30), run('tiny', 1), run('huge', 500)] })).toBeNull();
+    expect(predominantFontSize({ runs: [run('side', 30, 90), run('normal', 10)] })).toBe(10);
+  });
+
+  it('scales with the page text and the percentage; 100 % on 12 pt keeps today\'s size @FR-STM-03 @FR-STM-05', () => {
+    expect(stampScale(12, 100, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(1);
+    expect(stampScale(18, 100, 50, SIGNATURE_HEIGHT_LIMITS)).toBeCloseTo(1.5);
+    expect(stampScale(9, 150, 50, SIGNATURE_HEIGHT_LIMITS)).toBeCloseTo(1.125);
+    expect(scaleSize({ width: 100, height: 40 }, 1.5)).toEqual({ width: 150, height: 60 });
+  });
+
+  it('falls back to the reference size when the text cannot be measured @FR-STM-03 @FR-STM-05', () => {
+    for (const body of [null, NaN, 0, -3, Infinity]) expect(stampScale(body, 100, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(1);
+    expect(stampScale(null, 200, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(2);
+    expect(stampScale(12, NaN, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(1);
+  });
+
+  it('never produces a height outside the protection limits @FR-STM-03 @FR-STM-05', () => {
+    const { min, max } = SIGNATURE_HEIGHT_LIMITS;
+    expect(50 * stampScale(144, 300, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(max);
+    expect(50 * stampScale(4, 25, 50, SIGNATURE_HEIGHT_LIMITS)).toBe(min);
+    expect(16 * stampScale(144, 300, 16, DATE_HEIGHT_LIMITS)).toBe(DATE_HEIGHT_LIMITS.max);
+    expect(16 * stampScale(4, 25, 16, DATE_HEIGHT_LIMITS)).toBe(DATE_HEIGHT_LIMITS.min);
+    fc.assert(
+      fc.property(fc.double({ min: -50, max: 400, noNaN: true }), fc.double({ min: -50, max: 800, noNaN: true }), fc.double({ min: 1, max: 400, noNaN: true }), (body, pct, base) => {
+        const h = base * stampScale(body, pct, base, DATE_HEIGHT_LIMITS);
+        return h >= DATE_HEIGHT_LIMITS.min - 1e-9 && h <= DATE_HEIGHT_LIMITS.max + 1e-9;
+      }),
+    );
+  });
+
+  it('keeps the new settings inside their range and defaults to 100 % @FR-APP-10', () => {
+    expect([DEFAULT_SETTINGS.signatureSizePct, DEFAULT_SETTINGS.dateSizePct]).toEqual([100, 100]);
+    const s = parseSettings({ signatureSizePct: 5000, dateSizePct: 'big' });
+    expect([s.signatureSizePct, s.dateSizePct]).toEqual([100, 100]);
+    expect(parseSettings({ signatureSizePct: 150 }).signatureSizePct).toBe(150);
   });
 });

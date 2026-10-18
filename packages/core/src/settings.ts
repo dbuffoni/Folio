@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AI_PROVIDERS } from './ai-endpoints.ts';
+import { STAMP_SIZE_PCT } from './stamp-size.ts';
 
 export const DATE_FORMATS = ['iso', 'dmy', 'mdy', 'long'] as const;
 export type DateFormat = (typeof DATE_FORMATS)[number];
@@ -19,6 +20,9 @@ export const settingsSchema = z.object({
   recoveryIntervalSec: z.number().int().min(5).max(600).default(30),
   authorName: z.string().default(''),
   dateFormat: z.enum(DATE_FORMATS).default('iso'),
+  /** Default size of a placed signature / date stamp as a percentage of the page's body text size. */
+  signatureSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
+  dateSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
   highlightFields: z.boolean().default(true),
   flattenStampsOnSave: z.boolean().default(false),
   /** Smart Fill closes the filled form (flattens it) after applying (FR-AIF-14). */
