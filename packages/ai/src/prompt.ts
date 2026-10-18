@@ -6,6 +6,8 @@ export const SYSTEM_PROMPT = [
   'Input: candidates with ids, labels, surrounding text and coordinates; a list of available keys with labels, types and aliases.',
   'Return JSON that follows the provided schema.',
   'For every candidate return one entry in "fields" with its id in "ref".',
+  'The "aliases" of a key are other names and phrases that forms print for it: when a candidate label contains an alias (even inside a longer sentence), that key fits it.',
+  'A key whose label is a role (such as "Father") fits a field only when the printed label asks for that person or for what the aliases describe; use the aliases to decide.',
   'Choose "profileKey": null if no key fits. Never invent keys or values.',
   'Pick a "transform" only when the field asks for a specific form of the value (a date order, upper case, only the first or last name, a phone format, a checkbox to tick or leave empty).',
   '"confidence" is between 0 and 1.',
