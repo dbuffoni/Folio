@@ -83,7 +83,7 @@ svg.lucide{width:18px;height:18px;stroke-width:1.75;flex:none}
 .chip.ok{color:var(--color-ok)}
 .chip.acc{background:var(--color-accent-soft);color:var(--color-accent-text)}
 .vsep{width:1px;height:20px;background:var(--color-border);margin:0 6px;flex:none}
-input[type=text],input[type=password],input[type=number],select,textarea{height:30px;border:1px solid var(--color-border);background:var(--color-surface);color:var(--color-fg);border-radius:var(--radius-md);padding:0 9px;font:inherit;min-width:0}
+input[type=text],input[type=password],input[type=number],input[type=email],input[type=date],select,textarea{height:30px;border:1px solid var(--color-border);background:var(--color-surface);color:var(--color-fg);border-radius:var(--radius-md);padding:0 9px;font:inherit;min-width:0}
 textarea{height:auto;padding:7px 9px;resize:none}
 input[readonly]{background:var(--color-surface-2);color:var(--color-fg-3)}
 input[type=range]{accent-color:var(--color-accent);width:100%}
@@ -496,7 +496,7 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .band{position:absolute;border:1px solid var(--color-accent);background:var(--color-accent-soft);opacity:.5;pointer-events:none;z-index:6}
   /* misc */
   .kvlist{display:flex;flex-direction:column;gap:6px}
-  .field input[type=text],.field input[type=password],.field input[type=number],.field select,.field textarea{width:100%}
+  .field input[type=text],.field input[type=password],.field input[type=number],.field input[type=email],.field input[type=date],.field select,.field textarea{width:100%}
   .err{color:var(--color-danger);font-size:12px}
   .okc{color:var(--color-ok);font-size:12px}
   .toast.error{background:#4a1414}.toast.warning{background:#3d2f0a}
@@ -517,7 +517,8 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .pfields{display:flex;flex-direction:column;gap:8px}
   .pfield{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-surface-2)}
   .pmain{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:6px 8px}
-  .pmain input,.pbar select{min-width:0;width:100%}
+  .pmain input,.pmain select,.pbar select{min-width:0;width:100%}
+  .plabel{align-self:center;font-weight:500;padding:0 2px}
   .pbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .pbar select{width:auto;flex:0 1 120px}
   .psens{display:flex;align-items:center;gap:5px;width:auto;font-size:12px;white-space:nowrap}

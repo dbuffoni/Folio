@@ -268,7 +268,11 @@ export class StampRepo {
 
 // ---- profiles --------------------------------------------------------------------------------
 
-export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline';
+export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline' | 'signature';
+/** Types whose label is the name of the type itself: the user picks the type, not a label. */
+export const FIXED_LABEL_TYPES: ProfileFieldType[] = ['phone', 'email', 'signature'];
+/** The stored label of such an entry (data, like the labels of the built-in templates). */
+export const FIXED_TYPE_LABELS: Partial<Record<ProfileFieldType, string>> = { phone: 'Phone', email: 'Email', signature: 'Signature' };
 export interface ProfileField {
   id: string;
   key: string;
@@ -514,12 +518,12 @@ export class ProfileRepo {
   async exportJson(id: string): Promise<ProfileExport> {
     const p = await this.get(id);
     if (!p) throw new InvalidArgumentError('Unknown profile');
-    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value, sensitive, aliases, ...(options.length ? { options } : {}) })) };
+    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value: type === 'signature' ? '' : value, sensitive, aliases, ...(options.length ? { options } : {}) })) };
   }
   async importJson(data: unknown): Promise<Profile> {
     const d = data as Partial<ProfileExport> | null;
     if (!d || d.version !== 1 || typeof d.name !== 'string' || !Array.isArray(d.fields)) throw new InvalidArgumentError('This is not a Folio profile file', { reason: 'badProfile' });
-    const types = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+    const types: string[] = TYPES;
     const fields = d.fields.filter((f) => f && typeof f.key === 'string' && typeof f.label === 'string' && types.includes(f.type) && typeof f.value === 'string');
     return this.db.transaction(async () => {
       const profile = await this.create(d.name!);
@@ -545,7 +549,7 @@ export interface FieldTemplateExport {
   fields: FieldDefinition[];
 }
 export const TEMPLATE_EXPORT_VERSION = 1;
-const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature'];
 
 /** Cleans a definition list read from storage or a file: known types, unique slugs, no values. */
 export function cleanDefinitions(raw: unknown): FieldDefinition[] {

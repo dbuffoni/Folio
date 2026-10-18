@@ -21,5 +21,10 @@ export const EMBEDDED: Migration[] = [
     "version": 4,
     "name": "0004_certificates",
     "sql": "-- 0004_certificates.sql — public data of signing identities and trusted certificates (digital signatures).\n-- Private keys never enter the database: they stay in the OS keychain or in the user's original file.\nCREATE TABLE certificates (\n  fingerprint TEXT NOT NULL,\n  kind TEXT NOT NULL CHECK (kind IN ('identity','trusted')),\n  common_name TEXT NOT NULL,\n  subject TEXT NOT NULL,\n  issuer TEXT NOT NULL,\n  serial TEXT NOT NULL,\n  not_before TEXT NOT NULL,\n  not_after TEXT NOT NULL,\n  key_algorithm TEXT NOT NULL,\n  key_usage_json TEXT NOT NULL DEFAULT '[]',\n  self_signed INTEGER NOT NULL DEFAULT 0,\n  is_ca INTEGER NOT NULL DEFAULT 0,\n  der TEXT NOT NULL,\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  PRIMARY KEY (fingerprint, kind)\n);\n"
+  },
+  {
+    "version": 5,
+    "name": "0005_profile_signature_fields",
+    "sql": "-- 0005_profile_signature_fields.sql — a profile entry can be of type \"signature\": its value is the id of a saved signature.\n-- SQLite cannot change a CHECK constraint, so the table is rebuilt with the new list of types.\nCREATE TABLE profile_fields_new (\n  id TEXT PRIMARY KEY,\n  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,\n  key TEXT NOT NULL,\n  label TEXT NOT NULL,\n  type TEXT NOT NULL CHECK (type IN ('text','date','number','phone','email','address','choice','multiline','signature')),\n  value TEXT,\n  sensitive INTEGER NOT NULL DEFAULT 0,\n  aliases_json TEXT NOT NULL DEFAULT '[]',\n  sort_order INTEGER NOT NULL DEFAULT 0,\n  options_json TEXT NOT NULL DEFAULT '[]',\n  UNIQUE(profile_id, key)\n);\nINSERT INTO profile_fields_new (id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json)\n  SELECT id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json FROM profile_fields;\nDROP TABLE profile_fields;\nALTER TABLE profile_fields_new RENAME TO profile_fields;\n"
   }
 ];

@@ -10,18 +10,21 @@ test('profiles editor: create from scratch, typed fields, reorder, save as templ
   await settings.getByRole('button', { name: 'Add', exact: true }).click();
 
   const add = async (label: string, type: string): Promise<void> => {
-    await settings.getByRole('textbox', { name: 'New entry' }).fill(label);
+    // The type is chosen first; only a text, number, date, address or choice entry asks for a label.
     await settings.getByRole('combobox', { name: 'Type', exact: true }).selectOption({ label: type });
+    if (label) await settings.getByRole('textbox', { name: 'New entry' }).fill(label);
+    else await expect(settings.getByRole('textbox', { name: 'New entry' })).toHaveCount(0);
     await settings.getByRole('button', { name: 'Add entry' }).click();
-    await expect(settings.getByRole('textbox', { name: `Label: ${label}` })).toBeVisible();
+    if (label) await expect(settings.getByRole('textbox', { name: `Label: ${label}` })).toBeVisible();
   };
   await add('Full name', 'Text');
   await add('Date of birth', 'Date');
-  await add('Contact e-mail', 'E-mail');
+  await add('', 'E-mail');
+  await expect(settings.getByRole('textbox', { name: /^Label: Email/ })).toHaveCount(0);
   await add('Seat', 'Choice');
 
   // Typed values are validated: a wrong e-mail address is refused with the reason, nothing is written.
-  const mail = settings.getByLabel('Contact e-mail', { exact: true });
+  const mail = settings.getByLabel('Email', { exact: true });
   await mail.fill('not an address');
   await mail.blur();
   await expect(app.getByText(/does not look like an e-mail address/)).toBeVisible();
@@ -106,4 +109,19 @@ test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app 
   await settings.getByRole('button', { name: 'Back' }).click();
   await settings.getByRole('button', { name: 'Edit' }).click();
   await expect(pick).not.toHaveValue('');
+
+  // A signature entry: type first (no label asked), then a saved signature and the names it answers to.
+  await settings.getByRole('combobox', { name: 'Type', exact: true }).selectOption({ label: 'Signature' });
+  await expect(settings.getByRole('textbox', { name: 'New entry' })).toHaveCount(0);
+  await settings.getByRole('button', { name: 'Add entry' }).click();
+  const entry = settings.getByRole('combobox', { name: 'Saved signature' });
+  await entry.selectOption({ index: 1 });
+  await settings.getByLabel('Other names').last().fill('genitore, tutore');
+  await settings.getByLabel('Other names').last().blur();
+  await expect(entry).not.toHaveValue('');
+  for (const [width, height] of [[1360, 860], [1024, 700], [800, 600], [480, 800]] as const) {
+    await app.setViewportSize({ width, height });
+    await entry.scrollIntoViewIfNeeded();
+    await settings.screenshot({ path: `/mnt/project-files/screenshots/profile-editor/${width}x${height}.png` });
+  }
 });

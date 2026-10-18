@@ -17,7 +17,7 @@ import {
   type DateFormat,
   type Msg,
 } from '@folio/core';
-import { uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
+import { FIXED_LABEL_TYPES, FIXED_TYPE_LABELS, uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
 import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
@@ -1339,9 +1339,12 @@ export class ProfilesModel extends ViewModel {
   /** Adds an empty entry; the key is made from the label and stays as it is when the label changes. */
   async addField(profileId: string, label: string, type: ProfileFieldType = 'text'): Promise<string | undefined> {
     const p = this.profiles.find((x) => x.id === profileId);
-    const key = uniqueKey(label, p?.fields.map((f) => f.key) ?? []);
+    // E-mail, phone and signature entries are named after their type: only the type is chosen.
+    const fixed = FIXED_LABEL_TYPES.includes(type);
+    const text = fixed ? FIXED_TYPE_LABELS[type]! : label;
+    const key = uniqueKey(fixed ? type : label, p?.fields.map((f) => f.key) ?? []);
     return this.run(async () => {
-      await this.s.profiles.setField(profileId, { key, label: label.trim() || key, type, value: '' });
+      await this.s.profiles.setField(profileId, { key, label: text.trim() || key, type, value: '' });
       return key;
     });
   }
@@ -1354,6 +1357,8 @@ export class ProfilesModel extends ViewModel {
     const f = this.profiles.find((p) => p.id === profileId)?.fields.find((x) => x.key === key);
     if (!f) return false;
     const next = { ...f, ...patch };
+    if (FIXED_LABEL_TYPES.includes(next.type)) next.label = isDataLabel({ type: next.type, label: f.label }) || patch.type ? FIXED_TYPE_LABELS[next.type]! : f.label;
+    if (patch.type && patch.type !== f.type && (f.type === 'signature' || patch.type === 'signature')) next.value = '';
     const problem = validateProfileValue(next.type, next.value);
     if (problem) {
       this.app.toast('warning', msg(`profiles.invalid.${problem}`));
@@ -2048,6 +2053,10 @@ export class FormModel extends ViewModel {
 // ---- Smart Fill (FR-AIF-03…10, epic E5) --------------------------------------------------------
 
 export type SmartFillStage = 'idle' | 'preflight' | 'analysing' | 'review' | 'empty';
+/** A phone or e-mail entry whose label holds the data itself ("name@mail.com"): the label is shown and sent by its type. */
+function isDataLabel(f: { type: string; label: string }): boolean {
+  return (f.type === 'email' || f.type === 'phone') && /[@\d]/.test(f.label);
+}
 export class SmartFillModel extends ViewModel {
   stage: SmartFillStage = 'idle';
   profile: SmartProfile | null = null;
@@ -2064,6 +2073,8 @@ export class SmartFillModel extends ViewModel {
   signFields = 0;
   signWith: StoredSignature | null = null;
   signIt = true;
+  /** The signature entries of each profile (type "signature": a name, aliases and a saved signature). */
+  private signatureEntries = new Map<string, Array<{ label: string; aliases: string[]; value: string }>>();
   private abort?: AbortController;
 
   constructor(
@@ -2089,7 +2100,10 @@ export class SmartFillModel extends ViewModel {
       : [this.session.view.page];
   }
   async loadProfiles(): Promise<void> {
-    this.profiles = await this.app.services.profiles.list();
+    // Signature entries are not text to fill in: they pick saved signatures, so the matching service never sees them.
+    const all = await this.app.services.profiles.list();
+    this.signatureEntries = new Map(all.map((p) => [p.id, p.fields.filter((f) => f.type === 'signature')] as const));
+    this.profiles = all.map((p) => ({ ...p, fields: p.fields.filter((f) => f.type !== 'signature').map((f) => (isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
     this.profile =
       this.profiles.find((p) => p.id === this.profile?.id) ??
       this.profiles.find((p) => (p as { isDefault?: boolean }).isDefault) ??
@@ -2193,22 +2207,35 @@ export class SmartFillModel extends ViewModel {
     this.noticeKey = result.fallbackReason === 'scanNeedsAi' ? 'smartfill.fallback.scanNeedsAi' : null;
     this.emit();
   }
-  /** Counts the signature fields the profile's signature would go into. */
+  /** Counts the signature fields the profile's signatures would go into. */
   private async findSignatureFields(): Promise<void> {
     this.signFields = 0;
     this.signWith = null;
-    const id = this.profile?.signatureId;
-    if (!id) return;
-    const sig = await this.app.services.signaturesRepo.get(id);
-    if (!sig) return;
-    this.signWith = sig;
-    this.signFields = (await this.signCommand(sig))?.count ?? 0;
+    const choices = await this.signatureChoices();
+    if (!choices.fallback) return;
+    this.signWith = choices.fallback.stored;
+    this.signFields = (await this.signCommand())?.count ?? 0;
   }
-  private async signCommand(sig: StoredSignature) {
-    const raster = await this.app.services.platform.images.decode(sig.png);
-    const data = { kind: sig.kind, svg: sig.svg, raster, width: sig.width, height: sig.height };
-    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect }));
-    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data, targets);
+  /** The saved signatures of the profile: one per "signature" entry (picked by its name and aliases), and the default one. */
+  private async signatureChoices(): Promise<{ named: Array<{ names: string[]; stored: StoredSignature }>; fallback: { stored: StoredSignature } | null }> {
+    const repo = this.app.services.signaturesRepo;
+    const named: Array<{ names: string[]; stored: StoredSignature }> = [];
+    for (const f of this.signatureEntries.get(this.profile?.id ?? '') ?? []) {
+      const stored = f.value ? await repo.get(f.value) : null;
+      if (stored) named.push({ names: [f.label, ...f.aliases].filter((n) => n.trim() !== ''), stored });
+    }
+    const id = this.profile?.signatureId;
+    const base = id ? await repo.get(id) : null;
+    const stored = base ?? named[0]?.stored ?? null;
+    return { named, fallback: stored ? { stored } : null };
+  }
+  private async signCommand() {
+    const choices = await this.signatureChoices();
+    if (!choices.fallback) return null;
+    const decode = async (sig: StoredSignature) => ({ kind: sig.kind, svg: sig.svg, raster: await this.app.services.platform.images.decode(sig.png), width: sig.width, height: sig.height });
+    const named = await Promise.all(choices.named.map(async (n) => ({ names: n.names, sig: await decode(n.stored) })));
+    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect, label: s.label }));
+    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), await decode(choices.fallback.stored), targets, named);
   }
   setSignIt(on: boolean): void {
     this.signIt = on;
@@ -2263,7 +2290,7 @@ export class SmartFillModel extends ViewModel {
     const svc = this.app.services.smartFill;
     const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
-    const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
+    const sign = this.signIt && this.signWith ? (await this.signCommand())?.command : undefined;
     const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
     if (!cmd) return 0;
     const plan = svc.plan(list, taken);

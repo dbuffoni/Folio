@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { ProfileFieldType } from '@folio/db';
+  import { FIXED_LABEL_TYPES, type ProfileFieldType } from '@folio/db';
   import { t } from '#lib/i18n/index.ts';
   import { app, dep, services, track, wizards } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
@@ -11,7 +11,10 @@
   const profiles = $derived(dep(v, m.profiles));
   const templates = $derived(dep(v, m.templates));
   const current = $derived(dep(v, m.current));
-  const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+  const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature'];
+  /** Template entries hold no values, so a saved signature cannot be one of them. */
+  const TEMPLATE_TYPES = TYPES.filter((ty) => ty !== 'signature');
+  const fixedLabel = (ty: ProfileFieldType): boolean => FIXED_LABEL_TYPES.includes(ty);
   let newName = $state('');
   let startWith = $state<string[]>(['builtin:identity', 'builtin:address', 'builtin:contacts']);
   let addLabel = $state('');
@@ -32,7 +35,7 @@
     if (await m.create(newName, startWith)) newName = '';
   }
   async function addField(): Promise<void> {
-    if (!current || !addLabel.trim()) return;
+    if (!current || (!fixedLabel(addType) && !addLabel.trim())) return;
     await m.addField(current.id, addLabel, addType);
     addLabel = '';
   }
@@ -75,8 +78,19 @@
     {#each p.fields as f, i (f.key)}
       <div class="pfield">
         <div class="pmain">
-          <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
-          <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
+          {#if fixedLabel(f.type)}
+            <span class="plabel">{t(`profiles.type.${f.type}`)}</span>
+          {:else}
+            <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
+          {/if}
+          {#if f.type === 'signature'}
+            <select id="pf-{f.key}" aria-label={t('profiles.signaturePick')} value={f.value} onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })}>
+              <option value="">{t('profiles.signatureNone')}</option>
+              {#each m.signatures as sg (sg.id)}<option value={sg.id}>{sg.name}</option>{/each}
+            </select>
+          {:else}
+            <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
+          {/if}
         </div>
         <div class="pbar">
           <select value={f.type} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { type: e.currentTarget.value as ProfileFieldType })}>
@@ -106,9 +120,9 @@
     {/each}
   </div>
   <div class="row">
-    <input type="text" bind:value={addLabel} placeholder={t('settings.profile.label')} aria-label={t('profiles.newField')} style="flex:1" />
     <select bind:value={addType} aria-label={t('profiles.type')} style="flex:none;width:auto">{#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
-    <button class="btn" style="flex:none" disabled={!addLabel.trim()} onclick={addField}><Icon name="plus" />{t('settings.profile.addEntry')}</button>
+    {#if !fixedLabel(addType)}<input type="text" bind:value={addLabel} placeholder={t('settings.profile.label')} aria-label={t('profiles.newField')} style="flex:1" />{:else}<span class="grow"></span>{/if}
+    <button class="btn" style="flex:none" disabled={!fixedLabel(addType) && !addLabel.trim()} onclick={addField}><Icon name="plus" />{t('settings.profile.addEntry')}</button>
   </div>
   <p class="note">{t('settings.profile.sensitiveHint')}</p>
   <div class="row">
@@ -135,7 +149,7 @@
     {#each tpl.fields as f (f.key)}
       <input type="text" value={f.label} disabled={tpl.builtIn} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, label: e.currentTarget.value } : x)) })} />
       <input type="text" value={f.aliases.join(', ')} disabled={tpl.builtIn} aria-label={t('profiles.aliases')} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, aliases: aliasesOf(e.currentTarget.value) } : x)) })} />
-      <select value={f.type} disabled={tpl.builtIn} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, type: e.currentTarget.value as ProfileFieldType } : x)) })}>{#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
+      <select value={f.type} disabled={tpl.builtIn} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, type: e.currentTarget.value as ProfileFieldType } : x)) })}>{#each TEMPLATE_TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
       <button class="ib" disabled={tpl.builtIn} onclick={() => m.updateTemplate(tpl.id, { fields: tpl.fields.filter((x) => x.key !== f.key) })} aria-label="{t('action.remove')} {f.label}"><Icon name="x" /></button>
     {/each}
   </div>
