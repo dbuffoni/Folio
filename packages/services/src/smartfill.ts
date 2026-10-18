@@ -725,6 +725,16 @@ export class SmartFillService {
               confidence: Math.min(a.confidence, 0.8),
             });
           });
+          // A field the model left without a key still gets a key when its printed label contains a multi-word
+          // name or alias of the profile ("genitore o tutore legale dell'alunno/a" for "tutore legale di").
+          const byRef = new Map(all.map((c) => [c.ref, c] as const));
+          mappings.forEach((m, i) => {
+            const c = byRef.get(m.ref);
+            if (m.profileKey || !c || m.fieldType === 'signature') return;
+            const texts = [c.label, m.label].filter((t): t is string => !!t);
+            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0)));
+            if (hit) mappings[i] = { ...m, profileKey: hit.key, confidence: Math.max(m.confidence, 0.8) };
+          });
           // Candidates beyond the page cap (or skipped by the model) still get a local suggestion.
           const answered = new Set(mappings.map((m) => m.ref));
           mappings.push(
