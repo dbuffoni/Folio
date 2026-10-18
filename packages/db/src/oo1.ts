@@ -5,6 +5,7 @@ export interface Oo1Db {
   exec(opts: { sql: string; bind?: unknown[]; rowMode?: 'object'; returnValue?: 'resultRows'; resultRows?: unknown[] }): unknown;
   changes(): number;
   selectValue(sql: string): unknown;
+  close(): void;
 }
 
 /** `Database` port over SQLite WASM (web build on OPFS; also runs in Node for parity tests). */
@@ -38,5 +39,8 @@ export class Oo1Database implements Database {
     } finally {
       this.depth--;
     }
+  }
+  close(): void {
+    this.db.close();
   }
 }

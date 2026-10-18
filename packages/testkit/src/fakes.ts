@@ -1,5 +1,6 @@
 // In-memory fakes of the platform ports (SPEC §16.4).
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+import { Oo1Database, type Oo1Db } from '@folio/db';
 import { CancelledError, IoError, NetworkError } from '@folio/core';
 import type {
   OcrEngine,
@@ -115,44 +116,12 @@ export class MemoryStorage implements AppStorage {
   }
 }
 
-/** Real SQLite (Node's built-in driver) in memory: the same SQL the desktop app runs. */
-export class InMemoryDatabase implements Database {
-  readonly db: DatabaseSync;
-  private depth = 0;
-  constructor() {
-    this.db = new DatabaseSync(':memory:');
-    this.db.exec('PRAGMA foreign_keys=ON');
-  }
-  private static bind(params: unknown[] = []): SQLInputValue[] {
-    return params.map((p) => (p === undefined ? null : typeof p === 'boolean' ? (p ? 1 : 0) : (p as SQLInputValue)));
-  }
-  async execute(sql: string, params?: unknown[]): Promise<{ changes: number; lastId?: number }> {
-    if (!params?.length && /;\s*\S/.test(sql)) {
-      this.db.exec(sql);
-      return { changes: 0 };
-    }
-    const r = this.db.prepare(sql).run(...InMemoryDatabase.bind(params));
-    return { changes: Number(r.changes), lastId: Number(r.lastInsertRowid) };
-  }
-  async select<T>(sql: string, params?: unknown[]): Promise<T[]> {
-    return this.db.prepare(sql).all(...InMemoryDatabase.bind(params)) as T[];
-  }
-  async transaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
-    const name = `sp_${this.depth++}`;
-    this.db.exec(`SAVEPOINT ${name}`);
-    try {
-      const result = await fn(this);
-      this.db.exec(`RELEASE ${name}`);
-      return result;
-    } catch (e) {
-      this.db.exec(`ROLLBACK TO ${name}; RELEASE ${name}`);
-      throw e;
-    } finally {
-      this.depth--;
-    }
-  }
-  close(): void {
-    this.db.close();
+let sqliteModule: ReturnType<typeof sqlite3InitModule> | undefined;
+/** Real SQLite (the WASM build the web app ships) in memory: the same SQL and driver code the app runs. */
+export class InMemoryDatabase extends Oo1Database {
+  static async create(): Promise<InMemoryDatabase> {
+    const sqlite3 = await (sqliteModule ??= sqlite3InitModule());
+    return new InMemoryDatabase(new sqlite3.oo1.DB(':memory:', 'c') as unknown as Oo1Db);
   }
 }
 

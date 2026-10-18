@@ -2,7 +2,7 @@ import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, FolioError } from '@folio/core';
 import type { Database } from '@folio/ports';
-import { FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, samplePng } from '@folio/testkit';
+import { FakeClock, FakeSecretStore, NodeCrypto, expectWarnings, samplePng } from '@folio/testkit';
 import { MIGRATIONS, migrate, splitStatements } from './migrations.ts';
 import { Oo1Database, type Oo1Db } from './oo1.ts';
 import { AiRunsRepo, CertificateRepo, DataCipher, FieldTemplateRepo, FormMappingRepo, PROFILE_TEMPLATES, ProfileRepo, RecentFilesRepo, SettingsRepo, SignatureRepo, StampRepo, certSecretKey, deleteAllData } from './repos.ts';
@@ -16,9 +16,8 @@ const codeOf = async (p: Promise<unknown>): Promise<string> => {
   }
 };
 
-// SPEC §9 / spike S5: the same migrations and repositories on Node SQLite and on SQLite WASM.
+// SPEC §9 / spike S5: the migrations and repositories on SQLite WASM (the build the web app ships).
 const drivers: Array<[string, () => Promise<Database>]> = [
-  ['node:sqlite', async () => new InMemoryDatabase()],
   [
     'sqlite-wasm',
     async () => {
@@ -123,6 +122,7 @@ describe.each(drivers)('database on %s', (_name, open) => {
   });
 
   it('stores signatures and initials with one default per kind @FR-STM-01', async () => {
+    expectWarnings(); // SQLite WASM reports the refused INSERT below on the console
     const { db, clock, newId, cipher } = await setup();
     const repo = new SignatureRepo(db, clock, newId, cipher);
     const png = samplePng(30, 10);

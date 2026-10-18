@@ -136,21 +136,21 @@
     {#if annot.type === 'highlight' || annot.type === 'underline' || annot.type === 'strikeout' || annot.type === 'squiggly'}
       <div class="ins-s">
         <h4>{t('ui.appearance')}</h4>
-        <div class="row"><label>{t('ui.colour')}</label>{@render swatches(col(annot.color), (c) => void pick(c))}</div>
+        <div class="row"><span class="lab">{t('ui.colour')}</span>{@render swatches(col(annot.color), (c) => void pick(c))}</div>
         <div class="row"><label for="op">{t('ui.opacity')}</label><input id="op" type="range" min="10" max="100" value={Math.round((annot.opacity ?? 1) * 100)} onchange={(e) => restyle({ opacity: Number(e.currentTarget.value) / 100 })} /></div>
       </div>
       <div class="ins-s"><h4>{t('ui.comment')}</h4>{@render commentBox(annot, 3)}</div>
     {:else if annot.type === 'text'}
-      <div class="ins-s"><h4>{t('ui.comment')}</h4>{@render commentBox(annot, 5)}<div class="row"><label>{t('ui.colour')}</label>{@render swatches(col(annot.color), (c) => void pick(c), SWATCH.slice(0, 4))}</div></div>
+      <div class="ins-s"><h4>{t('ui.comment')}</h4>{@render commentBox(annot, 5)}<div class="row"><span class="lab">{t('ui.colour')}</span>{@render swatches(col(annot.color), (c) => void pick(c), SWATCH.slice(0, 4))}</div></div>
     {:else if annot.type === 'square' || annot.type === 'circle' || annot.type === 'line' || annot.type === 'polyline' || annot.type === 'polygon'}
       {@const a = annot}
       <div class="ins-s">
         <h4>{t('ui.stroke')}</h4>
-        <div class="row"><label>{t('ui.colour')}</label>{@render swatches(col(a.color), (c) => void pick(c), SWATCH.slice(4))}</div>
+        <div class="row"><span class="lab">{t('ui.colour')}</span>{@render swatches(col(a.color), (c) => void pick(c), SWATCH.slice(4))}</div>
         <div class="row"><label for="sw">{t('ui.width')}</label><input id="sw" type="range" min="0.5" max="12" step="0.5" value={a.strokeWidth} onchange={(e) => restyle({ strokeWidth: Number(e.currentTarget.value) } as Partial<Annotation>)} /></div>
         <div class="row"><label for="ss">{t('ui.style')}</label><select id="ss" value={a.strokeStyle} onchange={(e) => restyle({ strokeStyle: e.currentTarget.value } as Partial<Annotation>)}><option value="solid">{t('ui.style.solid')}</option><option value="dashed">{t('ui.style.dashed')}</option></select></div>
         {#if a.type !== 'line' && a.type !== 'polyline'}
-          <div class="row"><label>{t('ui.fill')}</label>
+          <div class="row"><span class="lab">{t('ui.fill')}</span>
             <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" class:primary={!a.fillColor} onclick={() => restyle({ fillColor: undefined } as Partial<Annotation>)}>{t('ui.fill.none')}</button>
             {#each ['#fff3d6', '#e6eeff', '#ffe4e6', '#dcfce7'] as c (c)}<button class="swatch" class:on={col(a.fillColor) === c} style="background:{c};width:22px;height:22px;flex:none" aria-label={c} onclick={() => pick(c, 'fillColor')}></button>{/each}</div>
           </div>
@@ -165,13 +165,13 @@
         <textarea rows="3" aria-label={t('ui.text')} value={a.contents ?? ''} onchange={(e) => restyle({ contents: e.currentTarget.value })}></textarea>
         <div class="row"><label for="ff">{t('ui.font')}</label><select id="ff" value={a.fontFamily} onchange={(e) => restyle({ fontFamily: e.currentTarget.value } as Partial<Annotation>)}><option value="sans">{t('ui.font.sans')}</option><option value="serif">{t('ui.font.serif')}</option><option value="mono">{t('ui.font.mono')}</option></select></div>
         <div class="row"><label for="fs">{t('ui.size')}</label><input id="fs" type="number" min="6" max="96" value={Math.round(a.fontSize)} onchange={(e) => restyle({ fontSize: Number(e.currentTarget.value) } as Partial<Annotation>)} /></div>
-        <div class="row"><label>{t('ui.colour')}</label>{@render swatches(col(a.textColor), (c) => void pick(c, 'textColor'), SWATCH.slice(4))}</div>
+        <div class="row"><span class="lab">{t('ui.colour')}</span>{@render swatches(col(a.textColor), (c) => void pick(c, 'textColor'), SWATCH.slice(4))}</div>
         <div class="row" role="group" aria-label={t('ui.align')}>
           {#each [['left', 'align-left', 'ui.alignLeft'], ['center', 'align-center', 'ui.alignCenter'], ['right', 'align-right', 'ui.alignRight']] as [al, ic, lb] (al)}
             <button class="ib" class:on={a.align === al} aria-pressed={a.align === al} aria-label={t(lb!)} onclick={() => restyle({ align: al } as Partial<Annotation>)}><Icon name={ic!} /></button>
           {/each}
         </div>
-        <div class="row"><label>{t('ui.fill')}</label>
+        <div class="row"><span class="lab">{t('ui.fill')}</span>
           <div class="row" style="gap:8px"><button class="btn sm" class:primary={!a.backgroundColor} onclick={() => restyle({ backgroundColor: undefined } as Partial<Annotation>)}>{t('ui.fill.none')}</button>
           {#each ['#ffffff', '#fff3d6', '#e6eeff'] as c (c)}<button class="swatch" class:on={col(a.backgroundColor) === c} style="background:{c};width:22px;height:22px;flex:none" aria-label={c} onclick={() => pick(c, 'backgroundColor')}></button>{/each}</div>
         </div>

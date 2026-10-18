@@ -20,7 +20,7 @@ class Secrets implements SecretStore {
 }
 
 async function setup(kind: SecretStore['kind'] = 'os-keychain') {
-  const db = new InMemoryDatabase();
+  const db = await InMemoryDatabase.create();
   await migrate(db);
   const clock = new FakeClock(new Date(Date.now() + 3600e3));
   const secrets = new Secrets(kind);

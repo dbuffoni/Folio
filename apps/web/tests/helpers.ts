@@ -27,7 +27,7 @@ export const test = base.extend<Fixtures>({
   app: async ({ page, outbound }, use, testInfo) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
-    page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && errors.push(m.text()));
     // Without the File System Access API the app falls back to file inputs and downloads, which is
     // what Playwright can drive in every browser.
     await page.addInitScript(() => {

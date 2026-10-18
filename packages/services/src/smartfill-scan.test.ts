@@ -11,7 +11,7 @@ import { StampService } from './stamp.ts';
 
 const setup = async (ai?: FakeAiProvider) => {
   const engine = await sharedEngine();
-  const db = new InMemoryDatabase();
+  const db = await InMemoryDatabase.create();
   await migrate(db);
   const clock = new FakeClock();
   let n = 0;
