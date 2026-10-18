@@ -71,6 +71,11 @@
       </div>
     {/each}
   </div>
+  {#if !sf.signWith}
+    <div class="ins-s"><p class="note">{t('smartfill.sign.none')}</p></div>
+  {:else if sf.signFields === 0}
+    <div class="ins-s"><p class="note">{t('smartfill.sign.noLine')}</p></div>
+  {/if}
   {#if sf.signWith}
     <div class="ins-s"><label style="display:flex;gap:8px;align-items:center;width:auto"><input type="checkbox" checked={sf.signIt} onchange={(e) => sf.setSignIt(e.currentTarget.checked)} />{t('smartfill.sign', { count: sf.signFields, name: sf.signWith.name })}</label></div>
   {/if}

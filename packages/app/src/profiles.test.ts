@@ -226,4 +226,33 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     expect(r.x + r.width).toBeLessThanOrEqual(line.x + line.width + 1);
     expect(r.y + r.height / 2).toBeGreaterThan(line.y);
   });
+
+  it('with the AI on, a dotted "Firma" line still gets the profile signature, and a remembered form does not skip the AI silently @FR-STM-01 @FR-AIF-08', async () => {
+    const ai = new FakeAiProvider();
+    const t = await createTestApp({ ai });
+    const { pdf } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+    ]);
+    t.files.put('/flat2.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat2.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
+    ai.enqueue((req) => ({ fields: req.candidates.map((c) => ({ ref: c.ref, label: c.label ?? '', fieldType: /Firma/.test(c.label ?? '') ? 'signature' : 'text', profileKey: c.label === 'First name' ? 'first_name' : null, transform: 'none', choiceValue: null, confidence: 0.9 })), newAreas: [] }));
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.result!.source).toBe('ai');
+    expect(sf.signFields).toBe(1);
+    await sf.apply(false);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
+    // Same form again: the stored mapping is used, and the panel says so.
+    const sf2 = t.smartFill(s);
+    await sf2.start();
+    expect(sf2.result!.source).toBe('remembered');
+  });
 });

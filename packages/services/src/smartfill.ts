@@ -649,7 +649,8 @@ export class SmartFillService {
 
     if (!opts.reanalyze) {
       const stored = await this.deps.mappings.find(fingerprint, profile.id);
-      if (stored) {
+      // A mapping stored from a local-only run must not keep the AI out when the AI is wanted now.
+      if (stored && !(opts.useAi && stored.source === 'heuristic')) {
         const known = new Map(stored.mapping.map((e) => [e.fieldRef, e]));
         const mappings: FieldMapping[] = candidates.map((c) => {
           const e = known.get(c.ref);

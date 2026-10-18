@@ -53,3 +53,20 @@ describe('Smart Fill: the AI answers null for a label that names an alias @FR-AI
     expect(father).toMatchObject({ profileKey: 'father', value: 'Luca Esempio' });
   });
 });
+
+describe('Smart Fill: a mapping remembered from a local-only run does not keep the AI out @FR-AIF-08 @FR-AIF-03', () => {
+  const run = async (source: 'heuristic' | 'ai') => {
+    const ai = new FakeAiProvider();
+    const engine = await sharedEngine();
+    const mappings = { find: async () => ({ mapping: [], source }), save: async () => undefined, forget: async () => undefined };
+    const sf = new SmartFillService({ crypto: new NodeCrypto(), forms: {} as never, annotations: {} as never, stamps: {} as never, mappings, ai, images: new NodeImageCodec() });
+    const { pdf } = await flatFormDoc([{ key: 'first_name', label: 'First name', kind: 'underline' }]);
+    ai.enqueue({ fields: [], newAreas: [] });
+    const res = await sf.analyze(await engine.open(pdf), [0], profile, { useAi: true, mode: 'mapping_only' });
+    return { res, requests: ai.requests.length };
+  };
+  it('asks the AI when the stored mapping came from the heuristic, reuses one that came from the AI @FR-AIF-08', async () => {
+    expect(await run('heuristic')).toMatchObject({ requests: 1, res: { source: 'ai' } });
+    expect(await run('ai')).toMatchObject({ requests: 0, res: { source: 'remembered' } });
+  });
+});
