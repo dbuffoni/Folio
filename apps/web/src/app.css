@@ -131,6 +131,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .swatch.on{box-shadow:0 0 0 2px var(--color-accent)}
 .tbhint{color:var(--color-fg-3);font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;margin-right:6px}
 /* Labels collapse to icons but stay in the accessibility tree (WCAG 2.5.3). */
+@media (max-width:1400px){#toolbar.crowded .tool:not(.accent) .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 @media (max-width:1180px){.tool .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.tool.accent .lbl{position:static;width:auto;height:auto;overflow:visible;clip:auto}}
 
 /* main */
@@ -401,7 +402,7 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   #sidebar{position:absolute;left:0;top:0;bottom:0;z-index:30;box-shadow:var(--shadow-float)}
   #inspector{width:min(288px,92vw)}
   .two,.g2,.sctable{grid-template-columns:1fr}
-  .setwrap{flex-direction:column;height:auto}.setnav{flex-direction:row;width:auto;overflow:auto}
+  .setwrap{flex-direction:column;height:auto}.setnav{flex-direction:row;width:auto;overflow:auto}.setnav>*{white-space:nowrap;flex:none}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   #modebar .ib{display:none}
   .seg button .lbl2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -550,3 +551,6 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
 .tool[aria-disabled=true]:hover{background:none}
 .tab .lock,#statusbar .lock{display:inline-flex;align-items:center;color:var(--color-fg-2)}
 .tab .lock svg,#statusbar .lock svg{width:13px;height:13px}
+
+/* Checkbox rows in dialogs keep the checkbox its natural size (it would otherwise stretch with the field styles). */
+.row input[type=checkbox]{width:auto;flex:none}

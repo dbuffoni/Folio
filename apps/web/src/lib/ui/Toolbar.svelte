@@ -163,7 +163,7 @@
   </div>
 </div>
 
-<div id="toolbar" role="toolbar" aria-label={t(`mode.${mode}`)}>
+<div id="toolbar" class:crowded={mode === 'fill'} role="toolbar" aria-label={t(`mode.${mode}`)}>
   {#if mode === 'view'}
     {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
     {@render toolBtn('snapshot', 'camera', t('tool.snapshot'))}

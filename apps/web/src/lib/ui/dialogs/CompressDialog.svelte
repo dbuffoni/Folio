@@ -32,7 +32,7 @@
   <div class="radios" role="radiogroup" aria-label={t('compress.title')}>
     {#each PRESETS as p (p)}
       <label><input type="radio" name="cp" checked={dep(v, w.preset) === p} disabled={w.stage === 'running' || w.stage === 'analysing'} onchange={() => w.setPreset(p)} />
-        <div><b>{t(`compress.preset.${p}`)}</b><small>{t(`compress.preset.${p}.d`)} · <span data-testid="estimate-{p}">{p === 'custom' && w.preset !== 'custom' ? '' : est(p)}</span></small></div>
+        <div><b>{t(`compress.preset.${p}`)}</b><small>{t(`compress.preset.${p}.d`)}{#if !(p === 'custom' && w.preset !== 'custom')} · <span data-testid="estimate-{p}">{est(p)}</span>{/if}</small></div>
       </label>
     {/each}
   </div>
