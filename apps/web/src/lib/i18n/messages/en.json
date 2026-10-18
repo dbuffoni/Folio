@@ -945,6 +945,8 @@
  "smartfill.needProfile": "Create a fill profile first: Settings ▸ Profiles.",
  "smartfill.newKeyLabel": "Label",
  "smartfill.newKeyValue": "Value",
+ "smartfill.auto.date": "Date — written by Sign, no profile entry needed",
+ "smartfill.auto.signature": "Signature — placed by Sign, no profile entry needed",
  "smartfill.noMatch": "No matching data",
  "smartfill.preflight.dontAsk": "Don't ask again for this mode",
  "smartfill.preflight.fields": "{count, plural, one {# field label} other {# field labels}}, for example: {examples}",

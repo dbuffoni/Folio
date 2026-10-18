@@ -70,6 +70,8 @@ export interface DetectedArea {
   label?: string;
   /** Number of cells for comb areas. */
   cells?: number;
+  /** True when the area is a run of dots or underscores printed in the text: its bottom edge is the text line, not free space. */
+  leader?: boolean;
 }
 
 const right = (r: Rect): number => r.x + r.width;
@@ -132,7 +134,7 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
           let from = start;
           while (from > 0 && start - from < 60 && !/[\n\r]/.test(layer.chars[from - 1]!.text) && weight(layer.chars[from - 1]!.text) === 0) from--;
           const before = layer.chars.slice(from, start).map((c) => c.text).join('').replace(/[:\s]+$/g, '').trim();
-          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text', ...(/\p{L}{2}/u.test(before) ? { preLabel: before } : {}) });
+          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text', leader: true, ...(/\p{L}{2}/u.test(before) ? { preLabel: before } : {}) });
         }
       }
       start = -1;

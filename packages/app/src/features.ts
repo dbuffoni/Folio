@@ -2224,6 +2224,10 @@ export class SmartFillModel extends ViewModel {
   get dateLines(): number {
     return this.suggestions.filter(isDateTarget).length;
   }
+  /** A row the Sign option fills by itself, so it needs no profile entry: a signature line or a date line. */
+  autoKind(s: Pick<Suggestion, 'fieldType' | 'label' | 'kind' | 'value'>): 'signature' | 'date' | null {
+    return isSignatureTarget(s) ? 'signature' : isDateTarget(s) ? 'date' : null;
+  }
   private today(): string {
     const d = this.app.services.platform.clock.now();
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;

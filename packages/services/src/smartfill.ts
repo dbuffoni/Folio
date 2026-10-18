@@ -880,15 +880,18 @@ export class SmartFillService {
       if (checkbox && !truthy(s.value)) continue;
       const tool = checkbox ? 'checkbox' : s.fieldType === 'multiline' ? 'multiline' : 'text';
       const name = this.authoring.autoName(tool, s.label || area.label, used);
+      // Same size rule as the Cover & type tool; on a printed dotted or underscore line the box is lifted so the glyphs sit above it.
+      const fontSize = checkbox || area.kind === 'comb' ? 0 : Math.min(11, Math.max(7, area.rect.height * 0.7));
+      const rect = area.leader && !checkbox ? { ...area.rect, y: area.rect.y + fontSize * 0.3 } : area.rect;
       used.add(name);
       nameByRef.set(s.ref, name);
       specs.push(
-        this.authoring.spec(tool, name, s.page, area.rect, {
+        this.authoring.spec(tool, name, s.page, rect, {
           value: checkbox ? 'Yes' : s.value,
           tooltip: s.label || undefined,
           ...(checkbox ? { exportValue: 'Yes' } : {}),
           ...(area.kind === 'comb' && area.cells ? { comb: true, maxLength: area.cells } : {}),
-          fontSize: 0,
+          fontSize,
         }),
       );
     }

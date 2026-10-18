@@ -326,6 +326,11 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const page = await s.doc.render(0, { scale: 1 });
     for (const st of stamps) expect(inkRatio(page, { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height })).toBeGreaterThan(0.01);
     expect((await s.doc.listFormFields()).map((f) => f.value)).toEqual(expect.arrayContaining(['Marco Rossi']));
+    // Text typed on a dotted line sits above the dots, as the Cover & type tool places it.
+    const dots = (await s.doc.getTextLayer(0)).chars.filter((c) => c.text === '…' || c.text === '.' || c.text === '·');
+    const widget = (await s.doc.listFormFields()).find((f) => f.value === 'Marco Rossi')!.widgets[0]!;
+    const dotBottom = Math.min(...dots.filter((c) => Math.abs(c.rect.y + c.rect.height / 2 - (widget.rect.y + widget.rect.height / 2)) < 12).map((c) => c.rect.y));
+    expect(widget.rect.y).toBeGreaterThan(dotBottom + 2);
   });
   it('e-mail and phone entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();
@@ -370,6 +375,8 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const off = t.smartFill(s);
     await off.start();
     expect(off.dateLines).toBe(1);
+    expect(off.suggestions.map((s) => off.autoKind(s))).toEqual(expect.arrayContaining(['date']));
+    expect(off.suggestions.filter((s) => off.autoKind(s)).every((s) => s.profileKey === null)).toBe(true);
     off.setSignIt(false);
     await off.apply(false);
     expect((await s.doc.listFormFields()).map((f) => f.value)).not.toContain(expected);

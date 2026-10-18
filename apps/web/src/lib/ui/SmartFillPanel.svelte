@@ -47,27 +47,30 @@
   <div class="ins-s" style="gap:0">
     <div class="kv" style="padding-bottom:6px"><span>{t('smartfill.found', { count: list.length })}</span><span class="note">{t('smartfill.legend')}</span></div>
     {#each list as s (s.ref)}
+      {@const auto = sf.autoKind(s)}
       <div class="sfitem">
         <input type="checkbox" checked={s.accepted} disabled={s.value === ''} aria-label={s.label} onchange={(e) => sf.toggle(s.ref, e.currentTarget.checked)} />
         <div class="l">
-          <span class="conf {conf[s.confidence]}" title={s.confidence}></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.label}</span>{s.confidence === 'low' && s.profileKey ? ` · ${t('smartfill.review')}` : ''}
+          <span class="conf {auto ? 'h' : conf[s.confidence]}" title={auto ? 'high' : s.confidence}></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.label}</span>{s.confidence === 'low' && s.profileKey ? ` · ${t('smartfill.review')}` : ''}
           <span class="grow"></span>
           <button class="link" onclick={() => sf.locate(sf.located === s.ref ? null : s.ref)} use:tip={t('smartfill.locate')} aria-label={t('smartfill.locate')}><Icon name="locate-fixed" size={14} /></button>
         </div>
-        {#if s.fieldType === 'checkbox'}
+        {#if auto}
+          <p class="note" style="grid-column:2;margin:0">{t(auto === 'date' ? 'smartfill.auto.date' : 'smartfill.auto.signature')}</p>
+        {:else if s.fieldType === 'checkbox'}
           <select style="grid-column:2;height:28px" value={s.value} aria-label={s.label} onchange={(e) => sf.setValue(s.ref, e.currentTarget.value)}><option value="">—</option><option value="true">✓</option><option value="false">✗</option></select>
         {:else if s.candidate.options?.length}
           <select style="grid-column:2;height:28px" value={s.value} aria-label={s.label} onchange={(e) => sf.setValue(s.ref, e.currentTarget.value)}><option value="">—</option>{#each s.candidate.options as o (o)}<option value={o}>{o}</option>{/each}</select>
         {:else}
           <input type="text" value={s.value} aria-label={s.label} placeholder={t('smartfill.noMatch')} onchange={(e) => sf.setValue(s.ref, e.currentTarget.value)} />
         {/if}
-        <div style="grid-column:2;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        {#if !auto}<div style="grid-column:2;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <select style="height:24px;font-size:12px;flex:1 1 120px;min-width:0" value={s.profileKey ?? ''} aria-label={t('smartfill.key')} onchange={(e) => sf.setKey(s.ref, e.currentTarget.value || null)}>
             <option value="">{t('smartfill.noMatch')}</option>
             {#each sf.profile?.fields ?? [] as f (f.key)}<option value={f.key}>{f.label}</option>{/each}
           </select>
           {#if !s.profileKey}<button class="link" style="font-size:12px;white-space:nowrap" onclick={() => (adding = { ref: s.ref, label: s.label, value: s.value })}>{t('smartfill.addToProfile')}</button>{/if}
-        </div>
+        </div>{/if}
       </div>
     {/each}
   </div>
