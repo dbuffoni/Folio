@@ -8,7 +8,6 @@ import type {
   RasterImage,
   AppStorage,
   Clipboard,
-  Database,
   FileKind,
   FileRef,
   FileService,
