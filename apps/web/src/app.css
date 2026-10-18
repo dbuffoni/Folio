@@ -68,7 +68,7 @@ svg.lucide{width:18px;height:18px;stroke-width:1.75;flex:none}
 .btn{height:30px;padding:0 12px;border-radius:var(--radius-md);border:1px solid var(--color-border);background:var(--color-surface);display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--color-surface-2)}
 .btn.primary{background:var(--color-accent);color:var(--color-accent-fg);border-color:transparent;font-weight:500}
-.btn.primary:hover{filter:brightness(1.07)}
+.btn.primary:hover{background:color-mix(in srgb,var(--color-accent),#fff 7%)}
 .btn.ghost{border-color:transparent;background:transparent}
 .btn.ghost:hover{background:var(--color-surface-2)}
 .btn.sm{height:26px;padding:0 9px;font-size:12px}
@@ -122,7 +122,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .tool.on{background:var(--color-accent-soft);color:var(--color-accent-text)}
 .tool .chev{display:inline-flex;margin-left:-3px}.tool .chev svg{width:12px;height:12px;stroke:currentColor}
 .tool.accent{background:var(--color-accent);color:var(--color-accent-fg);font-weight:500;margin-left:4px}
-.tool.accent:hover{filter:brightness(1.07);background:var(--color-accent);color:var(--color-accent-fg)}
+.tool.accent:hover{background:color-mix(in srgb,var(--color-accent),#fff 7%);color:var(--color-accent-fg)}
 .swatch{width:18px;height:18px;border-radius:50%;border:2px solid var(--color-surface);box-shadow:0 0 0 1px var(--color-border);cursor:pointer;flex:none;padding:0}
 .swatch.on{box-shadow:0 0 0 2px var(--color-accent)}
 .tbhint{color:var(--color-fg-3);font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;margin-right:6px}
