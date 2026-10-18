@@ -300,7 +300,6 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await m.updateField(p.id, father, { value: 'Marco Rossi', aliases: ['genitore di', 'padre di', 'tutore di', 'tutore legale di'] });
     const classe = (await m.addField(p.id, 'Classe'))!;
     await m.updateField(p.id, classe, { value: '3A' });
-    expect(await m.addField(p.id, '', 'today')).toBe('today');
     await m.setSignature(p.id, sig.id);
     await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
     ai.enqueue((req) => ({
@@ -319,10 +318,6 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await sf.start();
     expect(sf.result!.source).toBe('ai');
     expect(sf.suggestions.find((x) => /tutore/.test(x.label))).toMatchObject({ profileKey: 'father', value: 'Marco Rossi', confidence: 'high', accepted: true });
-    // "Data" gets the date of the day, written day/month/year, although the model left it without a key.
-    const day = t.app.services.platform.clock.now();
-    const expected = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}/${day.getFullYear()}`;
-    expect(sf.suggestions.find((x) => x.label === 'Data')).toMatchObject({ profileKey: 'today', value: expected });
     expect(sf.signFields).toBe(2);
     await sf.apply(false);
     const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
@@ -330,22 +325,21 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     // The page shows the drawn signature where the stamps are.
     const page = await s.doc.render(0, { scale: 1 });
     for (const st of stamps) expect(inkRatio(page, { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height })).toBeGreaterThan(0.01);
-    expect((await s.doc.listFormFields()).map((f) => f.value)).toEqual(expect.arrayContaining(['Marco Rossi', expected]));
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toEqual(expect.arrayContaining(['Marco Rossi']));
   });
-  it('e-mail, phone and signature entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
+  it('e-mail and phone entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();
     const m = t.profiles();
     await m.load();
     const p = (await m.create('Typed'))!;
     expect(await m.addField(p.id, 'ignored label', 'email')).toBe('email');
     expect(await m.addField(p.id, '', 'phone')).toBe('phone');
-    expect(await m.addField(p.id, 'x', 'signature')).toBe('signature');
     expect(await m.addField(p.id, 'Class', 'text')).toBe('class');
-    expect(m.current!.fields.map((f) => [f.key, f.label, f.type])).toEqual([['email', 'Email', 'email'], ['phone', 'Phone', 'phone'], ['signature', 'Signature', 'signature'], ['class', 'Class', 'text']]);
+    expect(m.current!.fields.map((f) => [f.key, f.label, f.type])).toEqual([['email', 'Email', 'email'], ['phone', 'Phone', 'phone'], ['class', 'Class', 'text']]);
     // The label of a typed entry cannot be changed; a text entry keeps its own.
     await m.updateField(p.id, 'email', { label: 'me@example.com', value: 'me@example.com' });
     await m.updateField(p.id, 'class', { label: 'Classe' });
-    expect(m.current!.fields.map((f) => f.label)).toEqual(['Email', 'Phone', 'Signature', 'Classe']);
+    expect(m.current!.fields.map((f) => f.label)).toEqual(['Email', 'Phone', 'Classe']);
     // Turning a text entry into an e-mail entry names it after the type.
     await m.updateField(p.id, 'class', { type: 'email' });
     expect(m.current!.fields.find((f) => f.key === 'class')!.label).toBe('Email');
@@ -356,48 +350,34 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     expect(sf.profile!.fields.find((f) => f.key === 'old')!.label).toBe('Email');
   });
 
-  it('signature entries pick a saved signature by their aliases, and the stamps are really drawn on the page @FR-STM-01 @FR-AIF-04 @FR-FRM-20', async () => {
+  it('the Sign option also writes the date of the day on the "Data" line, and leaves it empty when Sign is off @FR-STM-01 @FR-AIF-04', async () => {
     const t = await createTestApp();
-    const { pdf, areas } = await flatFormDoc([
+    const { pdf } = await flatFormDoc([
       { key: 'first_name', label: 'First name', kind: 'underline' },
-      { key: 's1', label: 'Firma del genitore', kind: 'dots' },
-      { key: 's2', label: "Firma dell'alunno", kind: 'dots' },
-      { key: 's3', label: 'Firma', kind: 'dots' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+      { key: 'date', label: 'Data', kind: 'dots' },
     ]);
-    t.files.put('/two.pdf', pdf);
-    const s = (await t.app.openRef(t.files.ref('/two.pdf')))!;
-    const wide = await t.services.signaturesRepo.add({ name: 'Parent', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
-    const square = await t.services.signaturesRepo.add({ name: 'Child', kind: 'signature', source: 'drawn', png: samplePng(60, 60), width: 60, height: 60 }, { encrypt: false });
+    t.files.put('/dated.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/dated.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
     const m = t.profiles();
     await m.load();
-    const p = (await m.create('Family'))!;
+    const p = (await m.create('Dated'))!;
     await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
-    const parent = (await m.addField(p.id, '', 'signature'))!;
-    await m.updateField(p.id, parent, { value: wide.id, aliases: ['genitore'] });
-    const child = (await m.addField(p.id, '', 'signature'))!;
-    await m.updateField(p.id, child, { value: square.id, aliases: ['alunno', 'studente'] });
-    const sf = t.smartFill(s);
-    await sf.start();
-    // The signature entries are not text to fill in.
-    expect(sf.suggestions.some((x) => x.profileKey === parent || x.profileKey === child)).toBe(false);
-    expect(sf.signFields).toBe(3);
-    const before = await s.doc.render(0, { scale: 1 });
-    await sf.apply(false);
-    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
-    expect(stamps.length).toBe(3);
-    const ratioAt = (line: { y: number }) => {
-      const st = stamps.find((a) => Math.abs(a.rect.y + a.rect.height / 2 - (line.y + 8)) < 30)!;
-      return st.rect.width / st.rect.height;
-    };
-    expect(ratioAt(areas[1]!.rect)).toBeCloseTo(3, 1);
-    expect(ratioAt(areas[2]!.rect)).toBeCloseTo(1, 1);
-    // The plain "Firma" line gets the default one: the first signature entry.
-    expect(ratioAt(areas[3]!.rect)).toBeCloseTo(3, 1);
-    // And the page shows ink where the stamps are.
-    const after = await s.doc.render(0, { scale: 1 });
-    for (const st of stamps) {
-      const region = { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height };
-      expect(inkRatio(after, region)).toBeGreaterThan(inkRatio(before, region) + 0.2);
-    }
+    await m.setSignature(p.id, sig.id);
+    const day = t.app.services.platform.clock.now();
+    const expected = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}/${day.getFullYear()}`;
+    const off = t.smartFill(s);
+    await off.start();
+    expect(off.dateLines).toBe(1);
+    off.setSignIt(false);
+    await off.apply(false);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).not.toContain(expected);
+    await s.undo();
+    const on = t.smartFill(s);
+    await on.start();
+    await on.apply(false);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toContain(expected);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
   });
 });

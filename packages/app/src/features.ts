@@ -70,6 +70,7 @@ import {
   type SmartProfile,
   type SplitMode,
   type StampDef,
+  isDateTarget,
   isSignatureTarget,
   type Suggestion,
   type TextStampStyle,
@@ -1358,7 +1359,6 @@ export class ProfilesModel extends ViewModel {
     if (!f) return false;
     const next = { ...f, ...patch };
     if (FIXED_LABEL_TYPES.includes(next.type)) next.label = isDataLabel({ type: next.type, label: f.label }) || patch.type ? FIXED_TYPE_LABELS[next.type]! : f.label;
-    if (patch.type && patch.type !== f.type && (f.type === 'signature' || patch.type === 'signature')) next.value = '';
     const problem = validateProfileValue(next.type, next.value);
     if (problem) {
       this.app.toast('warning', msg(`profiles.invalid.${problem}`));
@@ -2073,8 +2073,6 @@ export class SmartFillModel extends ViewModel {
   signFields = 0;
   signWith: StoredSignature | null = null;
   signIt = true;
-  /** The signature entries of each profile (type "signature": a name, aliases and a saved signature). */
-  private signatureEntries = new Map<string, Array<{ label: string; aliases: string[]; value: string }>>();
   private abort?: AbortController;
 
   constructor(
@@ -2099,16 +2097,9 @@ export class SmartFillModel extends ViewModel {
       ? Array.from({ length: this.session.pageCount }, (_, i) => i)
       : [this.session.view.page];
   }
-  /** The date of the day as day/month/year: what a "today" entry holds while a form is filled. */
-  private today(): string {
-    const d = this.app.services.platform.clock.now();
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  }
   async loadProfiles(): Promise<void> {
-    // Signature entries are not text to fill in: they pick saved signatures, so the matching service never sees them.
-    const all = await this.app.services.profiles.list();
-    this.signatureEntries = new Map(all.map((p) => [p.id, p.fields.filter((f) => f.type === 'signature')] as const));
-    this.profiles = all.map((p) => ({ ...p, fields: p.fields.filter((f) => f.type !== 'signature').map((f) => (f.type === 'today' ? { ...f, type: 'date' as const, value: this.today() } : isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
+    // An e-mail or phone entry whose label holds the data itself is shown and sent by its type instead.
+    this.profiles = (await this.app.services.profiles.list()).map((p) => ({ ...p, fields: p.fields.map((f) => (isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
     this.profile =
       this.profiles.find((p) => p.id === this.profile?.id) ??
       this.profiles.find((p) => (p as { isDefault?: boolean }).isDefault) ??
@@ -2212,35 +2203,30 @@ export class SmartFillModel extends ViewModel {
     this.noticeKey = result.fallbackReason === 'scanNeedsAi' ? 'smartfill.fallback.scanNeedsAi' : null;
     this.emit();
   }
-  /** Counts the signature fields the profile's signatures would go into. */
+  /** Counts the signature fields the profile's signature would go into. */
   private async findSignatureFields(): Promise<void> {
     this.signFields = 0;
     this.signWith = null;
-    const choices = await this.signatureChoices();
-    if (!choices.fallback) return;
-    this.signWith = choices.fallback.stored;
-    this.signFields = (await this.signCommand())?.count ?? 0;
-  }
-  /** The saved signatures of the profile: one per "signature" entry (picked by its name and aliases), and the default one. */
-  private async signatureChoices(): Promise<{ named: Array<{ names: string[]; stored: StoredSignature }>; fallback: { stored: StoredSignature } | null }> {
-    const repo = this.app.services.signaturesRepo;
-    const named: Array<{ names: string[]; stored: StoredSignature }> = [];
-    for (const f of this.signatureEntries.get(this.profile?.id ?? '') ?? []) {
-      const stored = f.value ? await repo.get(f.value) : null;
-      if (stored) named.push({ names: [f.label, ...f.aliases].filter((n) => n.trim() !== ''), stored });
-    }
-    // The first signature entry is the default; a profile from before signature entries existed falls back to its own.
     const id = this.profile?.signatureId;
-    const stored = named[0]?.stored ?? (id ? await repo.get(id) : null);
-    return { named, fallback: stored ? { stored } : null };
+    if (!id) return;
+    const sig = await this.app.services.signaturesRepo.get(id);
+    if (!sig) return;
+    this.signWith = sig;
+    this.signFields = (await this.signCommand(sig))?.count ?? 0;
   }
-  private async signCommand() {
-    const choices = await this.signatureChoices();
-    if (!choices.fallback) return null;
-    const decode = async (sig: StoredSignature) => ({ kind: sig.kind, svg: sig.svg, raster: await this.app.services.platform.images.decode(sig.png), width: sig.width, height: sig.height });
-    const named = await Promise.all(choices.named.map(async (n) => ({ names: n.names, sig: await decode(n.stored) })));
-    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect, label: s.label }));
-    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), await decode(choices.fallback.stored), targets, named);
+  private async signCommand(sig: StoredSignature) {
+    const raster = await this.app.services.platform.images.decode(sig.png);
+    const data = { kind: sig.kind, svg: sig.svg, raster, width: sig.width, height: sig.height };
+    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect }));
+    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data, targets);
+  }
+  /** Places called "Data" or "Date": the Sign option writes the date of the day there, in the default format. */
+  get dateLines(): number {
+    return this.suggestions.filter(isDateTarget).length;
+  }
+  private today(): string {
+    const d = this.app.services.platform.clock.now();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   }
   setSignIt(on: boolean): void {
     this.signIt = on;
@@ -2293,9 +2279,12 @@ export class SmartFillModel extends ViewModel {
   async apply(onlyHigh = false): Promise<number> {
     if (!this.result || !this.profile) return 0;
     const svc = this.app.services.smartFill;
-    const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    const picked = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    // The Sign option also dates the places named "Data"/"Date" that no entry of the profile fills.
+    const date = this.today();
+    const list = this.signIt && this.signWith ? picked.map((s) => (isDateTarget(s) ? { ...s, value: date, accepted: true } : s)) : picked;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
-    const sign = this.signIt && this.signWith ? (await this.signCommand())?.command : undefined;
+    const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
     const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
     if (!cmd) return 0;
     const plan = svc.plan(list, taken);

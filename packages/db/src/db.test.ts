@@ -42,29 +42,32 @@ describe.each(drivers)('database on %s', (_name, open) => {
 
   it('applies migrations once, in order, transactionally @FR-APP-10', async () => {
     const db = await open();
-    expect(await migrate(db)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(await migrate(db)).toEqual([]);
     const tables = (await db.select<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).map((t) => t.name);
     expect(tables).toEqual(['ai_runs', 'certificates', 'field_templates', 'form_mappings', 'history_spill', 'profile_fields', 'profiles', 'recent_files', 'schema_migrations', 'settings', 'signatures', 'stamps']);
     expect(splitStatements(MIGRATIONS[0]!.sql).length).toBe(10);
-    const bad = [...MIGRATIONS, { version: 7, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
+    const bad = [...MIGRATIONS, { version: 8, name: 'bad', sql: 'CREATE TABLE x (a INTEGER); CREATE TABLE x (a INTEGER);' }];
     await expect(migrate(db, bad)).rejects.toThrow();
     expect((await db.select("SELECT name FROM sqlite_master WHERE name='x'")).length).toBe(0);
-    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(6);
+    expect((await db.select('SELECT version FROM schema_migrations')).length).toBe(7);
   });
 
-  it('the signature a profile named before becomes a signature entry @FR-FRM-20', async () => {
+  it('profiles keep one signature and plain entries: signature and "today" entries of earlier builds are folded back @FR-FRM-20', async () => {
     const db = await open();
-    await migrate(db, MIGRATIONS.slice(0, 4));
+    await migrate(db, MIGRATIONS.slice(0, 6));
     await db.execute("INSERT INTO signatures (id, name, kind, source, png, width, height) VALUES ('s1', 'Mine', 'signature', 'drawn', x'00', 10, 5)");
-    await db.execute("INSERT INTO profiles (id, name, signature_id) VALUES ('p1', 'A', 's1'), ('p2', 'B', NULL)");
-    await db.execute("INSERT INTO profile_fields (id, profile_id, key, label, type, value) VALUES ('f1', 'p1', 'first_name', 'First name', 'text', 'Ada'), ('f2', 'p1', 'today', 'Today''s date', 'date', '')");
-    expect(await migrate(db)).toEqual([5, 6]);
-    const rows = await db.select<{ profile_id: string; key: string; type: string; value: string; sort_order: number }>('SELECT profile_id, key, type, value, sort_order FROM profile_fields ORDER BY profile_id, sort_order');
-    expect(rows).toEqual([
-      { profile_id: 'p1', key: 'first_name', type: 'text', value: 'Ada', sort_order: 0 },
-      { profile_id: 'p1', key: 'today', type: 'today', value: '', sort_order: 0 },
-      { profile_id: 'p1', key: 'signature', type: 'signature', value: 's1', sort_order: 1 },
+    await db.execute("INSERT INTO profiles (id, name, signature_id) VALUES ('p1', 'A', 's1'), ('p2', 'B', NULL), ('p3', 'C', NULL)");
+    await db.execute("INSERT INTO profile_fields (id, profile_id, key, label, type, value, sort_order) VALUES ('f1', 'p1', 'first_name', 'First name', 'text', 'Ada', 0), ('f2', 'p1', 'today', 'Today''s date', 'today', '', 1), ('f3', 'p3', 'signature', 'Signature', 'signature', 's1', 0), ('f4', 'p2', 'signature', 'Signature', 'signature', 'gone', 0)");
+    expect(await migrate(db)).toEqual([7]);
+    expect(await db.select('SELECT key, type FROM profile_fields ORDER BY id')).toEqual([
+      { key: 'first_name', type: 'text' },
+      { key: 'today', type: 'date' },
+    ]);
+    expect(await db.select('SELECT id, signature_id FROM profiles ORDER BY id')).toEqual([
+      { id: 'p1', signature_id: 's1' },
+      { id: 'p2', signature_id: null },
+      { id: 'p3', signature_id: 's1' },
     ]);
   });
 
@@ -214,10 +217,6 @@ describe.each(drivers)('database on %s', (_name, open) => {
     expect((await repo.getDefault())!.name).toBe('Company');
     await repo.rename(company.id, 'Work');
     await repo.removeField(p.id, 'pet_name');
-    // A signature entry holds the id of a saved signature: stored as is, never written to an export file.
-    await repo.setField(p.id, { key: 'signature', label: 'Signature', type: 'signature', value: 'sig-1', aliases: ['firma'] });
-    expect((await repo.get(p.id))!.fields.find((f) => f.key === 'signature')).toMatchObject({ type: 'signature', value: 'sig-1', aliases: ['firma'] });
-    expect((await repo.exportJson(p.id)).fields.find((f) => f.key === 'signature')).toMatchObject({ type: 'signature', value: '' });
     const exported = await repo.exportJson(p.id);
     expect(exported).toMatchObject({ version: 1, name: 'Personal' });
     expect(exported.fields.find((f) => f.key === 'tax_id')!.value).toBe('SMPMRT88D63D612X');

@@ -268,16 +268,15 @@ export class StampRepo {
 
 // ---- profiles --------------------------------------------------------------------------------
 
-export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline' | 'signature' | 'today';
+export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline';
 /** Types whose label is the name of the type itself: the user picks the type, not a label. */
-export const FIXED_LABEL_TYPES: ProfileFieldType[] = ['phone', 'email', 'signature', 'today'];
+export const FIXED_LABEL_TYPES: ProfileFieldType[] = ['phone', 'email'];
 /** The stored label of such an entry (data, like the labels of the built-in templates). */
-export const FIXED_TYPE_LABELS: Partial<Record<ProfileFieldType, string>> = { phone: 'Phone', email: 'Email', signature: 'Signature', today: "Today's date" };
+export const FIXED_TYPE_LABELS: Partial<Record<ProfileFieldType, string>> = { phone: 'Phone', email: 'Email' };
 /** Names a newly added typed entry answers to (the same as the built-in sets). */
 export const FIXED_TYPE_ALIASES: Partial<Record<ProfileFieldType, string[]>> = {
   email: ['e-mail', 'email address', 'posta elettronica', 'indirizzo email'],
   phone: ['telephone', 'phone number', 'mobile', 'cell', 'telefono', 'cellulare', 'recapito telefonico'],
-  today: ['date', 'data', 'data odierna', 'date of signature', 'signed on', 'lì'],
 };
 export interface ProfileField {
   id: string;
@@ -342,7 +341,7 @@ export const PROFILE_TEMPLATES: Record<string, FieldDefinition[]> = {
     t('bic', 'BIC / SWIFT', 'text', ['swift', 'swift code', 'bic code']),
     t('bank_name', 'Bank name', 'text', ['bank', 'banca', 'istituto di credito']),
   ],
-  dates: [t('today', "Today's date", 'today', ['date', 'data', 'date of signature', 'data odierna', 'signed on', 'lì'])],
+  dates: [t('today', "Today's date", 'date', ['date', 'data', 'date of signature', 'data odierna', 'signed on', 'lì'])],
 };
 
 /** The stable key of an entry: lower-case words joined by underscores. */
@@ -524,7 +523,7 @@ export class ProfileRepo {
   async exportJson(id: string): Promise<ProfileExport> {
     const p = await this.get(id);
     if (!p) throw new InvalidArgumentError('Unknown profile');
-    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value: type === 'signature' || type === 'today' ? '' : value, sensitive, aliases, ...(options.length ? { options } : {}) })) };
+    return { version: 1, name: p.name, fields: p.fields.map(({ key, label, type, value, sensitive, aliases, options }) => ({ key, label, type, value, sensitive, aliases, ...(options.length ? { options } : {}) })) };
   }
   async importJson(data: unknown): Promise<Profile> {
     const d = data as Partial<ProfileExport> | null;
@@ -555,7 +554,7 @@ export interface FieldTemplateExport {
   fields: FieldDefinition[];
 }
 export const TEMPLATE_EXPORT_VERSION = 1;
-const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature', 'today'];
+const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
 
 /** Cleans a definition list read from storage or a file: known types, unique slugs, no values. */
 export function cleanDefinitions(raw: unknown): FieldDefinition[] {

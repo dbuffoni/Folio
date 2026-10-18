@@ -77,7 +77,8 @@
     <div class="ins-s"><p class="note">{t('smartfill.sign.noLine')}</p></div>
   {/if}
   {#if sf.signWith}
-    <div class="ins-s"><label style="display:flex;gap:8px;align-items:center;width:auto"><input type="checkbox" checked={sf.signIt} onchange={(e) => sf.setSignIt(e.currentTarget.checked)} />{t('smartfill.sign', { count: sf.signFields, name: sf.signWith.name })}</label></div>
+    <div class="ins-s"><label style="display:flex;gap:8px;align-items:center;width:auto"><input type="checkbox" checked={sf.signIt} onchange={(e) => sf.setSignIt(e.currentTarget.checked)} />{t('smartfill.sign', { count: sf.signFields, name: sf.signWith.name })}</label>
+      {#if sf.signIt && sf.dateLines > 0}<p class="note" style="margin:4px 0 0">{t('smartfill.signDates', { count: sf.dateLines })}</p>{/if}</div>
   {/if}
   <div class="ins-s">
     <button class="btn primary" disabled={sf.acceptedCount === 0 && !(sf.signIt && sf.signWith)} onclick={() => sf.apply(false)}>{t('smartfill.applySelected', { count: sf.acceptedCount })}</button>

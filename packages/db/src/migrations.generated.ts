@@ -31,5 +31,10 @@ export const EMBEDDED: Migration[] = [
     "version": 6,
     "name": "0006_profile_today",
     "sql": "-- 0006_profile_today.sql — an entry of type \"today\" is filled with the date of the day when a form is filled.\n-- The CHECK list of types is rebuilt again; an empty \"today\" date entry of the built-in set becomes one.\nCREATE TABLE profile_fields_new (\n  id TEXT PRIMARY KEY,\n  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,\n  key TEXT NOT NULL,\n  label TEXT NOT NULL,\n  type TEXT NOT NULL CHECK (type IN ('text','date','number','phone','email','address','choice','multiline','signature','today')),\n  value TEXT,\n  sensitive INTEGER NOT NULL DEFAULT 0,\n  aliases_json TEXT NOT NULL DEFAULT '[]',\n  sort_order INTEGER NOT NULL DEFAULT 0,\n  options_json TEXT NOT NULL DEFAULT '[]',\n  UNIQUE(profile_id, key)\n);\nINSERT INTO profile_fields_new (id, profile_id, key, label, type, value, sensitive, aliases_json, sort_order, options_json)\n  SELECT id, profile_id, key,\n         CASE WHEN key = 'today' AND type = 'date' AND COALESCE(value, '') = '' THEN 'Today''s date' ELSE label END,\n         CASE WHEN key = 'today' AND type = 'date' AND COALESCE(value, '') = '' THEN 'today' ELSE type END,\n         value, sensitive, aliases_json, sort_order, options_json FROM profile_fields;\nDROP TABLE profile_fields;\nALTER TABLE profile_fields_new RENAME TO profile_fields;\n"
+  },
+  {
+    "version": 7,
+    "name": "0007_profile_entries_plain",
+    "sql": "-- 0007_profile_entries_plain.sql — signature and \"today\" entries are not kept in a profile: the profile names one\n-- signature (profiles.signature_id) and the date of the day is written by Smart Fill itself.\nUPDATE profiles SET signature_id = (SELECT value FROM profile_fields f WHERE f.profile_id = profiles.id AND f.type = 'signature' AND f.value IN (SELECT id FROM signatures) ORDER BY f.sort_order LIMIT 1)\n  WHERE signature_id IS NULL;\nDELETE FROM profile_fields WHERE type = 'signature';\nUPDATE profile_fields SET type = 'date' WHERE type = 'today';\n"
   }
 ];

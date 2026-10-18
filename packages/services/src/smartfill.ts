@@ -236,22 +236,15 @@ export interface SignatureData {
   width: number;
   height: number;
 }
-/** A saved signature and the names (label and aliases of a profile entry) that pick it for a signature place. */
-export interface SignatureChoice {
-  names: string[];
-  sig: SignatureData;
-}
-/** A printed label names a signature entry when it contains the name (a single word is enough here: "Firma genitore" for "genitore"). */
-export function nameInLabel(label: string, name: string): boolean {
-  const tn = tokens(name);
-  if (tn.length === 0 || tokens(label).length === 0) return false;
-  return containsPhrase(label, name) > 0 || tokenSetRatio(label, name) >= HEURISTIC_THRESHOLD || tn.every((t) => tokens(label).some((l) => tokenMatch(t, l) >= 0.85));
-}
-
 /** A detected line or box that is printed as a signature place ("Firma", "Signature of the parent"). */
 export const SIGNATURE_LABEL = /\b(firma|firme|signature|sign here|sottoscrizione)\b/i;
 export const isSignatureTarget = (s: Pick<Suggestion, 'fieldType' | 'label' | 'kind' | 'value'>): boolean =>
   s.fieldType === 'signature' || (s.kind === 'detected' && s.value === '' && SIGNATURE_LABEL.test(s.label));
+
+/** A place to write the date of signing: a line or field whose whole label is "Data", "Date" or "Luogo e data". */
+export const DATE_LABEL = /^\s*(luogo\s+e\s+)?(data|date)\s*[:.]?\s*$/i;
+export const isDateTarget = (s: Pick<Suggestion, 'fieldType' | 'label' | 'value'>): boolean =>
+  s.fieldType !== 'checkbox' && s.value === '' && DATE_LABEL.test(s.label);
 
 export const HEURISTIC_THRESHOLD = 0.72;
 const level = (score: number): Confidence => (score >= 0.85 ? 'high' : score >= 0.6 ? 'medium' : 'low');
@@ -752,9 +745,7 @@ export class SmartFillService {
             const c = byRef.get(m.ref);
             if (m.profileKey || !c || m.fieldType === 'signature') return;
             const texts = [c.label, m.label].filter((t): t is string => !!t);
-            // A date entry is also found by a label that is just one of its names ("Data" for "data"): dates are rarely ambiguous.
-            const exact = (t: string, n: string): boolean => tokens(n).length === 1 && tokens(t).join(' ') === tokens(n).join(' ');
-            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0 || (f.type === 'date' && exact(t, n)))));
+            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0)));
             if (hit) mappings[i] = { ...m, profileKey: hit.key, confidence: Math.max(m.confidence, 0.9) };
           });
           // Candidates beyond the page cap (or skipped by the model) still get a local suggestion.
@@ -909,23 +900,21 @@ export class SmartFillService {
    * fields (created and filled together), so there is one way to create fields and one way to fill them.
    */
   /**
-   * Puts a saved signature into every signature field and signature line of the pages that is still empty, fitted
-   * inside it with a small margin. A place whose printed label contains a name or alias of a `named` signature gets
-   * that signature; every other place gets `fallback`. Null when there is nothing to sign.
+   * Puts the profile's signature into every signature field and signature line of the pages that is still empty,
+   * fitted inside it with a small margin. Null when there is nothing to sign (no signature, no place, all signed).
    */
-  async signFields(doc: PdfDocument, pages: PageIndex[], fallback: SignatureData | null, extra: Array<{ page: PageIndex; rect: Rect; label?: string }> = [], named: SignatureChoice[] = []): Promise<{ command: Command; count: number } | null> {
+  async signFields(doc: PdfDocument, pages: PageIndex[], sig: SignatureData | null, extra: Array<{ page: PageIndex; rect: Rect }> = []): Promise<{ command: Command; count: number } | null> {
     const signatures = this.deps.signatures;
-    if (!signatures || (!fallback && named.length === 0)) return null;
+    if (!signatures || !sig) return null;
     const wanted = new Set(pages);
-    type Place = { page: PageIndex; rect: Rect; label: string };
-    const widgets: Place[] = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets.filter((w) => wanted.has(w.page)).map((w) => ({ page: w.page, rect: w.rect, label: f.name })));
+    const widgets: Array<{ page: PageIndex; rect: Rect }> = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
     // A signature line found on a flat form or a scan is only a few points high: the signature may rise above it.
     // Lines are looked for in the page itself, so they are still found after a run created fields on the page.
-    const lines: Place[] = extra.map((e) => ({ ...e, label: e.label ?? '' }));
+    const lines: Array<{ page: PageIndex; rect: Rect }> = [...extra];
     for (const page of wanted) {
       const layer = await doc.getTextLayer(page);
       for (const a of detectAreas(page, await doc.listObjects(page), layer))
-        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label ?? '')) lines.push({ page, rect: a.rect, label: a.label ?? '' });
+        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label ?? '')) lines.push({ page, rect: a.rect });
     }
     const inside = (r: Rect, p: { x: number; y: number }): boolean => p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
     for (const e of lines) {
@@ -933,13 +922,11 @@ export class SmartFillService {
       const box = { ...e.rect, height: Math.max(e.rect.height, 36) };
       const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       if (widgets.some((w) => w.page === e.page && inside(w.rect, c))) continue;
-      widgets.push({ page: e.page, rect: box, label: e.label });
+      widgets.push({ page: e.page, rect: box });
     }
     const items: Array<{ page: PageIndex; annotation: Annotation }> = [];
     const existing = new Map<PageIndex, Annotation[]>();
     for (const w of widgets) {
-      const sig = named.find((n) => n.names.some((name) => nameInLabel(w.label, name)))?.sig ?? fallback;
-      if (!sig) continue;
       if (!existing.has(w.page)) existing.set(w.page, await doc.listAnnotations(w.page));
       const centre = { x: w.rect.x + w.rect.width / 2, y: w.rect.y + w.rect.height / 2 };
       const signed = existing.get(w.page)!.some((a) => a.type === 'stamp' && a.name === 'Signature' && centre.x >= a.rect.x && centre.x <= a.rect.x + a.rect.width && centre.y >= a.rect.y && centre.y <= a.rect.y + a.rect.height);

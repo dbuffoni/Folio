@@ -11,9 +11,7 @@
   const profiles = $derived(dep(v, m.profiles));
   const templates = $derived(dep(v, m.templates));
   const current = $derived(dep(v, m.current));
-  const TYPES: ProfileFieldType[] = ['text', 'date', 'today', 'number', 'phone', 'email', 'address', 'choice', 'multiline', 'signature'];
-  /** Template entries hold no values, so a saved signature cannot be one of them. */
-  const TEMPLATE_TYPES = TYPES.filter((ty) => ty !== 'signature');
+  const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
   const fixedLabel = (ty: ProfileFieldType): boolean => FIXED_LABEL_TYPES.includes(ty);
   let newName = $state('');
   let startWith = $state<string[]>(['builtin:identity', 'builtin:address', 'builtin:contacts']);
@@ -66,6 +64,13 @@
     {#if !p.isDefault}<button class="btn sm" style="flex:none" onclick={() => m.setDefault(p.id)}>{t('action.setDefault')}</button>{/if}
     <button class="btn sm" style="flex:none" onclick={() => m.duplicate(p.id)}>{t('profiles.duplicate')}</button>
   </div>
+  <div class="row psign">
+    <label for="psig">{t('profiles.signature')}</label>
+    <select id="psig" value={p.signatureId ?? ''} onchange={(e) => m.setSignature(p.id, e.currentTarget.value || null)}>
+      <option value="">{t('profiles.signatureNone')}</option>
+      {#each m.signatures as sg (sg.id)}<option value={sg.id}>{sg.name}</option>{/each}
+    </select>
+  </div>
   {#if m.signatures.length === 0}<p class="note">{t('profiles.signatureHint')}</p>{/if}
   <div class="pfields">
     {#each p.fields as f, i (f.key)}
@@ -76,16 +81,7 @@
           {:else}
             <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
           {/if}
-          {#if f.type === 'signature'}
-            <select id="pf-{f.key}" aria-label={t('profiles.signaturePick')} value={f.value} onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })}>
-              <option value="">{t('profiles.signatureNone')}</option>
-              {#each m.signatures as sg (sg.id)}<option value={sg.id}>{sg.name}</option>{/each}
-            </select>
-          {:else if f.type === 'today'}
-            <span class="plabel note">{t('profiles.todayHint')}</span>
-          {:else}
-            <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
-          {/if}
+          <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
         </div>
         <div class="pbar">
           <select value={f.type} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { type: e.currentTarget.value as ProfileFieldType })}>
@@ -144,7 +140,7 @@
     {#each tpl.fields as f (f.key)}
       <input type="text" value={f.label} disabled={tpl.builtIn} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, label: e.currentTarget.value } : x)) })} />
       <input type="text" value={f.aliases.join(', ')} disabled={tpl.builtIn} aria-label={t('profiles.aliases')} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, aliases: aliasesOf(e.currentTarget.value) } : x)) })} />
-      <select value={f.type} disabled={tpl.builtIn} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, type: e.currentTarget.value as ProfileFieldType } : x)) })}>{#each TEMPLATE_TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
+      <select value={f.type} disabled={tpl.builtIn} aria-label={t('profiles.typeOf', { label: f.label })} onchange={(e) => m.updateTemplate(tpl.id, { fields: tpl.fields.map((x) => (x.key === f.key ? { ...x, type: e.currentTarget.value as ProfileFieldType } : x)) })}>{#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
       <button class="ib" disabled={tpl.builtIn} onclick={() => m.updateTemplate(tpl.id, { fields: tpl.fields.filter((x) => x.key !== f.key) })} aria-label="{t('action.remove')} {f.label}"><Icon name="x" /></button>
     {/each}
   </div>

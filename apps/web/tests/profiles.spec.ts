@@ -81,7 +81,7 @@ test('profile editor keeps every control inside the window at any size @FR-FRM-2
   }
 });
 
-test('a profile signature is a typed entry with a saved signature and aliases @FR-STM-01 @FR-AIF-01', async ({ app }) => {
+test('a profile can name a saved signature @FR-STM-01 @FR-AIF-01', async ({ app }) => {
   await openPdf(app, 'text.pdf');
   await mode(app, 'Fill & Sign');
   await tool(app, 'Sign').click();
@@ -101,14 +101,13 @@ test('a profile signature is a typed entry with a saved signature and aliases @F
   await settings.getByRole('button', { name: 'Profiles' }).click();
   await settings.getByRole('textbox', { name: 'New profile' }).fill('Signer');
   await settings.getByRole('button', { name: 'Add', exact: true }).click();
-  // A signature entry: type first (no label asked), then a saved signature and the names it answers to.
-  await expect(settings.getByRole('combobox', { name: 'Signature for signature fields' })).toHaveCount(0);
-  await settings.getByRole('combobox', { name: 'Type', exact: true }).selectOption({ label: 'Signature' });
-  await expect(settings.getByRole('textbox', { name: 'New entry' })).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Add entry' }).click();
-  const entry = settings.getByRole('combobox', { name: 'Saved signature' });
-  await entry.selectOption({ index: 1 });
-  await settings.getByLabel('Other names').last().fill('genitore, tutore');
-  await settings.getByLabel('Other names').last().blur();
-  await expect(entry).not.toHaveValue('');
+  const pick = settings.getByRole('combobox', { name: 'Signature for signature fields' });
+  await expect(pick).toHaveValue('');
+  expect((await pick.locator('option').allTextContents()).length).toBe(2);
+  await pick.selectOption({ index: 1 });
+  await settings.getByRole('button', { name: 'Back' }).click();
+  await settings.getByRole('button', { name: 'Edit' }).click();
+  await expect(pick).not.toHaveValue('');
+  // There is one place to choose it: no signature type among the entry types.
+  await expect(settings.getByRole('combobox', { name: 'Type', exact: true }).locator('option', { hasText: 'Signature' })).toHaveCount(0);
 });

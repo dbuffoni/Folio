@@ -117,6 +117,19 @@ test('Ollama preset: no key, Test connection, capabilities, and Smart Fill throu
   expect(outbound.every((u) => u.startsWith('http://localhost:11434/'))).toBe(true);
   outbound.length = 0;
 
+  // The review list keeps every control inside the panel at any window size.
+  for (const [w, h] of [[1360, 860], [1024, 700], [800, 600], [480, 800]] as const) {
+    await app.setViewportSize({ width: w, height: h });
+    const over = await panel.evaluate((el) => {
+      const edge = el.getBoundingClientRect().right;
+      const controls = [...el.querySelectorAll('.sfitem input, .sfitem select, .sfitem button, .sfitem .l')];
+      return { right: Math.max(...controls.map((c) => c.getBoundingClientRect().right)) - edge, scroll: el.scrollWidth - el.clientWidth };
+    });
+    expect(over.right, `${w}px wide`).toBeLessThanOrEqual(0);
+    expect(over.scroll, `${w}px wide`).toBeLessThanOrEqual(0);
+  }
+  await app.setViewportSize({ width: 1360, height: 860 });
+
   // Hidden debug window: the requests of this session, to select and copy, with the document text on request.
   await app.keyboard.press('Control+Alt+Shift+D');
   const debug = app.getByRole('dialog', { name: 'AI requests of this session' });
