@@ -17,7 +17,7 @@ import {
   type DateFormat,
   type Msg,
 } from '@folio/core';
-import { uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
+import { FIXED_LABEL_TYPES, FIXED_TYPE_ALIASES, FIXED_TYPE_LABELS, uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
 import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
@@ -70,9 +70,12 @@ import {
   type SmartProfile,
   type SplitMode,
   type StampDef,
+  isDateTarget,
+  isSignatureTarget,
   type Suggestion,
   type TextStampStyle,
 } from '@folio/services';
+import { formatExchanges, type AiExchange } from '@folio/ai';
 import { aiGates } from './ai-settings.ts';
 import type { AppModel } from './app.ts';
 import type { DocumentSession } from './session.ts';
@@ -1337,9 +1340,12 @@ export class ProfilesModel extends ViewModel {
   /** Adds an empty entry; the key is made from the label and stays as it is when the label changes. */
   async addField(profileId: string, label: string, type: ProfileFieldType = 'text'): Promise<string | undefined> {
     const p = this.profiles.find((x) => x.id === profileId);
-    const key = uniqueKey(label, p?.fields.map((f) => f.key) ?? []);
+    // E-mail, phone and signature entries are named after their type: only the type is chosen.
+    const fixed = FIXED_LABEL_TYPES.includes(type);
+    const text = fixed ? FIXED_TYPE_LABELS[type]! : label;
+    const key = uniqueKey(fixed ? type : label, p?.fields.map((f) => f.key) ?? []);
     return this.run(async () => {
-      await this.s.profiles.setField(profileId, { key, label: label.trim() || key, type, value: '' });
+      await this.s.profiles.setField(profileId, { key, label: text.trim() || key, type, value: '', aliases: FIXED_TYPE_ALIASES[type] ?? [] });
       return key;
     });
   }
@@ -1352,6 +1358,7 @@ export class ProfilesModel extends ViewModel {
     const f = this.profiles.find((p) => p.id === profileId)?.fields.find((x) => x.key === key);
     if (!f) return false;
     const next = { ...f, ...patch };
+    if (FIXED_LABEL_TYPES.includes(next.type)) next.label = isDataLabel({ type: next.type, label: f.label }) || patch.type ? FIXED_TYPE_LABELS[next.type]! : f.label;
     const problem = validateProfileValue(next.type, next.value);
     if (problem) {
       this.app.toast('warning', msg(`profiles.invalid.${problem}`));
@@ -2046,6 +2053,10 @@ export class FormModel extends ViewModel {
 // ---- Smart Fill (FR-AIF-03…10, epic E5) --------------------------------------------------------
 
 export type SmartFillStage = 'idle' | 'preflight' | 'analysing' | 'review' | 'empty';
+/** A phone or e-mail entry whose label holds the data itself ("name@mail.com"): the label is shown and sent by its type. */
+function isDataLabel(f: { type: string; label: string }): boolean {
+  return (f.type === 'email' || f.type === 'phone') && /[@\d]/.test(f.label);
+}
 export class SmartFillModel extends ViewModel {
   stage: SmartFillStage = 'idle';
   profile: SmartProfile | null = null;
@@ -2087,7 +2098,8 @@ export class SmartFillModel extends ViewModel {
       : [this.session.view.page];
   }
   async loadProfiles(): Promise<void> {
-    this.profiles = await this.app.services.profiles.list();
+    // An e-mail or phone entry whose label holds the data itself is shown and sent by its type instead.
+    this.profiles = (await this.app.services.profiles.list()).map((p) => ({ ...p, fields: p.fields.map((f) => (isDataLabel(f) ? { ...f, label: FIXED_TYPE_LABELS[f.type]! } : f)) }));
     this.profile =
       this.profiles.find((p) => p.id === this.profile?.id) ??
       this.profiles.find((p) => (p as { isDefault?: boolean }).isDefault) ??
@@ -2205,7 +2217,20 @@ export class SmartFillModel extends ViewModel {
   private async signCommand(sig: StoredSignature) {
     const raster = await this.app.services.platform.images.decode(sig.png);
     const data = { kind: sig.kind, svg: sig.svg, raster, width: sig.width, height: sig.height };
-    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data);
+    const targets = this.suggestions.filter(isSignatureTarget).map((s) => ({ page: s.page, rect: s.rect }));
+    return this.app.services.smartFill.signFields(this.session.doc, this.pages(), data, targets);
+  }
+  /** Places called "Data" or "Date": the Sign option writes the date of the day there, in the default format. */
+  get dateLines(): number {
+    return this.suggestions.filter(isDateTarget).length;
+  }
+  /** A row the Sign option fills by itself, so it needs no profile entry: a signature line or a date line. */
+  autoKind(s: Pick<Suggestion, 'fieldType' | 'label' | 'kind' | 'value'>): 'signature' | 'date' | null {
+    return isSignatureTarget(s) ? 'signature' : isDateTarget(s) ? 'date' : null;
+  }
+  private today(): string {
+    const d = this.app.services.platform.clock.now();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   }
   setSignIt(on: boolean): void {
     this.signIt = on;
@@ -2258,7 +2283,10 @@ export class SmartFillModel extends ViewModel {
   async apply(onlyHigh = false): Promise<number> {
     if (!this.result || !this.profile) return 0;
     const svc = this.app.services.smartFill;
-    const list = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    const picked = onlyHigh ? svc.acceptHigh(this.suggestions) : this.suggestions;
+    // The Sign option also dates the places named "Data"/"Date" that no entry of the profile fills.
+    const date = this.today();
+    const list = this.signIt && this.signWith ? picked.map((s) => (isDateTarget(s) ? { ...s, value: date, accepted: true } : s)) : picked;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
     const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
     const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
@@ -2276,6 +2304,72 @@ export class SmartFillModel extends ViewModel {
     this.app.toastUndo(msg('toast.smartFillApplied', { count }));
     this.cancel();
     return count;
+  }
+}
+
+/**
+ * The hidden AI debug window (Ctrl+Alt+Shift+D): the requests of this session with their answers, to select
+ * and copy for analysis, optionally with the text of the open document. Nothing leaves the device; the log is
+ * in memory and ends with the session.
+ */
+export class AiDebugModel extends ViewModel {
+  entries: AiExchange[] = [];
+  selected = new Set<number>();
+  /** Add the whole text of the open document (text layer and OCR) to the copied text. */
+  includeDocumentText = false;
+  /** Text to show and copy; rebuilt when the selection or the option changes. */
+  output = '';
+  private build = 0;
+
+  constructor(private readonly app: AppModel) {
+    super();
+    this.app.services.aiLog.changed.on(() => void this.refresh());
+  }
+  async refresh(): Promise<void> {
+    this.entries = this.app.services.aiLog.list();
+    const ids = new Set(this.entries.map((e) => e.id));
+    this.selected = new Set([...this.selected].filter((id) => ids.has(id)));
+    await this.rebuild();
+  }
+  async toggle(id: number, on: boolean): Promise<void> {
+    if (on) this.selected.add(id);
+    else this.selected.delete(id);
+    await this.rebuild();
+  }
+  async selectAll(on: boolean): Promise<void> {
+    this.selected = new Set(on ? this.entries.map((e) => e.id) : []);
+    await this.rebuild();
+  }
+  async setIncludeDocumentText(on: boolean): Promise<void> {
+    this.includeDocumentText = on;
+    await this.rebuild();
+  }
+  async clear(): Promise<void> {
+    this.app.services.aiLog.clear();
+    await this.refresh();
+  }
+  /** Every page's text: the text layer, which holds the OCR text of scanned pages once they have been recognised. */
+  async documentText(): Promise<string> {
+    const doc = this.app.active?.doc;
+    if (!doc) return '';
+    const pages: string[] = [];
+    for (let p = 0; p < doc.pageCount; p++) {
+      const layer = await doc.getTextLayer(p);
+      pages.push(`--- page ${p + 1}${layer.isScanned ? ' (scan, no text layer)' : ''} ---\n${layer.lines.map((l) => l.text).join('\n')}`);
+    }
+    return pages.join('\n\n');
+  }
+  private async rebuild(): Promise<void> {
+    const run = ++this.build;
+    const chosen = this.entries.filter((e) => this.selected.has(e.id));
+    const documentText = this.includeDocumentText ? await this.documentText() : undefined;
+    if (run !== this.build) return;
+    this.output = chosen.length || documentText !== undefined ? formatExchanges(chosen, documentText === undefined ? {} : { documentText }) : '';
+    this.emit();
+  }
+  async copy(): Promise<void> {
+    if (!this.output) return;
+    await this.app.services.platform.clipboard.writeText(this.output);
   }
 }
 

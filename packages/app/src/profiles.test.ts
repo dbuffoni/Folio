@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
 import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
-import { samplePng, scannedFormDoc } from '@folio/testkit';
+import { flatFormDoc, inkRatio, samplePng, scannedFormDoc } from '@folio/testkit';
+import { vectorFromStrokes, vectorToSvg } from '@folio/services';
 import { createTestApp } from './testing.ts';
 
 describe('Profiles and field templates editor @FR-FRM-20', () => {
@@ -16,19 +17,19 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const keys: string[] = [];
     for (const [label, type] of [['Full name', 'text'], ['Date of birth', 'date'], ['E-mail', 'email'], ['Mobile phone', 'phone'], ['Seat', 'choice'], ['Notes', 'multiline']] as const)
       keys.push((await m.addField(p.id, label, type))!);
-    expect(keys).toEqual(['full_name', 'date_of_birth', 'e_mail', 'mobile_phone', 'seat', 'notes']);
+    expect(keys).toEqual(['full_name', 'date_of_birth', 'email', 'phone', 'seat', 'notes']);
     expect(await m.addField(p.id, 'Full name')).toBe('full_name_2');
     await m.removeField(p.id, 'full_name_2');
     // Typed values are validated; invalid ones are refused with the reason and nothing is written.
     expect(await m.updateField(p.id, 'date_of_birth', { value: '31/02/1990' })).toBe(false);
     expect(t.toastKeys()).toContain('profiles.invalid.badDate');
     expect(await m.updateField(p.id, 'date_of_birth', { value: '1988-04-23' })).toBe(true);
-    expect(await m.updateField(p.id, 'e_mail', { value: 'nope' })).toBe(false);
+    expect(await m.updateField(p.id, 'email', { value: 'nope' })).toBe(false);
     expect(await m.updateField(p.id, 'seat', { value: 'Aisle', options: ['Aisle', 'Window'] })).toBe(true);
     await m.moveField(p.id, 'notes', -1);
     await m.moveField(p.id, 'notes', -1);
     await m.moveField(p.id, 'full_name', -1);
-    expect(m.current!.fields.map((f) => f.key)).toEqual(['full_name', 'date_of_birth', 'e_mail', 'notes', 'mobile_phone', 'seat']);
+    expect(m.current!.fields.map((f) => f.key)).toEqual(['full_name', 'date_of_birth', 'email', 'notes', 'phone', 'seat']);
     expect(m.current!.fields.find((f) => f.key === 'seat')).toMatchObject({ type: 'choice', options: ['Aisle', 'Window'], value: 'Aisle' });
 
     const tpl = (await m.saveAsTemplate(p.id, 'Travel header'))!;
@@ -198,5 +199,192 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const none = t.smartFill(s);
     await none.start();
     expect(none.signFields).toBe(0);
+  });
+
+  it('the profile signature goes onto a "Firma" line of a flat form that has no signature field @FR-STM-01 @FR-AIF-06', async () => {
+    const t = await createTestApp();
+    const { pdf, areas } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma del genitore', kind: 'underline' },
+    ]);
+    t.files.put('/flat.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.signFields).toBe(1);
+    await sf.apply(false);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.length).toBe(1);
+    const line = areas[1]!.rect;
+    const r = stamps[0]!.rect;
+    expect(r.x).toBeGreaterThanOrEqual(line.x - 1);
+    expect(r.x + r.width).toBeLessThanOrEqual(line.x + line.width + 1);
+    expect(r.y + r.height / 2).toBeGreaterThan(line.y);
+  });
+
+  it('with the AI on, a dotted "Firma" line still gets the profile signature, and a remembered form does not skip the AI silently @FR-STM-01 @FR-AIF-08', async () => {
+    const ai = new FakeAiProvider();
+    const t = await createTestApp({ ai });
+    const { pdf } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+    ]);
+    t.files.put('/flat2.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat2.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
+    ai.enqueue((req) => ({ fields: req.candidates.map((c) => ({ ref: c.ref, label: c.label ?? '', fieldType: /Firma/.test(c.label ?? '') ? 'signature' : 'text', profileKey: c.label === 'First name' ? 'first_name' : null, transform: 'none', choiceValue: null, confidence: 0.9 })), newAreas: [] }));
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.result!.source).toBe('ai');
+    expect(sf.signFields).toBe(1);
+    await sf.apply(false);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
+    // Same form again: the stored mapping is used, and the panel says so.
+    const sf2 = t.smartFill(s);
+    await sf2.start();
+    expect(sf2.result!.source).toBe('remembered');
+  });
+
+  it('a second run on a form where Smart Fill already created fields still finds the "Firma" line @FR-STM-01 @FR-AIF-14', async () => {
+    const t = await createTestApp();
+    const { pdf } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+    ]);
+    t.files.put('/flat3.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/flat3.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Flat'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    const first = t.smartFill(s);
+    await first.start();
+    first.setSignIt(false);
+    await first.apply(false);
+    expect((await s.doc.listFormFields()).length).toBe(1);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(0);
+    const again = t.smartFill(s);
+    await again.start();
+    expect(again.signFields).toBe(1);
+    await again.apply(false);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
+  });
+  it("the reported 'doposcuola' form: Haiku leaves the tutore line empty, the profile's father and signature still arrive @FR-AIF-07 @FR-STM-01", async () => {
+    const ai = new FakeAiProvider();
+    const t = await createTestApp({ ai });
+    const labels = ['Il/la sottoscritto/a', 'codice fiscale', 'indirizzo di residenza (comune, via e cap)', 'genitore o tutore legale dell’alunno/a', 'appartenente alla classe', 'Firma', 'Numero di telefono per eventuali comunicazioni', '(Indirizzo email per ricevere copia della fattura', 'Firma', 'Data'];
+    const { pdf } = await flatFormDoc(labels.map((label) => ({ key: '', label, kind: 'dots' as const })), 'ISCRIZIONE');
+    t.files.put('/doposcuola.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/doposcuola.pdf')))!;
+    // A drawn signature, as the signature pad stores it: a vector path and its raster.
+    const vector = vectorFromStrokes([[{ x: 0, y: 30 }, { x: 40, y: 0 }, { x: 80, y: 30 }, { x: 120, y: 5 }], [{ x: 10, y: 38 }, { x: 110, y: 36 }]]);
+    const sig = await t.services.signaturesRepo.add({ name: 'Daniele', kind: 'signature', source: 'drawn', svg: vectorToSvg(vector), png: samplePng(120, 40), width: vector.width, height: vector.height }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Daniele'))!;
+    const father = (await m.addField(p.id, 'Father'))!;
+    await m.updateField(p.id, father, { value: 'Marco Rossi', aliases: ['genitore di', 'padre di', 'tutore di', 'tutore legale di'] });
+    const classe = (await m.addField(p.id, 'Classe'))!;
+    await m.updateField(p.id, classe, { value: '3A' });
+    await m.setSignature(p.id, sig.id);
+    await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, baseUrl: 'http://localhost:11434/v1', model: 'm', preflightAcknowledged: ['mapping_only'] });
+    ai.enqueue((req) => ({
+      fields: req.candidates.map((c) => ({
+        ref: c.ref,
+        label: c.label ?? '',
+        fieldType: /^Firma/.test(c.label ?? '') ? 'signature' : 'text',
+        profileKey: c.label === 'appartenente alla classe' ? 'classe' : null,
+        transform: 'none',
+        choiceValue: null,
+        confidence: /tutore/.test(c.label ?? '') ? 0.3 : 0.9,
+      })),
+      newAreas: [],
+    }));
+    const sf = t.smartFill(s);
+    await sf.start();
+    expect(sf.result!.source).toBe('ai');
+    expect(sf.suggestions.find((x) => /tutore/.test(x.label))).toMatchObject({ profileKey: 'father', value: 'Marco Rossi', confidence: 'high', accepted: true });
+    expect(sf.signFields).toBe(2);
+    await sf.apply(false);
+    const stamps = (await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp');
+    expect(stamps.length).toBe(2);
+    // The page shows the drawn signature where the stamps are.
+    const page = await s.doc.render(0, { scale: 1 });
+    for (const st of stamps) expect(inkRatio(page, { x: st.rect.x, y: 792 - st.rect.y - st.rect.height, width: st.rect.width, height: st.rect.height })).toBeGreaterThan(0.01);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toEqual(expect.arrayContaining(['Marco Rossi']));
+    // Text typed on a dotted line sits above the dots, as the Cover & type tool places it.
+    const dots = (await s.doc.getTextLayer(0)).chars.filter((c) => c.text === '…' || c.text === '.' || c.text === '·');
+    const widget = (await s.doc.listFormFields()).find((f) => f.value === 'Marco Rossi')!.widgets[0]!;
+    const dotBottom = Math.min(...dots.filter((c) => Math.abs(c.rect.y + c.rect.height / 2 - (widget.rect.y + widget.rect.height / 2)) < 12).map((c) => c.rect.y));
+    expect(widget.rect.y).toBeGreaterThan(dotBottom + 2);
+  });
+  it('e-mail and phone entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
+    const t = await createTestApp();
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Typed'))!;
+    expect(await m.addField(p.id, 'ignored label', 'email')).toBe('email');
+    expect(await m.addField(p.id, '', 'phone')).toBe('phone');
+    expect(await m.addField(p.id, 'Class', 'text')).toBe('class');
+    expect(m.current!.fields.map((f) => [f.key, f.label, f.type])).toEqual([['email', 'Email', 'email'], ['phone', 'Phone', 'phone'], ['class', 'Class', 'text']]);
+    // The label of a typed entry cannot be changed; a text entry keeps its own.
+    await m.updateField(p.id, 'email', { label: 'me@example.com', value: 'me@example.com' });
+    await m.updateField(p.id, 'class', { label: 'Classe' });
+    expect(m.current!.fields.map((f) => f.label)).toEqual(['Email', 'Phone', 'Classe']);
+    // Turning a text entry into an e-mail entry names it after the type.
+    await m.updateField(p.id, 'class', { type: 'email' });
+    expect(m.current!.fields.find((f) => f.key === 'class')!.label).toBe('Email');
+    // A profile saved before, with the address typed as the label, is read and sent by its type.
+    await t.services.profiles.setField(p.id, { key: 'old', label: 'old@example.com', type: 'email', value: 'old@example.com' });
+    const sf = t.smartFill((await t.open('acroform', '/typed.pdf')));
+    await sf.loadProfiles();
+    expect(sf.profile!.fields.find((f) => f.key === 'old')!.label).toBe('Email');
+  });
+
+  it('the Sign option also writes the date of the day on the "Data" line, and leaves it empty when Sign is off @FR-STM-01 @FR-AIF-04', async () => {
+    const t = await createTestApp();
+    const { pdf } = await flatFormDoc([
+      { key: 'first_name', label: 'First name', kind: 'underline' },
+      { key: 'signature', label: 'Firma', kind: 'dots' },
+      { key: 'date', label: 'Data', kind: 'dots' },
+    ]);
+    t.files.put('/dated.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/dated.pdf')))!;
+    const sig = await t.services.signaturesRepo.add({ name: 'Formal', kind: 'signature', source: 'drawn', png: samplePng(120, 40), width: 120, height: 40 }, { encrypt: false });
+    const m = t.profiles();
+    await m.load();
+    const p = (await m.create('Dated'))!;
+    await m.updateField(p.id, (await m.addField(p.id, 'First name'))!, { value: 'Marta' });
+    await m.setSignature(p.id, sig.id);
+    const day = t.app.services.platform.clock.now();
+    const expected = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}/${day.getFullYear()}`;
+    const off = t.smartFill(s);
+    await off.start();
+    expect(off.dateLines).toBe(1);
+    expect(off.suggestions.map((s) => off.autoKind(s))).toEqual(expect.arrayContaining(['date']));
+    expect(off.suggestions.filter((s) => off.autoKind(s)).every((s) => s.profileKey === null)).toBe(true);
+    off.setSignIt(false);
+    await off.apply(false);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).not.toContain(expected);
+    await s.undo();
+    const on = t.smartFill(s);
+    await on.start();
+    await on.apply(false);
+    expect((await s.doc.listFormFields()).map((f) => f.value)).toContain(expected);
+    expect((await s.doc.listAnnotations(0)).filter((a) => a.type === 'stamp').length).toBe(1);
   });
 });

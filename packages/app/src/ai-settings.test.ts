@@ -4,6 +4,7 @@ import type { HttpRequest, HttpResponse } from '@folio/ports';
 import { FakeAiProvider, OPENAI_KEY_SECRET } from '@folio/ai';
 import { FakeHttpClient, flatFormDoc } from '@folio/testkit';
 import { AiSettingsModel } from './ai-settings.ts';
+import { AiDebugModel } from './features.ts';
 import { createTestApp } from './testing.ts';
 
 /** A simulated OpenAI-compatible server: `/models`, the probes and Smart Fill requests. */
@@ -100,6 +101,36 @@ describe('Local AI server presets @FR-AIF-12', () => {
     await sf.start();
     expect(sf.result?.source).toBe('ai');
     expect(sf.suggestions.find((x) => x.profileKey === 'first_name')?.value).toBe('Marta');
+  });
+
+  it('the debug window lists the requests of the session with their answers and can add the document text @FR-AIF-04', async () => {
+    const t = await createTestApp();
+    await new AiSettingsModel(t.app).selectProvider('ollama');
+    t.http.fallback = fakeServer();
+    await t.services.profiles.create('Me', ['identity']);
+    await t.app.setSetting('ai', { ...t.app.settings.ai, enabled: true, preflightAcknowledged: ['mapping_only'] });
+    t.files.put('/form.pdf', (await flatFormDoc()).pdf);
+    const s = (await t.app.openRef(t.files.ref('/form.pdf')))!;
+    const dbg = new AiDebugModel(t.app);
+    await dbg.refresh();
+    expect(dbg.entries).toEqual([]);
+    await t.smartFill(s).start();
+    expect(dbg.entries.map((e) => e.kind)).toEqual(['Smart Fill']);
+    expect(dbg.output).toBe('');
+    await dbg.toggle(dbg.entries[0]!.id, true);
+    expect(dbg.output).toContain('--- request ---');
+    expect(dbg.output).toContain('First name');
+    expect(dbg.output).toContain('"profileKey"');
+    expect(dbg.output).not.toContain('=== document text');
+    await dbg.setIncludeDocumentText(true);
+    expect(dbg.output).toContain('=== document text');
+    expect(dbg.output).toContain('--- page 1 ---');
+    expect(dbg.output).toContain('Application form');
+    await dbg.copy();
+    expect(t.clipboard.text).toBe(dbg.output);
+    await dbg.clear();
+    expect(dbg.entries).toEqual([]);
+    expect(dbg.output).toContain('=== document text');
   });
 
   it('the pre-flight names the local server as the destination @FR-AIF-12 @FR-AIF-04', async () => {

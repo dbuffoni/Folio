@@ -42,6 +42,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   'acroform-2': { description: 'Second form with a colliding field name', build: b.acroFormDoc2, expectValid: true },
   xfa: { description: 'AcroForm declaring an XFA packet', build: b.xfaDoc, expectValid: true },
   'dotted-form': { description: 'Word-style form: labels followed by dotted leaders (…………)', build: async () => (await b.flatFormDoc([{ key: 'name', label: 'Il/la sottoscritto/a', kind: 'dots' }, { key: 'tax', label: 'codice fiscale', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },
+  'dotted-form-long': { description: 'Word-style form with long printed labels (review list width tests)', build: async () => (await b.flatFormDoc([{ key: 'tutor', label: 'genitore o tutore legale dell’alunno/a', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono per eventuali comunicazioni', kind: 'dots' }, { key: 'mail', label: '(Indirizzo email per ricevere copia della fattura', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },
   'flat-form': { description: 'Non-fillable form (lines, boxes, underscores, comb, checkbox)', build: async () => (await b.flatFormDoc()).pdf, expectValid: true },
   scan: { description: 'Image-only pages', build: () => b.scanDoc(), expectValid: true },
   images: { description: 'Text plus PNG and JPEG image objects', build: b.imagesDoc, expectValid: true },

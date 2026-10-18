@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { ProfileFieldType } from '@folio/db';
+  import { FIXED_LABEL_TYPES, type ProfileFieldType } from '@folio/db';
   import { t } from '#lib/i18n/index.ts';
   import { app, dep, services, track, wizards } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
@@ -12,6 +12,7 @@
   const templates = $derived(dep(v, m.templates));
   const current = $derived(dep(v, m.current));
   const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+  const fixedLabel = (ty: ProfileFieldType): boolean => FIXED_LABEL_TYPES.includes(ty);
   let newName = $state('');
   let startWith = $state<string[]>(['builtin:identity', 'builtin:address', 'builtin:contacts']);
   let addLabel = $state('');
@@ -32,7 +33,7 @@
     if (await m.create(newName, startWith)) newName = '';
   }
   async function addField(): Promise<void> {
-    if (!current || !addLabel.trim()) return;
+    if (!current || (!fixedLabel(addType) && !addLabel.trim())) return;
     await m.addField(current.id, addLabel, addType);
     addLabel = '';
   }
@@ -75,7 +76,11 @@
     {#each p.fields as f, i (f.key)}
       <div class="pfield">
         <div class="pmain">
-          <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
+          {#if fixedLabel(f.type)}
+            <span class="plabel">{t(`profiles.type.${f.type}`)}</span>
+          {:else}
+            <input type="text" value={f.label} placeholder={t('settings.profile.label')} aria-label={t('profiles.labelOf', { label: f.label })} onchange={(e) => m.updateField(p.id, f.key, { label: e.currentTarget.value })} />
+          {/if}
           <input id="pf-{f.key}" placeholder={t('settings.profile.value')} aria-label={f.label} type={f.sensitive ? 'password' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={f.value} autocomplete="off" onchange={(e) => m.updateField(p.id, f.key, { value: e.currentTarget.value })} />
         </div>
         <div class="pbar">
@@ -106,9 +111,9 @@
     {/each}
   </div>
   <div class="row">
-    <input type="text" bind:value={addLabel} placeholder={t('settings.profile.label')} aria-label={t('profiles.newField')} style="flex:1" />
     <select bind:value={addType} aria-label={t('profiles.type')} style="flex:none;width:auto">{#each TYPES as ty (ty)}<option value={ty}>{t(`profiles.type.${ty}`)}</option>{/each}</select>
-    <button class="btn" style="flex:none" disabled={!addLabel.trim()} onclick={addField}><Icon name="plus" />{t('settings.profile.addEntry')}</button>
+    {#if !fixedLabel(addType)}<input type="text" bind:value={addLabel} placeholder={t('settings.profile.label')} aria-label={t('profiles.newField')} style="flex:1" />{:else}<span class="grow"></span>{/if}
+    <button class="btn" style="flex:none" disabled={!fixedLabel(addType) && !addLabel.trim()} onclick={addField}><Icon name="plus" />{t('settings.profile.addEntry')}</button>
   </div>
   <p class="note">{t('settings.profile.sensitiveHint')}</p>
   <div class="row">

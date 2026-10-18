@@ -13,6 +13,7 @@
   import SmallDialogs from '#lib/ui/dialogs/SmallDialogs.svelte';
   import SplitDialog from '#lib/ui/dialogs/SplitDialog.svelte';
   import StampsDialog from '#lib/ui/dialogs/StampsDialog.svelte';
+  import AiDebugDialog from '#lib/ui/dialogs/AiDebugDialog.svelte';
   import CompressDialog from '#lib/ui/dialogs/CompressDialog.svelte';
   import DigitalSignDialog from '#lib/ui/dialogs/DigitalSignDialog.svelte';
   import SignaturesDialog from '#lib/ui/dialogs/SignaturesDialog.svelte';
@@ -77,6 +78,12 @@
 
   function onkeydown(e: KeyboardEvent): void {
     if (!boot.ready) return;
+    // Hidden developer window: the AI requests of this session (not in the menus or the palette).
+    if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyD') {
+      e.preventDefault();
+      ui.openDialog('aiDebug');
+      return;
+    }
     const target = e.target as HTMLElement;
     const typing = !!target.closest('input, textarea, select, [contenteditable]');
     const cmd = registry.match(e, commandContext(), { isMac, typing });
@@ -181,6 +188,7 @@
   {:else if dialog === 'signatures' && session}<SignaturesDialog {session} />
   {:else if dialog === 'ocr' && session}<OcrDialog {session} />
   {:else if (dialog === 'tables' || tablesOpen) && session}<TablesDialog {session} />
+  {:else if dialog === 'aiDebug'}<AiDebugDialog />
   {:else if dialog === 'signature'}<SignatureDialog />
   {:else if dialog === 'stampEditor'}<StampsDialog />
   {:else if (dialog === 'properties' || dialog === 'metadata') && session}<PropertiesDialog {session} />

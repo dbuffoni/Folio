@@ -269,6 +269,15 @@ export class StampRepo {
 // ---- profiles --------------------------------------------------------------------------------
 
 export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline';
+/** Types whose label is the name of the type itself: the user picks the type, not a label. */
+export const FIXED_LABEL_TYPES: ProfileFieldType[] = ['phone', 'email'];
+/** The stored label of such an entry (data, like the labels of the built-in templates). */
+export const FIXED_TYPE_LABELS: Partial<Record<ProfileFieldType, string>> = { phone: 'Phone', email: 'Email' };
+/** Names a newly added typed entry answers to (the same as the built-in sets). */
+export const FIXED_TYPE_ALIASES: Partial<Record<ProfileFieldType, string[]>> = {
+  email: ['e-mail', 'email address', 'posta elettronica', 'indirizzo email'],
+  phone: ['telephone', 'phone number', 'mobile', 'cell', 'telefono', 'cellulare', 'recapito telefonico'],
+};
 export interface ProfileField {
   id: string;
   key: string;
@@ -519,7 +528,7 @@ export class ProfileRepo {
   async importJson(data: unknown): Promise<Profile> {
     const d = data as Partial<ProfileExport> | null;
     if (!d || d.version !== 1 || typeof d.name !== 'string' || !Array.isArray(d.fields)) throw new InvalidArgumentError('This is not a Folio profile file', { reason: 'badProfile' });
-    const types = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
+    const types: string[] = TYPES;
     const fields = d.fields.filter((f) => f && typeof f.key === 'string' && typeof f.label === 'string' && types.includes(f.type) && typeof f.value === 'string');
     return this.db.transaction(async () => {
       const profile = await this.create(d.name!);
@@ -578,7 +587,8 @@ export class FieldTemplateRepo {
     const have = new Set((await this.db.select<{ id: string }>('SELECT id FROM field_templates WHERE built_in = 1')).map((r) => r.id));
     for (const [name, fields] of Object.entries(PROFILE_TEMPLATES)) {
       const id = `builtin:${name}`;
-      if (!have.has(id)) await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 1, ?, ?)', [id, name, JSON.stringify(fields), iso(this.clock)]);
+      if (have.has(id)) await this.db.execute('UPDATE field_templates SET fields_json = ? WHERE id = ?', [JSON.stringify(fields), id]);
+      else await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 1, ?, ?)', [id, name, JSON.stringify(fields), iso(this.clock)]);
     }
   }
   async list(): Promise<FieldTemplate[]> {

@@ -217,6 +217,35 @@ export function tokenSetRatio(a: string, b: string): number {
   return ab === 0 || ba === 0 ? 0 : (2 * ab * ba) / (ab + ba);
 }
 
+/**
+ * A printed label often wraps a profile name in a longer phrase ("genitore o tutore legale dell'alunno/a" for the
+ * alias "tutore legale di"). When every token of a multi-word name is present in the label, that is a match
+ * even though the label has more words than the name. A single word is too weak to count (FR-AIF-07).
+ */
+export function containsPhrase(label: string, name: string): number {
+  const tn = tokens(name);
+  if (tn.length < 2) return 0;
+  const tl = tokens(label);
+  return tn.every((t) => tl.some((l) => tokenMatch(t, l) >= 0.85)) ? 0.8 : 0;
+}
+
+export interface SignatureData {
+  kind: 'signature' | 'initials';
+  svg?: string | null;
+  raster: RasterImage;
+  width: number;
+  height: number;
+}
+/** A detected line or box that is printed as a signature place ("Firma", "Signature of the parent"). */
+export const SIGNATURE_LABEL = /\b(firma|firme|signature|sign here|sottoscrizione)\b/i;
+export const isSignatureTarget = (s: Pick<Suggestion, 'fieldType' | 'label' | 'kind' | 'value'>): boolean =>
+  s.fieldType === 'signature' || (s.kind === 'detected' && s.value === '' && SIGNATURE_LABEL.test(s.label));
+
+/** A place to write the date of signing: a line or field whose whole label is "Data", "Date" or "Luogo e data". */
+export const DATE_LABEL = /^\s*(luogo\s+e\s+)?(data|date)\s*[:.]?\s*$/i;
+export const isDateTarget = (s: Pick<Suggestion, 'fieldType' | 'label' | 'value'>): boolean =>
+  s.fieldType !== 'checkbox' && s.value === '' && DATE_LABEL.test(s.label);
+
 export const HEURISTIC_THRESHOLD = 0.72;
 const level = (score: number): Confidence => (score >= 0.85 ? 'high' : score >= 0.6 ? 'medium' : 'low');
 
@@ -450,7 +479,7 @@ export class SmartFillService {
       let best: { key: string; score: number } | undefined;
       for (const f of profile.fields) {
         const names = [f.label, f.key.replace(/_/g, ' '), ...f.aliases];
-        const score = Math.max(0, ...texts.flatMap((t) => names.map((n) => tokenSetRatio(t, n))));
+        const score = Math.max(0, ...texts.flatMap((t) => names.map((n) => Math.max(tokenSetRatio(t, n), containsPhrase(t, n)))));
         if (!best || score > best.score) best = { key: f.key, score };
       }
       const hit = best && best.score >= HEURISTIC_THRESHOLD ? best : undefined;
@@ -632,7 +661,8 @@ export class SmartFillService {
 
     if (!opts.reanalyze) {
       const stored = await this.deps.mappings.find(fingerprint, profile.id);
-      if (stored) {
+      // A mapping stored from a local-only run must not keep the AI out when the AI is wanted now.
+      if (stored && !(opts.useAi && stored.source === 'heuristic')) {
         const known = new Map(stored.mapping.map((e) => [e.fieldRef, e]));
         const mappings: FieldMapping[] = candidates.map((c) => {
           const e = known.get(c.ref);
@@ -707,6 +737,16 @@ export class SmartFillService {
               transform: 'none',
               confidence: Math.min(a.confidence, 0.8),
             });
+          });
+          // A field the model left without a key still gets a key when its printed label contains a multi-word
+          // name or alias of the profile ("genitore o tutore legale dell'alunno/a" for "tutore legale di").
+          const byRef = new Map(all.map((c) => [c.ref, c] as const));
+          mappings.forEach((m, i) => {
+            const c = byRef.get(m.ref);
+            if (m.profileKey || !c || m.fieldType === 'signature') return;
+            const texts = [c.label, m.label].filter((t): t is string => !!t);
+            const hit = profile.fields.find((f) => [f.label, f.key.replace(/_/g, ' '), ...f.aliases].some((n) => texts.some((t) => containsPhrase(t, n) > 0)));
+            if (hit) mappings[i] = { ...m, profileKey: hit.key, confidence: Math.max(m.confidence, 0.9) };
           });
           // Candidates beyond the page cap (or skipped by the model) still get a local suggestion.
           const answered = new Set(mappings.map((m) => m.ref));
@@ -840,15 +880,18 @@ export class SmartFillService {
       if (checkbox && !truthy(s.value)) continue;
       const tool = checkbox ? 'checkbox' : s.fieldType === 'multiline' ? 'multiline' : 'text';
       const name = this.authoring.autoName(tool, s.label || area.label, used);
+      // Same size rule as the Cover & type tool; on a printed dotted or underscore line the box is lifted so the glyphs sit above it.
+      const fontSize = checkbox || area.kind === 'comb' ? 0 : Math.min(11, Math.max(7, area.rect.height * 0.7));
+      const rect = area.leader && !checkbox ? { ...area.rect, y: area.rect.y + fontSize * 0.3 } : area.rect;
       used.add(name);
       nameByRef.set(s.ref, name);
       specs.push(
-        this.authoring.spec(tool, name, s.page, area.rect, {
+        this.authoring.spec(tool, name, s.page, rect, {
           value: checkbox ? 'Yes' : s.value,
           tooltip: s.label || undefined,
           ...(checkbox ? { exportValue: 'Yes' } : {}),
           ...(area.kind === 'comb' && area.cells ? { comb: true, maxLength: area.cells } : {}),
-          fontSize: 0,
+          fontSize,
         }),
       );
     }
@@ -860,14 +903,30 @@ export class SmartFillService {
    * fields (created and filled together), so there is one way to create fields and one way to fill them.
    */
   /**
-   * Puts the profile's signature into every signature field of the pages that is still empty, fitted inside
-   * the field with a small margin. Null when there is nothing to sign (no signature, no field, all signed).
+   * Puts the profile's signature into every signature field and signature line of the pages that is still empty,
+   * fitted inside it with a small margin. Null when there is nothing to sign (no signature, no place, all signed).
    */
-  async signFields(doc: PdfDocument, pages: PageIndex[], sig: { kind: 'signature' | 'initials'; svg?: string | null; raster: RasterImage; width: number; height: number } | null): Promise<{ command: Command; count: number } | null> {
+  async signFields(doc: PdfDocument, pages: PageIndex[], sig: SignatureData | null, extra: Array<{ page: PageIndex; rect: Rect }> = []): Promise<{ command: Command; count: number } | null> {
     const signatures = this.deps.signatures;
-    if (!sig || !signatures) return null;
+    if (!signatures || !sig) return null;
     const wanted = new Set(pages);
-    const widgets = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
+    const widgets: Array<{ page: PageIndex; rect: Rect }> = (await this.deps.forms.fields(doc)).filter((f) => f.type === 'signature').flatMap((f) => f.widgets).filter((w) => wanted.has(w.page));
+    // A signature line found on a flat form or a scan is only a few points high: the signature may rise above it.
+    // Lines are looked for in the page itself, so they are still found after a run created fields on the page.
+    const lines: Array<{ page: PageIndex; rect: Rect }> = [...extra];
+    for (const page of wanted) {
+      const layer = await doc.getTextLayer(page);
+      for (const a of detectAreas(page, await doc.listObjects(page), layer))
+        if (a.kind !== 'checkbox' && SIGNATURE_LABEL.test(a.label ?? '')) lines.push({ page, rect: a.rect });
+    }
+    const inside = (r: Rect, p: { x: number; y: number }): boolean => p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+    for (const e of lines) {
+      if (!wanted.has(e.page)) continue;
+      const box = { ...e.rect, height: Math.max(e.rect.height, 36) };
+      const c = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      if (widgets.some((w) => w.page === e.page && inside(w.rect, c))) continue;
+      widgets.push({ page: e.page, rect: box });
+    }
     const items: Array<{ page: PageIndex; annotation: Annotation }> = [];
     const existing = new Map<PageIndex, Annotation[]>();
     for (const w of widgets) {
