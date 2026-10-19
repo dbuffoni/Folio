@@ -11,7 +11,7 @@ import type {
   SearchQuery,
   StampAnnotation,
 } from '@folio/ports';
-import { FIXTURE_PASSWORD, fixture, inkRatio, meanColor, sampleRaster } from '@folio/testkit';
+import { FIXTURE_OWNER_PASSWORD, FIXTURE_PASSWORD, HIDDEN_MARKERS, fixture, inkRatio, meanColor, qpdfQdf, sampleRaster } from '@folio/testkit';
 
 export interface EngineCaps {
   /** Output is real PDF that external oracles can read. */
@@ -627,6 +627,107 @@ export function runEngineConformance(
         });
         doc.dispose();
         again.dispose();
+      });
+    });
+
+    describe('hidden data', () => {
+      const needles = Object.values(HIDDEN_MARKERS);
+      const leaks = async (bytes: Uint8Array): Promise<string[]> => {
+        const text = Buffer.from(bytes).toString('latin1');
+        const qdf = await qpdfQdf(bytes);
+        return needles.filter((n) => text.includes(n) || qdf.includes(n));
+      };
+      const everything = { info: true, xmp: true, thumbnails: true, scripts: true, annotationAuthors: true, attachments: true };
+
+      it('lists the hidden data a file carries @FR-SEC-12', async () => {
+        const doc = await open('hidden-data');
+        const found = await doc.inspectHiddenData();
+        expect(found).toMatchObject({ xmp: true, thumbnails: 1, annotationAuthors: 1, structural: true });
+        expect(found.scripts).toBeGreaterThanOrEqual(2);
+        expect(found.attachments.map((a) => a.name)).toEqual(['notes.txt']);
+        expect(found.info).toContain('Author');
+        doc.dispose();
+      });
+      it('removes every kind and leaves no trace in the bytes, even in earlier revisions @FR-SEC-12 @FR-SEC-04', async () => {
+        if (!caps.realPdf) return;
+        const doc = await open('hidden-data');
+        // An earlier revision that still holds an old title.
+        await doc.setMetadata({ title: HIDDEN_MARKERS.oldRevision });
+        let bytes = await doc.save({ incremental: true });
+        await doc.restore(bytes);
+        await doc.setMetadata({ title: 'Plain title' });
+        bytes = await doc.save({ incremental: true });
+        expect(await leaks(bytes)).toContain(HIDDEN_MARKERS.oldRevision);
+        await doc.restore(bytes);
+        const report = await doc.removeHiddenData(everything);
+        expect(report.skipped).toEqual([]);
+        expect(report.removed).toMatchObject({ info: true, xmp: true, thumbnails: 1, annotationAuthors: 1, attachments: 1 });
+        expect(report.removed.scripts).toBeGreaterThanOrEqual(2);
+        bytes = await doc.save();
+        await valid(bytes);
+        expect(await leaks(bytes)).toEqual([]);
+        const again = await engine.open(bytes);
+        expect(await again.inspectHiddenData()).toMatchObject({ info: [], xmp: false, thumbnails: 0, scripts: 0, annotationAuthors: 0, attachments: [] });
+        expect((await again.getTextLayer(0)).text).toContain('Page 1 of 1');
+        expect(await again.listAnnotations(0)).toHaveLength(1);
+        doc.dispose();
+        again.dispose();
+      });
+      it('removes only the selected kinds and reports what it did @FR-SEC-12', async () => {
+        const doc = await open('hidden-data');
+        const report = await doc.removeHiddenData({ ...everything, info: false, xmp: false, attachments: false, annotationAuthors: false });
+        expect(report.removed).toMatchObject({ info: false, xmp: false, attachments: 0, annotationAuthors: 0, thumbnails: 1 });
+        const left = await doc.inspectHiddenData();
+        expect(left).toMatchObject({ xmp: true, thumbnails: 0, scripts: 0, annotationAuthors: 1 });
+        expect(left.info).toContain('Author');
+        expect(left.attachments).toHaveLength(1);
+        doc.dispose();
+      });
+      it('does nothing harmful on a clean file @FR-SEC-12', async () => {
+        const doc = await open('text');
+        const report = await doc.removeHiddenData(everything);
+        expect(report.removed).toMatchObject({ xmp: false, thumbnails: 0, scripts: 0, annotationAuthors: 0, attachments: 0 });
+        expect(doc.pageCount).toBe(3);
+        doc.dispose();
+      });
+      it('keeps the protection of encrypted files and says what it could not do @FR-SEC-12', async () => {
+        const doc = await open('encrypted', FIXTURE_PASSWORD);
+        const report = await doc.removeHiddenData(everything);
+        expect(report.skipped).toEqual(expect.arrayContaining(['xmp', 'scripts']));
+        expect((await doc.getMeta()).isEncrypted).toBe(true);
+        expect((await doc.getTextLayer(0)).text).toContain('Invoce');
+        doc.dispose();
+      });
+    });
+
+    describe('permissions', () => {
+      it('reports the denied permissions of a restricted file @FR-SEC-07', async () => {
+        const doc = await open('restricted');
+        const meta = await doc.getMeta();
+        expect(meta.isEncrypted).toBe(true);
+        expect(meta.ownerUnlocked).toBeUndefined();
+        expect(meta.permissions).toMatchObject({ print: false, copy: false, modify: false, annotate: false, fillForms: false, assemble: false });
+        doc.dispose();
+      });
+      it('reports only the flags that are actually denied @FR-SEC-07', async () => {
+        const doc = await open('copy-restricted');
+        const meta = await doc.getMeta();
+        expect(meta.permissions).toMatchObject({ print: true, copy: false, modify: true, annotate: true });
+        doc.dispose();
+      });
+      it('lifts the restrictions when opened with the owner password @FR-SEC-07', async () => {
+        const doc = await open('restricted', FIXTURE_OWNER_PASSWORD);
+        const meta = await doc.getMeta();
+        expect(meta.ownerUnlocked).toBe(true);
+        expect(meta.permissions).toBeUndefined();
+        doc.dispose();
+      });
+      it('reports nothing for unprotected files @FR-SEC-07', async () => {
+        const doc = await open('text');
+        const meta = await doc.getMeta();
+        expect(meta.permissions).toBeUndefined();
+        expect(meta.ownerUnlocked).toBeUndefined();
+        doc.dispose();
       });
     });
 

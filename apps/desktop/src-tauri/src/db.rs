@@ -67,11 +67,17 @@ pub fn execute(db: &Db, sql: &str, params: &[Json]) -> Result<ExecResult> {
     if params.is_empty() {
         // Statements without parameters may be batches (savepoints, migrations).
         conn.execute_batch(sql)?;
-        return Ok(ExecResult { changes: conn.changes() as usize, last_id: conn.last_insert_rowid() });
+        return Ok(ExecResult {
+            changes: conn.changes() as usize,
+            last_id: conn.last_insert_rowid(),
+        });
     }
     let values = params.iter().map(to_sql).collect::<Result<Vec<_>>>()?;
     let changes = conn.execute(sql, rusqlite::params_from_iter(values))?;
-    Ok(ExecResult { changes, last_id: conn.last_insert_rowid() })
+    Ok(ExecResult {
+        changes,
+        last_id: conn.last_insert_rowid(),
+    })
 }
 
 pub fn select(db: &Db, sql: &str, params: &[Json]) -> Result<Vec<Map<String, Json>>> {
@@ -97,7 +103,11 @@ pub fn db_execute(sql: String, params: Vec<Json>, db: State<'_, Db>) -> Result<E
 }
 
 #[tauri::command]
-pub fn db_select(sql: String, params: Vec<Json>, db: State<'_, Db>) -> Result<Vec<Map<String, Json>>> {
+pub fn db_select(
+    sql: String,
+    params: Vec<Json>,
+    db: State<'_, Db>,
+) -> Result<Vec<Map<String, Json>>> {
     select(&db, &sql, &params)
 }
 
@@ -109,22 +119,50 @@ mod tests {
     #[test]
     fn executes_and_selects_with_parameters() {
         let db = Db::memory();
-        execute(&db, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, n REAL, flag INTEGER)", &[]).unwrap();
-        let r = execute(&db, "INSERT INTO t (name, n, flag) VALUES (?, ?, ?)", &[json!("a"), json!(1.5), json!(true)]).unwrap();
+        execute(
+            &db,
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, n REAL, flag INTEGER)",
+            &[],
+        )
+        .unwrap();
+        let r = execute(
+            &db,
+            "INSERT INTO t (name, n, flag) VALUES (?, ?, ?)",
+            &[json!("a"), json!(1.5), json!(true)],
+        )
+        .unwrap();
         assert_eq!((r.changes, r.last_id), (1, 1));
-        execute(&db, "INSERT INTO t (name, n, flag) VALUES (?, ?, ?)", &[json!("b"), Json::Null, json!(false)]).unwrap();
-        let rows = select(&db, "SELECT * FROM t WHERE flag = ? ORDER BY id", &[json!(1)]).unwrap();
+        execute(
+            &db,
+            "INSERT INTO t (name, n, flag) VALUES (?, ?, ?)",
+            &[json!("b"), Json::Null, json!(false)],
+        )
+        .unwrap();
+        let rows = select(
+            &db,
+            "SELECT * FROM t WHERE flag = ? ORDER BY id",
+            &[json!(1)],
+        )
+        .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["name"], json!("a"));
         assert_eq!(rows[0]["n"], json!(1.5));
-        assert_eq!(select(&db, "SELECT n FROM t WHERE name = ?", &[json!("b")]).unwrap()[0]["n"], Json::Null);
+        assert_eq!(
+            select(&db, "SELECT n FROM t WHERE name = ?", &[json!("b")]).unwrap()[0]["n"],
+            Json::Null
+        );
         assert!(execute(&db, "INSERT INTO t (name) VALUES (?)", &[json!([1, 2])]).is_err());
     }
 
     #[test]
     fn savepoints_roll_back_on_the_same_connection() {
         let db = Db::memory();
-        execute(&db, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)", &[]).unwrap();
+        execute(
+            &db,
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+            &[],
+        )
+        .unwrap();
         execute(&db, "SAVEPOINT sp_0", &[]).unwrap();
         execute(&db, "INSERT INTO t (name) VALUES (?)", &[json!("x")]).unwrap();
         execute(&db, "ROLLBACK TO sp_0; RELEASE sp_0", &[]).unwrap();
@@ -135,9 +173,19 @@ mod tests {
     fn foreign_keys_are_enforced() {
         let db = Db::memory();
         execute(&db, "CREATE TABLE p (id TEXT PRIMARY KEY); CREATE TABLE c (id TEXT PRIMARY KEY, p TEXT NOT NULL REFERENCES p(id) ON DELETE CASCADE)", &[]).unwrap();
-        assert!(execute(&db, "INSERT INTO c (id, p) VALUES (?, ?)", &[json!("c1"), json!("missing")]).is_err());
+        assert!(execute(
+            &db,
+            "INSERT INTO c (id, p) VALUES (?, ?)",
+            &[json!("c1"), json!("missing")]
+        )
+        .is_err());
         execute(&db, "INSERT INTO p (id) VALUES (?)", &[json!("p1")]).unwrap();
-        execute(&db, "INSERT INTO c (id, p) VALUES (?, ?)", &[json!("c1"), json!("p1")]).unwrap();
+        execute(
+            &db,
+            "INSERT INTO c (id, p) VALUES (?, ?)",
+            &[json!("c1"), json!("p1")],
+        )
+        .unwrap();
         execute(&db, "DELETE FROM p WHERE id = ?", &[json!("p1")]).unwrap();
         assert!(select(&db, "SELECT * FROM c", &[]).unwrap().is_empty());
     }

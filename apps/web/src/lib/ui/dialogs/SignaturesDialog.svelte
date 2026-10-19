@@ -32,7 +32,7 @@
           <button class="rowbtn" class:on={w.selected === r.index} aria-pressed={w.selected === r.index} onclick={() => w.select(r.index)}>
             <Icon name={icon(r.status)} /><b>{r.signer?.commonName ?? r.fieldName}</b>
           </button>
-          <span class="chip {r.status === 'valid' ? 'ok' : 'warn'}">{t(`sigpanel.status.${r.status}`)}</span>
+          <span class="chip {w.statusKey(r) === 'sigpanel.status.valid' ? 'ok' : 'warn'}">{t(w.statusKey(r))}</span>
           <small>{when(r.signingTime)}</small>
         </li>
       {/each}
@@ -47,7 +47,7 @@
         {#if cur.signer}<dt>{t('cert.issuer')}</dt><dd>{cur.signer.issuer}</dd>{/if}
         {#if cur.reason}<dt>{t('dsig.reason')}</dt><dd>{cur.reason}</dd>{/if}
         {#if cur.location}<dt>{t('dsig.location')}</dt><dd>{cur.location}</dd>{/if}
-        {#if cur.message && cur.status !== 'valid-untrusted'}<dt>{t('sigpanel.note')}</dt><dd>{cur.message}</dd>{/if}
+        {#if w.noteKey(cur)}<dt>{t('sigpanel.note')}</dt><dd>{t(w.noteKey(cur)!)}</dd>{:else if cur.message && cur.status !== 'valid-untrusted'}<dt>{t('sigpanel.note')}</dt><dd>{cur.message}</dd>{/if}
       </dl>
       {#if cur.status === 'valid-untrusted' && cur.signerDer}
         <div class="row"><button class="btn" onclick={() => w.trustSigner()}><Icon name="shield-check" />{t('sigpanel.trust')}</button></div>

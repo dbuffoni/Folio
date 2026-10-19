@@ -790,6 +790,43 @@ export async function attachmentDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/** Strings that must not survive "Remove hidden data": the tests search the saved bytes for them. */
+export const HIDDEN_MARKERS = {
+  author: 'SECRET-AUTHOR-7731',
+  xmp: 'SECRET-XMP-4418',
+  script: 'SECRET-SCRIPT-9902',
+  annotAuthor: 'SECRET-REVIEWER-5520',
+  attachment: 'SECRET-ATTACHMENT-3306',
+  oldRevision: 'SECRET-OLD-REVISION-1187',
+} as const;
+
+/**
+ * A file carrying every kind of hidden data FR-SEC-12 removes: Info, XMP, a page thumbnail, document and
+ * open-action JavaScript, an embedded file and a comment with an author. `oldRevision` is a title that tests
+ * write in an incremental revision when they need an earlier revision in the bytes.
+ */
+export async function hiddenDataDoc(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await textDoc({ pages: 1, title: 'Hidden data fixture' }));
+  doc.setAuthor(HIDDEN_MARKERS.author);
+  const ctx = doc.context;
+  const xmp = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>${HIDDEN_MARKERS.xmp}</dc:creator></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+  const xmpRef = ctx.register(ctx.stream(new TextEncoder().encode(xmp), { Type: 'Metadata', Subtype: 'XML' }));
+  doc.catalog.set(PDFName.of('Metadata'), xmpRef);
+  const page = doc.getPages()[0]!;
+  const thumb = ctx.register(ctx.stream(new Uint8Array([255, 0, 0, 0, 255, 0, 0, 0, 255, 9, 9, 9]), { Width: 2, Height: 2, ColorSpace: 'DeviceRGB', BitsPerComponent: 8 }));
+  page.node.set(PDFName.of('Thumb'), thumb);
+  const js = ctx.obj({ S: 'JavaScript', JS: PDFString.of(`app.alert("${HIDDEN_MARKERS.script}");`) });
+  doc.catalog.set(PDFName.of('OpenAction'), ctx.register(js));
+  const jsName = ctx.obj({ Names: [PDFString.of('boot'), ctx.register(ctx.obj({ S: 'JavaScript', JS: PDFString.of('var x = 1;') }))] });
+  doc.catalog.set(PDFName.of('Names'), ctx.obj({ JavaScript: jsName }));
+  await doc.attach(new TextEncoder().encode(HIDDEN_MARKERS.attachment), 'notes.txt', { mimeType: 'text/plain' });
+  const note = ctx.register(
+    ctx.obj({ Type: 'Annot', Subtype: 'Text', Rect: [72, 700, 92, 720], Contents: PDFString.of('Check this'), T: PDFString.of(HIDDEN_MARKERS.annotAuthor), F: 4, P: page.ref }),
+  );
+  page.node.set(PDFName.of('Annots'), ctx.obj([note]));
+  return finish(doc);
+}
+
 // ---- special files ---------------------------------------------------------------------------
 
 /**

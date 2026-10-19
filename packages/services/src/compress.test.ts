@@ -119,4 +119,31 @@ describe('Reduce file size @FR-OPT-01', () => {
     expect([...half.data]).toEqual([50, 50, 50, 255, 120, 120, 120, 255]);
     expect(downsample(src, 40, 20)).toMatchObject({ width: 4, height: 2 });
   });
+
+  it('two different images with the same size and stored length are not taken for one @FR-OPT-01', async () => {
+    const { PDFDocument, PDFName } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([612, 792]);
+    // Uncompressed images: the stored length depends on the size only, so it is equal for both.
+    const raw = (seed: number): Uint8Array => Uint8Array.from({ length: 200 * 200 * 3 }, (_, i) => ((i * seed) >> 3) & 255);
+    const names = [1, 7].map((seed, k) => {
+      const ref = pdf.context.register(
+        pdf.context.stream(raw(seed), { Type: 'XObject', Subtype: 'Image', Width: 200, Height: 200, ColorSpace: 'DeviceRGB', BitsPerComponent: 8 }),
+      );
+      return page.node.newXObject(`Im${k}`, ref);
+    });
+    const ops = names.map((n, k) => `q 144 0 0 144 ${72 + k * 200} 400 cm ${n.toString()} Do Q`).join('\n');
+    page.node.set(PDFName.of('Contents'), pdf.context.register(pdf.context.stream(ops)));
+    const engine = await sharedEngine();
+    const doc = await engine.open(await pdf.save());
+    const s = await svc();
+    const listed = await s.images(doc);
+    expect(listed.length).toBe(2);
+    const res = await s.run(doc, COMPRESS_PRESETS.balanced, { originalBytes: 10 ** 7 });
+    const out = await engine.open(res.bytes!);
+    const objs = (await out.listObjects(0)).filter((o) => o.type === 'image');
+    const [a, b] = await Promise.all(objs.map((o) => out.getImage(0, o.id)));
+    // Each place keeps its own picture.
+    expect(Buffer.from(a!.data).equals(Buffer.from(b!.data))).toBe(false);
+  });
 });

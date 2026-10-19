@@ -23,9 +23,12 @@ struct PendingOpen(Mutex<Vec<files::FileRef>>, std::sync::atomic::AtomicBool);
 
 /// `file:///C:/x.pdf` → `C:/x.pdf` on Windows, `file:///x.pdf` → `/x.pdf` elsewhere.
 fn path_from_uri(arg: &str) -> &str {
-    let Some(rest) = arg.strip_prefix("file://") else { return arg };
+    let Some(rest) = arg.strip_prefix("file://") else {
+        return arg;
+    };
     let bytes = rest.as_bytes();
-    let drive = bytes.len() >= 4 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':';
+    let drive =
+        bytes.len() >= 4 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':';
     if drive {
         &rest[1..]
     } else {
@@ -36,19 +39,29 @@ fn path_from_uri(arg: &str) -> &str {
 /// Existing files among the URLs the OS hands over (macOS "Open with" and Finder double-clicks).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn paths_from_urls(urls: &[url::Url]) -> Vec<PathBuf> {
-    urls.iter().filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_file()).collect()
+    urls.iter()
+        .filter_map(|u| u.to_file_path().ok())
+        .filter(|p| p.is_file())
+        .collect()
 }
 
 /// The configured window size, reduced so title bar, task bar and dock stay on screen (logical pixels).
 fn fitted_size(configured: (f64, f64), screen: (f64, f64)) -> (f64, f64) {
     const ROOM: f64 = 0.9;
-    (configured.0.min((screen.0 * ROOM).floor()), configured.1.min((screen.1 * ROOM).floor()))
+    (
+        configured.0.min((screen.0 * ROOM).floor()),
+        configured.1.min((screen.1 * ROOM).floor()),
+    )
 }
 
 /// Small screens (1366x768 laptops) cannot hold the 1280x820 default: shrink and centre the window.
 fn fit_window_to_screen(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("main") else { return };
-    let (Ok(Some(monitor)), Ok(current)) = (window.current_monitor(), window.outer_size()) else { return };
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let (Ok(Some(monitor)), Ok(current)) = (window.current_monitor(), window.outer_size()) else {
+        return;
+    };
     let scale = monitor.scale_factor();
     let screen = monitor.size().to_logical::<f64>(scale);
     let size = current.to_logical::<f64>(scale);
@@ -99,14 +112,27 @@ struct AppInfo {
 fn app_info(app: AppHandle) -> AppInfo {
     let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
-        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty() && v != "C" && v != "POSIX"))
+        .find_map(|k| {
+            std::env::var(k)
+                .ok()
+                .filter(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        })
         .map(|v| v.split('.').next().unwrap_or("en").replace('_', "-"))
         .unwrap_or_else(|| "en".into());
     AppInfo {
         version: app.package_info().version.to_string(),
-        os: if cfg!(target_os = "windows") { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" },
+        os: if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "linux"
+        },
         locale,
-        user_name: std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok().filter(|u| !u.is_empty()),
+        user_name: std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .ok()
+            .filter(|u| !u.is_empty()),
     }
 }
 
@@ -119,13 +145,15 @@ fn take_pending_open_paths(pending: State<'_, PendingOpen>) -> Vec<files::FileRe
 
 /// "Delete all app data": database, recovery files, granted paths and stored secrets.
 #[tauri::command]
-fn wipe_app_data(scope: State<'_, Scope>, storage: State<'_, storage::Storage>, secrets: State<'_, secrets::Secrets>) -> error::Result<()> {
+fn wipe_app_data(
+    scope: State<'_, Scope>,
+    storage: State<'_, storage::Storage>,
+    secrets: State<'_, secrets::Secrets>,
+    db: State<'_, db::Db>,
+) -> error::Result<()> {
     scope.revoke_all();
     let _ = std::fs::remove_dir_all(&storage.0);
-    for key in [http::AI_KEY, "folio.data-key"] {
-        secrets.0.remove(key)?;
-    }
-    Ok(())
+    secrets::wipe(secrets.0.as_ref(), &db)
 }
 
 #[tauri::command]
@@ -146,7 +174,12 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).max_file_size(1_000_000).build())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .max_file_size(1_000_000)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -161,7 +194,9 @@ pub fn run() {
             app.manage(http::AllowedOrigin::new(Some(config.join("ai-origin"))));
             app.manage(http::ApprovedNetworkHosts::default());
             let args: Vec<String> = std::env::args().collect();
-            let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
+            let cwd = std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string());
             let refs = accept_paths(app.handle(), paths_from_args(&args, cwd.as_deref()));
             app.manage(PendingOpen(Mutex::new(refs), Default::default()));
             fit_window_to_screen(app.handle());
@@ -258,8 +293,14 @@ mod tests {
 
     #[test]
     fn the_window_never_exceeds_the_screen() {
-        assert_eq!(fitted_size((1280.0, 820.0), (1366.0, 768.0)), (1229.0, 691.0));
-        assert_eq!(fitted_size((1280.0, 820.0), (2560.0, 1440.0)), (1280.0, 820.0));
+        assert_eq!(
+            fitted_size((1280.0, 820.0), (1366.0, 768.0)),
+            (1229.0, 691.0)
+        );
+        assert_eq!(
+            fitted_size((1280.0, 820.0), (2560.0, 1440.0)),
+            (1280.0, 820.0)
+        );
     }
 
     #[test]

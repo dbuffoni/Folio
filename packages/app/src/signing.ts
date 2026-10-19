@@ -377,6 +377,7 @@ export class DigitalSignModel extends ViewModel {
         signingTime: this.app.services.platform.clock.now(),
         timestamp: this.timestamp && network ? { url: this.settings.tsaUrl, transport: network } : undefined,
         validationData: this.embedValidation && network ? network : undefined,
+        revocationCheck: !this.embedValidation && this.app.settings.signing.revocationCheck && network ? network : undefined,
       });
     } catch (e) {
       const m = describe(e);
@@ -464,11 +465,27 @@ export class SignaturePanelModel extends ViewModel {
     if (this.reports.some((r) => r.status === 'invalid')) return 'invalid';
     if (
       this.reports.some(
-        (r) => r.status !== 'valid' || (r.changedAfterSigning && r.index === this.reports.length - 1),
+        (r) =>
+          r.status !== 'valid' ||
+          r.revocation === 'unknown' ||
+          (r.changedAfterSigning && r.index === this.reports.length - 1),
       )
     )
       return 'warning';
     return 'valid';
+  }
+  /**
+   * Message key of a report's status. A valid signature whose revocation was asked for but could not
+   * be checked is not shown as plain "Valid" (FR-SIG-06).
+   */
+  statusKey(r: SignatureReport): string {
+    return r.status === 'valid' && r.revocation === 'unknown'
+      ? 'sigpanel.status.valid-revocation-unknown'
+      : `sigpanel.status.${r.status}`;
+  }
+  /** Message key of the explanation shown with a report, when the status needs one. */
+  noteKey(r: SignatureReport): string | undefined {
+    return r.status === 'valid' && r.revocation === 'unknown' ? 'sigpanel.note.revocationUnknown' : undefined;
   }
   get revocationOn(): boolean {
     return this.app.settings.signing.revocationCheck && !!this.app.services.platform.network;

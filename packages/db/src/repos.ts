@@ -271,7 +271,7 @@ export class StampRepo {
 export type ProfileFieldType = 'text' | 'date' | 'number' | 'phone' | 'email' | 'address' | 'choice' | 'multiline';
 /** Types whose label is the name of the type itself: the user picks the type, not a label. */
 export const FIXED_LABEL_TYPES: ProfileFieldType[] = ['phone', 'email'];
-/** The stored label of such an entry (data, like the labels of the built-in templates). */
+/** The stored label of such an entry (data, like the labels of the built-in presets). */
 export const FIXED_TYPE_LABELS: Partial<Record<ProfileFieldType, string>> = { phone: 'Phone', email: 'Email' };
 /** Names a newly added typed entry answers to (the same as the built-in sets). */
 export const FIXED_TYPE_ALIASES: Partial<Record<ProfileFieldType, string[]>> = {
@@ -307,9 +307,13 @@ export interface ProfileExport {
 type PFRow = { id: string; profile_id: string; key: string; label: string; type: ProfileFieldType; value: string | null; sensitive: number; aliases_json: string; sort_order: number; options_json?: string };
 
 const t = (key: string, label: string, type: ProfileFieldType, aliases: string[], sensitive = false): Omit<ProfileField, 'id' | 'value' | 'sortOrder'> => ({ key, label, type, aliases, sensitive, options: [] });
-/** Templates for common reference data sets, with aliases in English and Italian (FR-AIF-01). */
+/** The definition of an entry without its value. */
 export type FieldDefinition = Omit<ProfileField, 'id' | 'value' | 'sortOrder'>;
-export const PROFILE_TEMPLATES: Record<string, FieldDefinition[]> = {
+/**
+ * Built-in presets a new profile can start with, with aliases in English and Italian (FR-AIF-01). Static
+ * constants: nothing is stored, and a preset is named by its key only.
+ */
+export const PROFILE_PRESETS = {
   identity: [
     t('first_name', 'First name', 'text', ['given name', 'forename', 'nome']),
     t('last_name', 'Last name', 'text', ['surname', 'family name', 'cognome']),
@@ -342,7 +346,15 @@ export const PROFILE_TEMPLATES: Record<string, FieldDefinition[]> = {
     t('bank_name', 'Bank name', 'text', ['bank', 'banca', 'istituto di credito']),
   ],
   dates: [t('today', "Today's date", 'date', ['date', 'data', 'date of signature', 'data odierna', 'signed on', 'lì'])],
-};
+} satisfies Record<string, FieldDefinition[]>;
+export type ProfilePresetKey = keyof typeof PROFILE_PRESETS;
+/** Preset keys in display order. */
+export const PROFILE_PRESET_KEYS = Object.keys(PROFILE_PRESETS) as ProfilePresetKey[];
+/** The presets ticked by default when a new profile is created. */
+export const DEFAULT_PROFILE_PRESETS: ProfilePresetKey[] = ['identity', 'address', 'contacts'];
+export function isProfilePresetKey(key: string): key is ProfilePresetKey {
+  return Object.prototype.hasOwnProperty.call(PROFILE_PRESETS, key);
+}
 
 /** The stable key of an entry: lower-case words joined by underscores. */
 export function slugKey(raw: string): string {
@@ -410,13 +422,13 @@ export class ProfileRepo {
     return all.find((p) => p.isDefault) ?? all[0] ?? null;
   }
 
-  /** Creates a profile, optionally seeded with template sets (values empty). */
-  async create(name: string, templates: Array<keyof typeof PROFILE_TEMPLATES> = []): Promise<Profile> {
+  /** Creates a profile, optionally seeded with the entries of built-in presets (values empty); unknown keys are ignored. */
+  async create(name: string, presets: readonly string[] = []): Promise<Profile> {
     if (!name.trim()) throw new InvalidArgumentError('Give the profile a name', { reason: 'emptyName' });
     const id = this.newId();
     const first = (await this.db.select<{ n: number }>('SELECT COUNT(*) AS n FROM profiles'))[0]!.n === 0;
     await this.db.execute('INSERT INTO profiles (id, name, is_default, created_at) VALUES (?, ?, ?, ?)', [id, name.trim().slice(0, PROFILE_NAME_MAX), first ? 1 : 0, iso(this.clock)]);
-    for (const set of templates) for (const f of PROFILE_TEMPLATES[set] ?? []) await this.setField(id, { ...f, value: '' });
+    for (const set of new Set(presets)) if (isProfilePresetKey(set)) for (const f of PROFILE_PRESETS[set]) await this.setField(id, { ...f, value: '' });
     return (await this.get(id))!;
   }
   async rename(id: string, name: string): Promise<void> {
@@ -488,26 +500,6 @@ export class ProfileRepo {
     });
   }
   /**
-   * Appends a template's fields (no values). Keys the profile already has are skipped and returned, so the
-   * editor can list them in a notice.
-   */
-  async addTemplate(profileId: string, fields: FieldDefinition[]): Promise<{ added: string[]; skipped: string[] }> {
-    const have = new Set((await this.db.select<{ key: string }>('SELECT key FROM profile_fields WHERE profile_id = ?', [profileId])).map((r) => r.key));
-    const added: string[] = [];
-    const skipped: string[] = [];
-    for (const f of fields) {
-      const key = slugKey(f.key);
-      if (have.has(key)) {
-        skipped.push(key);
-        continue;
-      }
-      await this.setField(profileId, { ...f, value: '', sensitive: f.sensitive, options: f.options });
-      have.add(key);
-      added.push(key);
-    }
-    return { added, skipped };
-  }
-  /**
    * Changes the key of an entry. Remembered mappings that used the old key are rewritten by the caller
    * (`FormMappingRepo.dropKey`); a key already in use is refused.
    */
@@ -538,117 +530,7 @@ export class ProfileRepo {
   }
 }
 
-// ---- field templates (FR-FRM-20) -------------------------------------------------------------
-
-export interface FieldTemplate {
-  id: string;
-  name: string;
-  builtIn: boolean;
-  /** Definitions only: never a value (a template holds nothing sensitive). */
-  fields: FieldDefinition[];
-}
-export interface FieldTemplateExport {
-  version: 1;
-  kind: 'folio-field-template';
-  name: string;
-  fields: FieldDefinition[];
-}
-export const TEMPLATE_EXPORT_VERSION = 1;
 const TYPES: ProfileFieldType[] = ['text', 'date', 'number', 'phone', 'email', 'address', 'choice', 'multiline'];
-
-/** Cleans a definition list read from storage or a file: known types, unique slugs, no values. */
-export function cleanDefinitions(raw: unknown): FieldDefinition[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<string>();
-  const out: FieldDefinition[] = [];
-  for (const f of raw as Array<Partial<FieldDefinition>>) {
-    if (!f || typeof f.label !== 'string' || !f.label.trim()) continue;
-    const key = slugKey(typeof f.key === 'string' && f.key ? f.key : f.label);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const type = TYPES.includes(f.type as ProfileFieldType) ? (f.type as ProfileFieldType) : 'text';
-    out.push({
-      key,
-      label: f.label.trim(),
-      type,
-      aliases: Array.isArray(f.aliases) ? f.aliases.filter((a): a is string => typeof a === 'string' && a.trim() !== '') : [],
-      sensitive: !!f.sensitive,
-      options: type === 'choice' && Array.isArray(f.options) ? f.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [],
-    });
-  }
-  return out;
-}
-
-export class FieldTemplateRepo {
-  constructor(private readonly db: Database, private readonly clock: Clock, private readonly newId: () => string) {}
-
-  /** The built-in sets are rows too, written on first use, so users can duplicate and list them like their own. */
-  private async seed(): Promise<void> {
-    const have = new Set((await this.db.select<{ id: string }>('SELECT id FROM field_templates WHERE built_in = 1')).map((r) => r.id));
-    for (const [name, fields] of Object.entries(PROFILE_TEMPLATES)) {
-      const id = `builtin:${name}`;
-      if (have.has(id)) await this.db.execute('UPDATE field_templates SET fields_json = ? WHERE id = ?', [JSON.stringify(fields), id]);
-      else await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 1, ?, ?)', [id, name, JSON.stringify(fields), iso(this.clock)]);
-    }
-  }
-  async list(): Promise<FieldTemplate[]> {
-    await this.seed();
-    const rows = await this.db.select<{ id: string; name: string; built_in: number; fields_json: string }>('SELECT * FROM field_templates ORDER BY built_in DESC, created_at, name');
-    const order = Object.keys(PROFILE_TEMPLATES);
-    const rank = (t: { name: string; builtIn: boolean }): number => (t.builtIn ? order.indexOf(t.name) : order.length);
-    return rows
-      .map((r) => ({ id: r.id, name: r.name, builtIn: bool(r.built_in), fields: cleanDefinitions(JSON.parse(r.fields_json)) }))
-      .sort((a, b) => rank(a) - rank(b));
-  }
-  async get(id: string): Promise<FieldTemplate | null> {
-    return (await this.list()).find((t) => t.id === id) ?? null;
-  }
-  private checkName(name: string): string {
-    const n = name.trim();
-    if (!n) throw new InvalidArgumentError('Give the template a name', { reason: 'emptyName' });
-    return n.slice(0, PROFILE_NAME_MAX);
-  }
-  async create(name: string, fields: FieldDefinition[] = []): Promise<FieldTemplate> {
-    await this.seed();
-    const id = this.newId();
-    await this.db.execute('INSERT INTO field_templates (id, name, built_in, fields_json, created_at) VALUES (?, ?, 0, ?, ?)', [id, this.checkName(name), JSON.stringify(cleanDefinitions(fields)), iso(this.clock)]);
-    return (await this.get(id))!;
-  }
-  /** Replaces the name and/or the fields of a user template. Built-in templates are read-only. */
-  async update(id: string, patch: { name?: string; fields?: FieldDefinition[] }): Promise<FieldTemplate> {
-    const t = await this.get(id);
-    if (!t) throw new InvalidArgumentError('Unknown template');
-    if (t.builtIn) throw new InvalidArgumentError('Built-in templates cannot be changed. Duplicate it first.', { reason: 'builtInTemplate' });
-    await this.db.execute('UPDATE field_templates SET name = ?, fields_json = ? WHERE id = ?', [patch.name !== undefined ? this.checkName(patch.name) : t.name, JSON.stringify(cleanDefinitions(patch.fields ?? t.fields)), id]);
-    return (await this.get(id))!;
-  }
-  async duplicate(id: string, name?: string): Promise<FieldTemplate> {
-    const t = await this.get(id);
-    if (!t) throw new InvalidArgumentError('Unknown template');
-    return this.create(name ?? `${t.name} copy`, t.fields);
-  }
-  async remove(id: string): Promise<void> {
-    const t = await this.get(id);
-    if (!t) return;
-    if (t.builtIn) throw new InvalidArgumentError('Built-in templates cannot be deleted.', { reason: 'builtInTemplate' });
-    await this.db.execute('DELETE FROM field_templates WHERE id = ?', [id]);
-  }
-  /** "Save structure as template": a profile's definitions without values. */
-  async fromProfile(profile: Profile, name: string): Promise<FieldTemplate> {
-    return this.create(name, profile.fields.map(({ key, label, type, aliases, sensitive, options }) => ({ key, label, type, aliases, sensitive, options })));
-  }
-  exportJson(t: FieldTemplate): FieldTemplateExport {
-    return { version: TEMPLATE_EXPORT_VERSION, kind: 'folio-field-template', name: t.name, fields: t.fields };
-  }
-  /** A file with a newer version is refused with a message of its own, so the user knows to update Folio. */
-  async importJson(data: unknown): Promise<FieldTemplate> {
-    const d = data as Partial<FieldTemplateExport> | null;
-    if (!d || d.kind !== 'folio-field-template' || typeof d.name !== 'string' || !Array.isArray(d.fields) || typeof d.version !== 'number')
-      throw new InvalidArgumentError('This is not a Folio field template file', { reason: 'badTemplate' });
-    if (d.version > TEMPLATE_EXPORT_VERSION) throw new InvalidArgumentError('This template was made by a newer version of Folio', { reason: 'templateNewer' });
-    return this.create(d.name, cleanDefinitions(d.fields));
-  }
-}
 
 // ---- remembered form mappings and AI usage ---------------------------------------------------
 
@@ -727,7 +609,7 @@ export async function deleteAllData(db: Database, secrets: SecretStore, secretKe
   const identities = await db.select<{ fingerprint: string }>("SELECT fingerprint FROM certificates WHERE kind = 'identity'");
   for (const { fingerprint } of identities) await secrets.remove(certSecretKey(fingerprint));
   await db.transaction(async (tx) => {
-    for (const table of ['certificates', 'field_templates', 'form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
+    for (const table of ['certificates', 'form_mappings', 'profile_fields', 'profiles', 'signatures', 'stamps', 'recent_files', 'ai_runs', 'history_spill', 'settings']) await tx.execute(`DELETE FROM ${table}`);
   });
   for (const key of [KEY_NAME, ...secretKeys]) await secrets.remove(key);
 }

@@ -388,7 +388,7 @@ describe('Timestamps @FR-SIG-07', () => {
       notBefore: new Date(Date.now() - 30 * day),
       notAfter: new Date(Date.now() + 2 * day),
     });
-    const { fake } = await authorityFor();
+    const { root: tsaRoot, fake } = await authorityFor();
     const stamped = new FakeTimestampAuthority(
       (fake as unknown as { authority: never }).authority,
       [],
@@ -400,8 +400,27 @@ describe('Timestamps @FR-SIG-07', () => {
     });
     const later = new Date(Date.now() + 10 * day);
     expect(
-      (await validateSignatures(signed, { trusted: [certDer(root.certificate)], now: later }))[0]!.trust,
+      (await validateSignatures(signed, { trusted: [certDer(root.certificate), certDer(tsaRoot.certificate)], now: later }))[0]!.trust,
     ).toBe('trusted');
+  });
+
+  it('a timestamp from an authority the user does not trust does not rescue an expired certificate @FR-SIG-07 @FR-SIG-05', async () => {
+    const day = 24 * 3600e3;
+    const { root, identity } = await pki({
+      notBefore: new Date(Date.now() - 30 * day),
+      notAfter: new Date(Date.now() + 2 * day),
+    });
+    // Anyone can run an authority and vouch for any time.
+    const { fake } = await authorityFor();
+    const stamped = new FakeTimestampAuthority((fake as unknown as { authority: never }).authority, [], new Date(Date.now()));
+    const signed = await signPdf(await textDoc({ pages: 1 }), {
+      identity,
+      timestamp: { url: 'https://tsa.example', transport: stamped },
+    });
+    const later = new Date(Date.now() + 10 * day);
+    const [r] = await validateSignatures(signed, { trusted: [certDer(root.certificate)], now: later });
+    expect(r!.timestamp).toMatchObject({ verified: true, trusted: false });
+    expect(r).toMatchObject({ trust: 'expired', status: 'valid-untrusted' });
   });
 
   it('stops with a typed error when the authority fails, and never signs half-way @FR-SIG-07', async () => {

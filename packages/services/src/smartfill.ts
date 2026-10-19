@@ -2,6 +2,9 @@ import {
   AiError,
   CompositeCommand,
   InvalidArgumentError,
+  TEXT_BASELINE_OFFSET,
+  anchoredRect,
+  detectedFontSize,
   NetworkError,
   bboxToUserRect,
   formatDate,
@@ -869,7 +872,7 @@ export class SmartFillService {
    * named from its label and unique among `taken` (FR-AIF-14). Pure: the same input gives the same names,
    * so the remembered mapping can be stored under them.
    */
-  plan(suggestions: Suggestion[], taken: ReadonlySet<string> = new Set()): { specs: FieldSpec[]; nameByRef: Map<string, string> } {
+  plan(suggestions: Suggestion[], taken: ReadonlySet<string> = new Set(), baselineOffset: number = TEXT_BASELINE_OFFSET.default): { specs: FieldSpec[]; nameByRef: Map<string, string> } {
     const used = new Set(taken);
     const specs: FieldSpec[] = [];
     const nameByRef = new Map<string, string>();
@@ -880,9 +883,10 @@ export class SmartFillService {
       if (checkbox && !truthy(s.value)) continue;
       const tool = checkbox ? 'checkbox' : s.fieldType === 'multiline' ? 'multiline' : 'text';
       const name = this.authoring.autoName(tool, s.label || area.label, used);
-      // Same size rule as the Cover & type tool; on a printed dotted or underscore line the box is lifted so the glyphs sit above it.
-      const fontSize = checkbox || area.kind === 'comb' ? 0 : Math.min(11, Math.max(7, area.rect.height * 0.7));
-      const rect = area.leader && !checkbox ? { ...area.rect, y: area.rect.y + fontSize * 0.3 } : area.rect;
+      // Same size rule as the Cover & type tool. On a printed line the text stands `baselineOffset` above it, measured from
+      // the baseline of the characters; the preview uses the same rule (core field-geometry).
+      const fontSize = checkbox || area.kind === 'comb' ? 0 : detectedFontSize(area.rect.height);
+      const rect = checkbox || area.kind === 'comb' ? area.rect : anchoredRect(area.rect, area.lineY, fontSize, baselineOffset);
       used.add(name);
       nameByRef.set(s.ref, name);
       specs.push(
@@ -940,7 +944,7 @@ export class SmartFillService {
     return items.length ? { command: this.deps.annotations.addMany(items, 'cmd.signFields'), count: items.length } : null;
   }
 
-  apply(suggestions: Suggestion[], _pageSizes?: Map<PageIndex, { width: number; height: number }>, opts: { taken?: ReadonlySet<string>; flatten?: boolean; extra?: Command } = {}): Command | null {
+  apply(suggestions: Suggestion[], _pageSizes?: Map<PageIndex, { width: number; height: number }>, opts: { taken?: ReadonlySet<string>; flatten?: boolean; extra?: Command; baselineOffset?: number } = {}): Command | null {
     const accepted = suggestions.filter((s) => s.accepted && s.value !== '');
     const commands: Command[] = [];
     const fills: Array<{ field: FormField; value: FieldValue }> = [];
@@ -952,7 +956,7 @@ export class SmartFillService {
     }
     const fill = this.deps.forms.fillMany(fills);
     if (fill) commands.push(fill);
-    const { specs } = this.plan(suggestions, opts.taken);
+    const { specs } = this.plan(suggestions, opts.taken, opts.baselineOffset);
     if (specs.length) commands.push(this.authoring.create(specs, 'cmd.smartFill.create'));
     if (opts.extra) commands.push(opts.extra);
     if (opts.flatten && commands.length) commands.push(this.deps.forms.flatten());

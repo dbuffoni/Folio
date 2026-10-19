@@ -17,7 +17,14 @@ pub fn resolve(root: &Path, key: &str) -> Result<PathBuf> {
     let ok = !key.is_empty()
         && key.len() <= 200
         && !key.starts_with('/')
-        && key.split('/').all(|part| !part.is_empty() && part != "." && part != ".." && part.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)));
+        && key.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        });
     if ok {
         Ok(root.join(key))
     } else {
@@ -27,7 +34,11 @@ pub fn resolve(root: &Path, key: &str) -> Result<PathBuf> {
 
 #[tauri::command]
 pub fn storage_write(request: Request<'_>, storage: State<'_, Storage>) -> Result<()> {
-    let key = request.headers().get("x-folio-key").and_then(|v| v.to_str().ok()).ok_or_else(|| Error::Invalid("missing key".into()))?;
+    let key = request
+        .headers()
+        .get("x-folio-key")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| Error::Invalid("missing key".into()))?;
     let path = resolve(&storage.0, key)?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
@@ -90,8 +101,20 @@ mod tests {
     #[test]
     fn keys_cannot_escape_the_storage_root() {
         let root = Path::new("/data/storage");
-        assert_eq!(resolve(root, "recovery/s1.pdf").unwrap(), root.join("recovery/s1.pdf"));
-        for bad in ["", "/etc/passwd", "../x", "a/../../x", "a//b", "a/./b", "a b", "recovery\\x"] {
+        assert_eq!(
+            resolve(root, "recovery/s1.pdf").unwrap(),
+            root.join("recovery/s1.pdf")
+        );
+        for bad in [
+            "",
+            "/etc/passwd",
+            "../x",
+            "a/../../x",
+            "a//b",
+            "a/./b",
+            "a b",
+            "recovery\\x",
+        ] {
             assert!(resolve(root, bad).is_err(), "{bad}");
         }
     }
@@ -104,7 +127,10 @@ mod tests {
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(p, b"x").unwrap();
         }
-        assert_eq!(list(dir.path(), "recovery/"), vec!["recovery/a.json", "recovery/a.pdf"]);
+        assert_eq!(
+            list(dir.path(), "recovery/"),
+            vec!["recovery/a.json", "recovery/a.pdf"]
+        );
         assert_eq!(list(dir.path(), "").len(), 3);
         assert!(list(dir.path(), "nope/").is_empty());
     }

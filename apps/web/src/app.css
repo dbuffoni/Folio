@@ -93,7 +93,11 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 #titlebar{display:flex;align-items:center;gap:4px;height:40px;padding:0 8px;background:var(--color-bg);border-bottom:1px solid var(--color-border)}
 .brand{display:flex;align-items:center;gap:8px;font-weight:600;padding:0 8px 0 4px;height:30px;border-radius:var(--radius-md);border:0;background:none;cursor:pointer}
 .brand:hover{background:var(--color-surface-2)}
-.brand i.logo{width:20px;height:20px;border-radius:6px;background:var(--color-accent);display:grid;place-items:center;color:var(--color-accent-fg);font:700 12px var(--font-ui);font-style:normal}
+.brand .lg{display:block}
+.lg-dark{display:none!important}
+:root[data-theme="dark"] .lg-light{display:none!important}
+:root[data-theme="dark"] .lg-dark{display:block!important}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .lg-light{display:none!important}:root:not([data-theme="light"]) .lg-dark{display:block!important}}
 #tabs{display:flex;align-items:flex-end;gap:2px;flex:1;min-width:0;overflow-x:auto;height:100%;padding-top:6px;scrollbar-width:none}
 .tab{display:flex;align-items:center;gap:7px;height:34px;padding:0 6px 0 11px;border-radius:9px 9px 0 0;color:var(--color-fg-2);cursor:pointer;max-width:200px;border:0;background:none;white-space:nowrap}
 .tab:hover{background:var(--color-surface-2)}
@@ -127,6 +131,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .swatch.on{box-shadow:0 0 0 2px var(--color-accent)}
 .tbhint{color:var(--color-fg-3);font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;margin-right:6px}
 /* Labels collapse to icons but stay in the accessibility tree (WCAG 2.5.3). */
+@media (max-width:1400px){#toolbar.crowded .tool:not(.accent) .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 @media (max-width:1180px){.tool .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.tool.accent .lbl{position:static;width:auto;height:auto;overflow:visible;clip:auto}}
 
 /* main */
@@ -164,7 +169,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 .ins-s{padding:12px 14px;border-bottom:1px solid var(--color-border);display:flex;flex-direction:column;gap:9px}
 .ins-s h4{margin:0;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-fg-3);font-weight:600}
 .row{display:flex;align-items:center;gap:8px}
-.row>label{width:76px;color:var(--color-fg-2);flex:none}
+.row>label,.row>.lab{width:76px;color:var(--color-fg-2);flex:none}
 .row>*:not(label){flex:1}
 .row>.ib{flex:none}
 .kv{display:flex;justify-content:space-between;gap:10px;color:var(--color-fg-2)}
@@ -397,7 +402,7 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   #sidebar{position:absolute;left:0;top:0;bottom:0;z-index:30;box-shadow:var(--shadow-float)}
   #inspector{width:min(288px,92vw)}
   .two,.g2,.sctable{grid-template-columns:1fr}
-  .setwrap{flex-direction:column;height:auto}.setnav{flex-direction:row;width:auto;overflow:auto}
+  .setwrap{flex-direction:column;height:auto}.setnav{flex-direction:row;width:auto;overflow:auto}.setnav>*{white-space:nowrap;flex:none}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   #modebar .ib{display:none}
   .seg button .lbl2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -417,7 +422,6 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .splash{height:100%;display:grid;place-items:center;color:var(--color-fg-2)}
   .splash .box{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:420px;text-align:center}
-  .splash .logo{width:48px;height:48px;border-radius:14px;background:var(--color-accent);color:var(--color-accent-fg);display:grid;place-items:center;font:700 26px var(--font-ui)}
   /* document canvas */
   #canvas{display:block;padding:0;position:relative;gap:0}
   .pages{position:relative;margin:0 auto}
@@ -446,6 +450,7 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .area{outline:1px dashed rgba(37,99,235,.65);background:rgba(37,99,235,.07);border-radius:2px;cursor:text}
   .area:hover{background:rgba(37,99,235,.16)}
   .located{outline:2px solid #f59e0b;outline-offset:2px;border-radius:2px;pointer-events:none;animation:pulse 1s ease-in-out 2}
+  svg.preview{position:absolute}svg.preview text{fill:rgba(37,99,235,.75);font-style:italic;font-family:Arial,"Liberation Sans",sans-serif}
   .preview{color:rgba(37,99,235,.75);font-style:italic;white-space:nowrap;overflow:hidden;pointer-events:none;font-family:Arial,"Liberation Sans",sans-serif}
   @keyframes pulse{50%{outline-offset:6px}}
   .fld{box-sizing:border-box;border:1px solid transparent;background:transparent;border-radius:2px;padding:0 2px;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:#111;min-width:0;height:auto;margin:0}
@@ -541,3 +546,12 @@ body.edit #canvas .run:hover{outline:1px dashed #2563eb;outline-offset:1px;curso
   .seg.seg-inline{display:inline-flex;align-self:flex-start}
   .reduce-motion *{animation:none!important;transition:none!important}
 }
+
+/* Permission-denied commands stay focusable and show their reason on hover (FR-SEC-07). */
+.tool[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.tool[aria-disabled=true]:hover{background:none}
+.tab .lock,#statusbar .lock{display:inline-flex;align-items:center;color:var(--color-fg-2)}
+.tab .lock svg,#statusbar .lock svg{width:13px;height:13px}
+
+/* Checkbox rows in dialogs keep the checkbox its natural size (it would otherwise stretch with the field styles). */
+.row input[type=checkbox]{width:auto;flex:none}

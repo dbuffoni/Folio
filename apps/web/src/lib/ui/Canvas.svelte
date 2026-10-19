@@ -101,6 +101,13 @@
     void sv;
     session.fit(viewport);
   });
+  function listen(node: HTMLElement, handlers: Record<string, (e: never) => void>) {
+    const add = (h: Record<string, (e: never) => void>): void => {
+      for (const [type, fn] of Object.entries(h)) node.addEventListener(type, fn as EventListener, { passive: type !== 'wheel' && type !== 'keydown' });
+    };
+    add(handlers);
+    return { destroy: () => Object.entries(handlers).forEach(([type, fn]) => node.removeEventListener(type, fn as EventListener)) };
+  }
   function onscroll(): void {
     if (!scroller) return; // a late scroll event while the canvas is being replaced
     scrollTop = scroller.scrollTop;
@@ -171,8 +178,9 @@
   }
 </script>
 
+<!-- The scroller is a focusable scrollable region (WCAG 2.1.1); its page and zoom keys are attached as listeners, not as an interactive role. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div id="canvas" class:finding={findOpen} class:scrolling bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} {onscroll} {onwheel} {onkeydown}>
+<div id="canvas" class:finding={findOpen} class:scrolling bind:this={scroller} tabindex="0" role="region" aria-label={t('ui.document')} use:listen={{ scroll: onscroll, wheel: onwheel, keydown: onkeydown }}>
   {#if hint}
     <div class="callout canvashint" role="status">
       <Icon name="info" /><span>{tm(hint)}</span>

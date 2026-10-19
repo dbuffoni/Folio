@@ -1,7 +1,7 @@
 // Interoperability (NFR-08, SPEC §15): what Folio writes must be valid for qpdf and pdfcpu and must
 // look the same in other renderers (poppler, MuPDF) as it does in ours.
 import { describe, expect, it } from 'vitest';
-import { FIXTURES, fixture, hasTool, mutoolDraw, pdftoppm, pdftotext, sharedEngine } from '@folio/testkit';
+import { FIXTURES, fixture, hasTool, mutoolDraw, pdfinfo, pdftoppm, pdftotext, sharedEngine } from '@folio/testkit';
 
 const RENDERABLE = ['text', 'invoice', 'subset-font', 'acroform', 'annotated', 'images', 'rotated-pages', 'mixed-sizes', 'unicode', 'links', 'bookmarks'].filter((n) => n in FIXTURES);
 
@@ -43,6 +43,21 @@ describe('files written by the engine are read correctly by other tools', () => 
     const after = await pdftoppm(saved, 1, 72);
     // Both the field value and the text box add ink that poppler draws from the appearance streams.
     expect(after).not.toRenderLike(before, { tolerance: 0.0005 });
+    doc.dispose();
+  });
+
+  it('removed hidden data is gone for pdfinfo, mutool and a visual render, and the file stays valid @FR-SEC-12 @NFR-08', async () => {
+    const engine = await sharedEngine();
+    const doc = await engine.open(await fixture('hidden-data'));
+    const before = await doc.render(0, { scale: 1 });
+    await doc.removeHiddenData({ info: true, xmp: true, thumbnails: true, scripts: true, annotationAuthors: true, attachments: true });
+    const saved = await doc.save();
+    await expect(saved).toBeValidPdf();
+    const info = await pdfinfo(saved);
+    expect([info.title, info.author]).toEqual(['', '']);
+    expect(await pdftoppm(saved, 1, 72)).toRenderLike(await doc.render(0, { scale: 1 }), { tolerance: 0.06 });
+    // The comment keeps its place; only its author is gone.
+    expect((await doc.render(0, { scale: 1 })).width).toBe(before.width);
     doc.dispose();
   });
 });

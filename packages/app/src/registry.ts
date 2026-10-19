@@ -1,5 +1,5 @@
 import type { AppModel } from './app.ts';
-import { CommandRegistry, type AppCommand } from './commands.ts';
+import { CommandRegistry, type AppCommand, type PermissionKey } from './commands.ts';
 import type { SignModel } from './features.ts';
 import { MODES, type DocumentSession, type Mode } from './session.ts';
 import type { ToolController, ToolId } from './tools.ts';
@@ -22,7 +22,9 @@ const doc = (ctx: CommandContext): boolean => ctx.session !== null;
 const inMode = (...modes: Mode[]) => (ctx: CommandContext): boolean => ctx.session !== null && modes.includes(ctx.session.mode);
 const hasPages = (ctx: CommandContext): boolean => ctx.session?.mode === 'organise' && ctx.session.selection.kind === 'pages';
 
+const NEEDS_BY_MODE: Partial<Record<Mode, PermissionKey>> = { edit: 'modify', annotate: 'annotate', fill: 'annotate' };
 const tool = (id: ToolId, title: string, icon: string, shortcut: string | undefined, mode: Mode, keywords = ''): C => ({
+  needs: id === 'snapshot' ? 'copy' : id === 'select' ? undefined : NEEDS_BY_MODE[mode],
   id: `tool.${id}`,
   title,
   group: 'tool',
@@ -39,7 +41,7 @@ const tool = (id: ToolId, title: string, icon: string, shortcut: string | undefi
 
 /** Default commands and shortcuts (Appendix A). One list feeds menus, tooltips, shortcuts and the palette. */
 export function createRegistry(): CommandRegistry<CommandContext> {
-  const r = new CommandRegistry<CommandContext>();
+  const r = new CommandRegistry<CommandContext>((needs, ctx) => ctx.session?.denial(needs));
   r.register(
     // File
     { id: 'file.open', title: 'cmd.open', group: 'file', icon: 'folder-open', shortcut: 'Mod+O', global: true, run: ({ app }) => void app.openDialog() },
@@ -47,23 +49,25 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'file.saveAs', title: 'cmd.saveAs', group: 'file', icon: 'save-all', shortcut: 'Mod+Shift+S', global: true, when: doc, run: ({ app }) => void app.saveAs() },
     { id: 'file.exportCopy', title: 'cmd.exportCopy', group: 'file', icon: 'copy', when: doc, run: ({ app }) => void app.exportCopy() },
     { id: 'file.close', title: 'cmd.closeTab', group: 'file', icon: 'x', shortcut: 'Mod+W', global: true, when: doc, run: ({ app, session }) => void app.closeTab(session!.id) },
-    { id: 'file.print', title: 'cmd.print', group: 'file', icon: 'printer', shortcut: 'Mod+P', global: true, when: doc, run: ({ ui }) => ui.openDialog('print') },
+    { id: 'file.print', needs: 'print', title: 'cmd.print', group: 'file', icon: 'printer', shortcut: 'Mod+P', global: true, when: doc, run: ({ ui }) => ui.openDialog('print') },
     { id: 'file.properties', title: 'cmd.properties', group: 'file', icon: 'info', when: doc, keywords: 'document info fonts size', run: ({ ui }) => ui.openDialog('properties') },
-    { id: 'file.metadata', title: 'cmd.metadata', group: 'file', icon: 'tags', when: doc, keywords: 'title author subject keywords', run: ({ ui }) => ui.openDialog('metadata') },
+    { id: 'file.metadata', needs: 'modify', title: 'cmd.metadata', group: 'file', icon: 'tags', when: doc, keywords: 'title author subject keywords', run: ({ ui }) => ui.openDialog('metadata') },
+    { id: 'file.hiddenData', needs: 'modify', title: 'cmd.hiddenData', group: 'file', icon: 'eraser', when: doc, keywords: 'remove metadata xmp javascript attachments thumbnails sanitize clean privacy', run: ({ ui }) => ui.openDialog('hiddenData') },
+    { id: 'file.unlock', title: 'cmd.unlock', group: 'file', icon: 'lock-open', when: (c) => !!c.session?.meta.permissions && !!c.session.ref, keywords: 'owner password restrictions permissions', run: ({ app, session }) => void app.unlockRestrictions(session!) },
     { id: 'file.home', title: 'cmd.home', group: 'file', icon: 'house', run: ({ app }) => app.showHome() },
     // Tasks
-    { id: 'task.merge', title: 'cmd.merge', group: 'file', icon: 'combine', keywords: 'combine join pdfs', run: ({ ui }) => ui.openDialog('merge') },
-    { id: 'task.split', title: 'cmd.split', group: 'file', icon: 'scissors', when: doc, keywords: 'separate divide', run: ({ ui }) => ui.openDialog('split') },
+    { id: 'task.merge', needs: 'assemble', title: 'cmd.merge', group: 'file', icon: 'combine', keywords: 'combine join pdfs', run: ({ ui }) => ui.openDialog('merge') },
+    { id: 'task.split', needs: 'assemble', title: 'cmd.split', group: 'file', icon: 'scissors', when: doc, keywords: 'separate divide', run: ({ ui }) => ui.openDialog('split') },
     { id: 'task.images', title: 'cmd.imagesToPdf', group: 'file', icon: 'images', keywords: 'photos jpg png scan', run: ({ ui }) => ui.openDialog('images') },
     { id: 'task.ocr', title: 'cmd.ocr.open', group: 'file', icon: 'scan-text', when: doc, keywords: 'recognise recognize text scan searchable ocr', run: ({ ui }) => ui.openDialog('ocr') },
     { id: 'export.compress', title: 'cmd.compress', group: 'export', icon: 'file-down', when: doc, keywords: 'reduce shrink smaller size compress optimise', run: ({ ui }) => ui.openDialog('compress') },
     { id: 'sign.digital', title: 'cmd.digitalSign', group: 'export', icon: 'badge-check', when: doc, keywords: 'certificate pades sign digitally seal', run: ({ ui }) => ui.openDialog('digitalSign') },
     { id: 'sign.verify', title: 'cmd.verifySignatures', group: 'export', icon: 'shield-check', when: doc, keywords: 'validate check signatures certificate', run: ({ ui }) => ui.openDialog('signatures') },
-    { id: 'export.images', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
-    { id: 'export.flatten', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {
+    { id: 'export.images', needs: 'copy', title: 'cmd.exportImages', group: 'export', icon: 'image-down', when: doc, keywords: 'png jpeg webp pictures', run: ({ ui }) => ui.openDialog('exportImages') },
+    { id: 'export.flatten', needs: 'modify', title: 'cmd.flattenAll', group: 'export', icon: 'layers-2', when: doc, keywords: 'burn annotations form', run: async ({ app, session }) => {
         if (await app.prompts.confirm({ key: 'confirm.flatten' }, { danger: true, confirmLabel: { key: 'cmd.flatten.both' } })) await app.guard(() => session!.run(app.services.exporter.flatten('both')));
       } },
-    { id: 'export.flattenAnnotations', title: 'cmd.flattenAnnotations', group: 'export', icon: 'layers-2', when: doc, run: async ({ app, session }) => {
+    { id: 'export.flattenAnnotations', needs: 'modify', title: 'cmd.flattenAnnotations', group: 'export', icon: 'layers-2', when: doc, run: async ({ app, session }) => {
         if (await app.prompts.confirm({ key: 'confirm.flattenAnnotations' }, { danger: true, confirmLabel: { key: 'cmd.flatten.annotations' } })) await app.guard(() => session!.run(app.services.exporter.flatten('annotations')));
       } },
     { id: 'export.flattenedCopy', title: 'cmd.flattenedCopy', group: 'export', icon: 'file-output', when: doc, run: async ({ app, session }) => {
@@ -75,12 +79,12 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     { id: 'edit.redo', title: 'cmd.redo', group: 'edit', icon: 'redo-2', shortcut: 'Mod+Shift+Z', when: (c) => !!c.session?.historyState.canRedo, run: ({ session }) => void session!.redo() },
     { id: 'edit.history', title: 'cmd.history', group: 'edit', icon: 'history', when: doc, run: ({ ui }) => ui.openDialog('history') },
     { id: 'edit.find', title: 'cmd.find', group: 'edit', icon: 'search', shortcut: 'Mod+F', global: true, when: doc, run: ({ find }) => find!.toggle(true) },
-    { id: 'edit.delete', title: 'cmd.delete', group: 'edit', icon: 'trash-2', shortcut: 'Del', when: (c) => !!c.session && c.session.selection.kind !== 'none' && c.session.selection.kind !== 'text', run: async ({ session, tools, organise }) => {
+    { id: 'edit.delete', needs: (c) => { const k = c.session?.selection.kind; return k === 'pages' ? 'assemble' : k === 'annotations' ? 'annotate' : k === 'object' ? 'modify' : undefined; }, title: 'cmd.delete', group: 'edit', icon: 'trash-2', shortcut: 'Del', when: (c) => !!c.session && c.session.selection.kind !== 'none' && c.session.selection.kind !== 'text', run: async ({ session, tools, organise }) => {
         if (session!.selection.kind === 'pages') await organise?.delete();
         else await tools!.deleteSelection();
       } },
     { id: 'edit.selectAll', title: 'cmd.selectAll', group: 'edit', icon: 'square-check-big', shortcut: 'Mod+A', when: inMode('organise'), run: ({ organise }) => organise?.selectAll() },
-    { id: 'edit.copy', title: 'cmd.copy', group: 'edit', icon: 'copy', shortcut: 'Mod+C', when: (c) => !!c.session && (c.session.selection.kind === 'text' || c.session.selection.kind === 'annotations'), run: ({ tools }) => void tools!.copySelection() },
+    { id: 'edit.copy', needs: 'copy', title: 'cmd.copy', group: 'edit', icon: 'copy', shortcut: 'Mod+C', when: (c) => !!c.session && (c.session.selection.kind === 'text' || c.session.selection.kind === 'annotations'), run: ({ tools }) => void tools!.copySelection() },
     { id: 'edit.cancel', title: 'cmd.cancel', group: 'edit', shortcut: 'Esc', when: doc, run: ({ tools, find }) => {
         if (find!.open) find!.toggle(false);
         else tools!.cancel();
@@ -135,11 +139,11 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     tool('table', 'tool.table', 'table', undefined, 'view', 'extract table csv spreadsheet grid'),
     { id: 'task.tableWhole', title: 'cmd.tableWholePage', group: 'file', icon: 'table', when: doc, keywords: 'extract table csv page', run: ({ ui }) => ui.openDialog('tables') },
     // Sign & stamps
-    { id: 'sign.sign', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
+    { id: 'sign.sign', needs: 'annotate', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
         session!.setMode('fill');
         if ((await sign.sign(tools!)) === 'creating') ui.openDialog('signature');
       } },
-    { id: 'sign.initials', title: 'cmd.initials', group: 'sign', icon: 'pen-line', when: doc, run: async ({ session, sign, tools, ui }) => {
+    { id: 'sign.initials', needs: 'annotate', title: 'cmd.initials', group: 'sign', icon: 'pen-line', when: doc, run: async ({ session, sign, tools, ui }) => {
         session!.setMode('fill');
         if ((await sign.sign(tools!, 'initials')) === 'creating') ui.openDialog('signature');
       } },
@@ -147,25 +151,25 @@ export function createRegistry(): CommandRegistry<CommandContext> {
         sign.openCreate('signature');
         ui.openDialog('signature');
       } },
-    { id: 'sign.date', title: 'cmd.insertDate', group: 'sign', icon: 'calendar', shortcut: 'Mod+Shift+D', global: true, when: doc, run: ({ session, sign, tools }) => {
+    { id: 'sign.date', needs: 'annotate', title: 'cmd.insertDate', group: 'sign', icon: 'calendar', shortcut: 'Mod+Shift+D', global: true, when: doc, run: ({ session, sign, tools }) => {
         session!.setMode('fill');
         sign.placeDate(tools!);
       } },
     { id: 'sign.stamps', title: 'cmd.manageStamps', group: 'sign', icon: 'stamp', run: ({ ui }) => ui.openDialog('stampEditor') },
     // Pages (Organise)
-    { id: 'pages.rotateCw', title: 'cmd.rotateCw', group: 'pages', icon: 'rotate-cw', shortcut: 'R', when: hasPages, run: ({ organise }) => void organise?.rotate(90) },
-    { id: 'pages.rotateCcw', title: 'cmd.rotateCcw', group: 'pages', icon: 'rotate-ccw', shortcut: 'Shift+R', when: hasPages, run: ({ organise }) => void organise?.rotate(270) },
-    { id: 'pages.rotate180', title: 'cmd.rotate180', group: 'pages', icon: 'refresh-cw', when: hasPages, run: ({ organise }) => void organise?.rotate(180) },
-    { id: 'pages.duplicate', title: 'cmd.duplicate', group: 'pages', icon: 'copy-plus', shortcut: 'Mod+D', global: true, when: hasPages, run: ({ organise }) => void organise?.duplicate() },
-    { id: 'pages.extract', title: 'cmd.extract', group: 'pages', icon: 'file-output', when: hasPages, run: ({ organise }) => void organise?.extract(false) },
-    { id: 'pages.insertBlank', title: 'cmd.insertBlank', group: 'pages', icon: 'file-plus', when: inMode('organise'), run: ({ ui }) => ui.openDialog('insertBlank') },
-    { id: 'pages.insertFile', title: 'cmd.insertFromFile', group: 'pages', icon: 'file-input', when: inMode('organise'), run: ({ organise, session }) => {
+    { id: 'pages.rotateCw', needs: 'assemble', title: 'cmd.rotateCw', group: 'pages', icon: 'rotate-cw', shortcut: 'R', when: hasPages, run: ({ organise }) => void organise?.rotate(90) },
+    { id: 'pages.rotateCcw', needs: 'assemble', title: 'cmd.rotateCcw', group: 'pages', icon: 'rotate-ccw', shortcut: 'Shift+R', when: hasPages, run: ({ organise }) => void organise?.rotate(270) },
+    { id: 'pages.rotate180', needs: 'assemble', title: 'cmd.rotate180', group: 'pages', icon: 'refresh-cw', when: hasPages, run: ({ organise }) => void organise?.rotate(180) },
+    { id: 'pages.duplicate', needs: 'assemble', title: 'cmd.duplicate', group: 'pages', icon: 'copy-plus', shortcut: 'Mod+D', global: true, when: hasPages, run: ({ organise }) => void organise?.duplicate() },
+    { id: 'pages.extract', needs: 'assemble', title: 'cmd.extract', group: 'pages', icon: 'file-output', when: hasPages, run: ({ organise }) => void organise?.extract(false) },
+    { id: 'pages.insertBlank', needs: 'assemble', title: 'cmd.insertBlank', group: 'pages', icon: 'file-plus', when: inMode('organise'), run: ({ ui }) => ui.openDialog('insertBlank') },
+    { id: 'pages.insertFile', needs: 'assemble', title: 'cmd.insertFromFile', group: 'pages', icon: 'file-input', when: inMode('organise'), run: ({ organise, session }) => {
         const sel = session!.selection;
         void organise?.insertFromFile(sel.kind === 'pages' ? sel.pages[sel.pages.length - 1]! + 1 : session!.pageCount);
       } },
-    { id: 'pages.replace', title: 'cmd.replacePages', group: 'pages', icon: 'replace', when: hasPages, run: ({ organise }) => void organise?.replaceFromFile() },
-    { id: 'pages.moveUp', title: 'cmd.movePagesUp', group: 'pages', icon: 'arrow-left', shortcut: 'Alt+ArrowLeft', when: hasPages, run: ({ organise }) => void organise?.nudge(-1) },
-    { id: 'pages.moveDown', title: 'cmd.movePagesDown', group: 'pages', icon: 'arrow-right', shortcut: 'Alt+ArrowRight', when: hasPages, run: ({ organise }) => void organise?.nudge(1) },
+    { id: 'pages.replace', needs: 'assemble', title: 'cmd.replacePages', group: 'pages', icon: 'replace', when: hasPages, run: ({ organise }) => void organise?.replaceFromFile() },
+    { id: 'pages.moveUp', needs: 'assemble', title: 'cmd.movePagesUp', group: 'pages', icon: 'arrow-left', shortcut: 'Alt+ArrowLeft', when: hasPages, run: ({ organise }) => void organise?.nudge(-1) },
+    { id: 'pages.moveDown', needs: 'assemble', title: 'cmd.movePagesDown', group: 'pages', icon: 'arrow-right', shortcut: 'Alt+ArrowRight', when: hasPages, run: ({ organise }) => void organise?.nudge(1) },
     { id: 'pages.selectOdd', title: 'cmd.selectOdd', group: 'pages', when: inMode('organise'), run: ({ organise }) => organise?.selectOdd() },
     { id: 'pages.selectEven', title: 'cmd.selectEven', group: 'pages', when: inMode('organise'), run: ({ organise }) => organise?.selectEven() },
     { id: 'pages.selectNone', title: 'cmd.selectNone', group: 'pages', when: inMode('organise'), run: ({ organise }) => organise?.selectNone() },

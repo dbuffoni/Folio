@@ -42,7 +42,7 @@ function rectOf(m: Pdfium, a: Arena, annot: Ptr): Rect {
 }
 
 /** Interprets the common Acrobat format scripts without executing them (FR-FRM-03). */
-export function parseFormatScript(js: string): FormField['format'] {
+function parseFormatScript(js: string): FormField['format'] {
   let m = /AFNumber_Format\(\s*(\d+)/.exec(js);
   if (m) return { kind: 'number', decimals: Number(m[1]) };
   m = /AFPercent_Format\(\s*(\d+)/.exec(js);

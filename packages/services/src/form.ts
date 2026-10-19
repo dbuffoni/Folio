@@ -72,6 +72,8 @@ export interface DetectedArea {
   cells?: number;
   /** True when the area is a run of dots or underscores printed in the text: its bottom edge is the text line, not free space. */
   leader?: boolean;
+  /** Height of the printed line the text should stand on (ruled lines and leaders); absent for boxes and cells. */
+  lineY?: number;
 }
 
 const right = (r: Rect): number => r.x + r.width;
@@ -115,7 +117,7 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
     const area = { x: l.x, y: l.y + l.height / 2, width: l.width, height: 16 };
     // Skip table rules and box edges: a writing line has nothing but white above it.
     const crowded = layer.runs.some((r) => intersects(r.rect, { ...area, y: area.y + 2, height: 10 })) || found.some((f) => intersects(f.rect, { ...area, y: area.y + 1, height: 6 }));
-    if (!crowded) found.push({ page, rect: area, kind: 'text' });
+    if (!crowded) found.push({ page, rect: area, kind: 'text', lineY: l.y + l.height / 2 });
   }
   // Leaders inside text: underscore runs and the dotted lines of word-processor forms ("name ………………").
   // An ellipsis character counts as three dots; fewer than six dots is punctuation, not a field.
@@ -134,7 +136,7 @@ export function detectAreas(page: PageIndex, objects: PageObject[], layer: TextL
           let from = start;
           while (from > 0 && start - from < 60 && !/[\n\r]/.test(layer.chars[from - 1]!.text) && weight(layer.chars[from - 1]!.text) === 0) from--;
           const before = layer.chars.slice(from, start).map((c) => c.text).join('').replace(/[:\s]+$/g, '').trim();
-          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text', leader: true, ...(/\p{L}{2}/u.test(before) ? { preLabel: before } : {}) });
+          found.push({ page, rect: { x: u.x, y: u.y, width: u.width, height: Math.max(14, u.height) }, kind: 'text', leader: true, lineY: u.y + u.height * 0.2, ...(/\p{L}{2}/u.test(before) ? { preLabel: before } : {}) });
         }
       }
       start = -1;

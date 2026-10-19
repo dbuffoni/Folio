@@ -8,10 +8,11 @@ import {
   SignedAndUnsignedAttributes,
   SignedData,
   SignerInfo,
-  Certificate,
+  type Certificate,
   getCrypto,
 } from 'pkijs';
 import { ab, certDer, ensureEngine, type SigningIdentity } from './certs.ts';
+import { certificatesOf, findSigner } from './chain.ts';
 
 const OID_SIGNED_DATA = '1.2.840.113549.1.7.2';
 const OID_DATA = '1.2.840.113549.1.7.1';
@@ -101,17 +102,14 @@ export async function verifyDetached(cmsDer: Uint8Array, data: Uint8Array): Prom
   } catch (e) {
     return { ok: false, reason: 'malformed', message: e instanceof Error ? e.message : 'malformed' };
   }
-  const certificates = (signed.certificates ?? []).filter((c): c is Certificate => c instanceof Certificate);
+  const certificates = certificatesOf(signed);
   if (!signed.signerInfos.length || !certificates.length)
     return { ok: false, reason: 'malformed', message: 'no signer certificate' };
-  const sid = signed.signerInfos[0]!.sid;
-  const signer =
-    certificates.find(
-      (c) =>
-        sid instanceof IssuerAndSerialNumber &&
-        c.issuer.isEqual(sid.issuer) &&
-        c.serialNumber.isEqual(sid.serialNumber),
-    ) ?? certificates[0]!;
+  // The signer is the certificate the signer identifier names, never just the first one embedded:
+  // anyone can add someone else's certificate to the list (R11).
+  const signer = await findSigner(signed, 0);
+  if (!signer)
+    return { ok: false, reason: 'malformed', message: 'the signer identifier names no embedded certificate' };
   try {
     const res = await signed.verify({
       signer: 0,
@@ -120,6 +118,9 @@ export async function verifyDetached(cmsDer: Uint8Array, data: Uint8Array): Prom
       checkChain: false,
       extendedMode: true,
     });
+    // Report the certificate pkijs verified with; it must be the one the identifier names.
+    if (res.signatureVerified && res.signerCertificate !== signer)
+      return { ok: false, reason: 'malformed', message: 'the signer certificate is ambiguous' };
     if (res.signatureVerified) {
       const when = signed.signerInfos[0]!.signedAttrs?.attributes.find(
         (a) => a.type === '1.2.840.113549.1.9.5',

@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -20,9 +27,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -40,7 +47,7 @@ jobs:
       - run: pnpm trace
       # `pnpm licenses` alone is pnpm's own command; the repo's checker is the script of that name.
       - run: pnpm exec tsx tools/licenses.ts --check
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-and-diffs
@@ -54,9 +61,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -67,7 +74,7 @@ jobs:
       # in the release checklist, not on shared runners.
       - run: pnpm test:e2e --grep-invert "screens in the"
       - run: pnpm exec tsx tools/bundle-size.ts
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-results
@@ -78,9 +85,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -98,7 +105,7 @@ jobs:
       - run: pnpm appimage:smoke
       - name: Checksums
         run: cd apps/desktop/src-tauri/target/release/bundle/appimage && sha256sum *.AppImage > SHA256SUMS
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: folio-appimage
           path: |
@@ -112,11 +119,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             bundle: bundle:windows
             artifact: folio-windows
             path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
-          - os: macos-latest
+          - os: macos-15
             bundle: bundle:macos
             artifact: folio-macos
             path: apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
@@ -126,9 +133,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -139,7 +146,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/desktop check
       - run: pnpm --filter @folio/desktop ${{ matrix.bundle }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
@@ -149,27 +156,43 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-2025, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The certificate tests build PKCS#12 files with OpenSSL 3 (-legacy, AES protection); macOS ships LibreSSL.
+      - name: OpenSSL 3
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
       # The unit suites validate their output with qpdf, so the oracles come first.
       - name: PDF oracles
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
             brew install qpdf poppler mupdf-tools
           else
-            choco install -y qpdf poppler mupdf
+            # The community feed fails now and then and choco still exits 0 for the other packages:
+            # install one at a time, retry, and check that the tool really arrived.
+            for pkg in qpdf poppler mupdf; do
+              for attempt in 1 2 3; do
+                choco install -y "$pkg" && [ -d "/c/ProgramData/chocolatey/lib/$pkg" ] && break
+                echo "::warning::choco install $pkg failed (attempt $attempt)"; sleep 15
+              done
+              [ -d "/c/ProgramData/chocolatey/lib/$pkg" ] || { echo "::error::$pkg could not be installed"; exit 1; }
+            done
+            export PATH="$PATH:/c/ProgramData/chocolatey/bin"
+            echo 'C:\ProgramData\chocolatey\bin' >> "$GITHUB_PATH"
           fi
           qpdf --version
       - name: pdfcpu

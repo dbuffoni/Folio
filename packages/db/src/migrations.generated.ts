@@ -36,5 +36,10 @@ export const EMBEDDED: Migration[] = [
     "version": 7,
     "name": "0007_profile_entries_plain",
     "sql": "-- 0007_profile_entries_plain.sql — signature and \"today\" entries are not kept in a profile: the profile names one\n-- signature (profiles.signature_id) and the date of the day is written by Smart Fill itself.\nUPDATE profiles SET signature_id = (SELECT value FROM profile_fields f WHERE f.profile_id = profiles.id AND f.type = 'signature' AND f.value IN (SELECT id FROM signatures) ORDER BY f.sort_order LIMIT 1)\n  WHERE signature_id IS NULL;\nDELETE FROM profile_fields WHERE type = 'signature';\nUPDATE profile_fields SET type = 'date' WHERE type = 'today';\n"
+  },
+  {
+    "version": 8,
+    "name": "0008_drop_field_templates",
+    "sql": "-- 0008_drop_field_templates.sql — user-defined field templates are removed (0.1.3, owner decision). New profiles\n-- start from built-in presets, which are constants in code. Profiles and their entries (incl. options_json) stay.\nDROP TABLE IF EXISTS field_templates;\n"
   }
 ];

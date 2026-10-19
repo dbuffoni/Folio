@@ -131,7 +131,12 @@ try {
   console.error(driverLog.split('\n').slice(-15).join('\n'));
 } finally {
   driver.kill();
-  rmSync(work, { recursive: true, force: true });
+  try {
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (e) {
+    // The portal helpers started by the web view can still hold files in the session directory.
+    console.log(`note: could not remove ${work}: ${e.code}`);
+  }
 }
 console.log(`${checks.filter((c) => c.ok).length}/${checks.length} checks passed`);
 process.exit(code);

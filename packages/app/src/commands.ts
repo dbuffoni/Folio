@@ -1,6 +1,9 @@
 import type { Msg } from '@folio/core';
 import { chordOfEvent, parseChord, sameChord, type KeyEventLike } from './keymap.ts';
 
+/** Keys of the usage permissions a command can require. */
+export type PermissionKey = 'print' | 'copy' | 'modify' | 'annotate' | 'fillForms' | 'assemble';
+
 export type CommandGroup = 'file' | 'edit' | 'view' | 'mode' | 'tool' | 'pages' | 'annotate' | 'sign' | 'forms' | 'export' | 'settings' | 'help';
 
 /** An action reachable from menus, toolbars, shortcuts and the command palette (FR-APP-09). */
@@ -19,6 +22,8 @@ export interface AppCommand<Ctx> {
   global?: boolean;
   /** Hidden and inactive when false. */
   when?: (ctx: Ctx) => boolean;
+  /** Usage permission of the document this command needs (FR-SEC-07): shown but disabled, with the reason, when denied. */
+  needs?: PermissionKey | ((ctx: Ctx) => PermissionKey | undefined);
   run: (ctx: Ctx) => void | Promise<void>;
 }
 
@@ -26,6 +31,8 @@ export interface PaletteItem<Ctx> {
   command: AppCommand<Ctx>;
   title: string;
   score: number;
+  /** i18n key of why the command is disabled; absent when it can run. */
+  denied?: string;
 }
 
 /** Subsequence match with bonuses for word starts and consecutive characters; 0 = no match. */
@@ -54,6 +61,16 @@ export function fuzzyScore(query: string, text: string): number {
 export class CommandRegistry<Ctx> {
   private commands = new Map<string, AppCommand<Ctx>>();
 
+  /** The one place that decides permission-based disabling: returns the i18n key of the reason. */
+  constructor(private readonly denyReason: (needs: PermissionKey, ctx: Ctx) => string | undefined = () => undefined) {}
+
+  /** Why an available command is disabled, if it is. */
+  denial(id: string, ctx: Ctx): string | undefined {
+    const c = this.commands.get(id);
+    const needs = typeof c?.needs === 'function' ? c.needs(ctx) : c?.needs;
+    return needs ? this.denyReason(needs, ctx) : undefined;
+  }
+
   register(...commands: AppCommand<Ctx>[]): this {
     for (const c of commands) {
       if (this.commands.has(c.id)) throw new Error(`Duplicate command id ${c.id}`);
@@ -72,13 +89,13 @@ export class CommandRegistry<Ctx> {
   }
   isEnabled(id: string, ctx: Ctx): boolean {
     const c = this.commands.get(id);
-    return !!c && (!c.when || c.when(ctx));
+    return !!c && (!c.when || c.when(ctx)) && !this.denial(id, ctx);
   }
 
   /** Runs a command if it exists and is available. Returns whether it ran. */
   async run(id: string, ctx: Ctx): Promise<boolean> {
     const c = this.commands.get(id);
-    if (!c || (c.when && !c.when(ctx))) return false;
+    if (!c || (c.when && !c.when(ctx)) || this.denial(id, ctx)) return false;
     await c.run(ctx);
     return true;
   }
@@ -89,7 +106,7 @@ export class CommandRegistry<Ctx> {
     return this.all().find((c) => {
       if (!c.shortcut || !sameChord(parseChord(c.shortcut), chord)) return false;
       if (opts.typing && !c.global) return false;
-      return !c.when || c.when(ctx);
+      return (!c.when || c.when(ctx)) && !this.denial(c.id, ctx);
     });
   }
 
@@ -99,7 +116,7 @@ export class CommandRegistry<Ctx> {
     for (const command of this.available(ctx)) {
       const title = translate(command.title);
       const score = Math.max(fuzzyScore(query, title), fuzzyScore(query, command.keywords ?? '') * 0.8, fuzzyScore(query, command.id.replace(/[.:]/g, ' ')) * 0.5);
-      if (score > 0) items.push({ command, title, score });
+      if (score > 0) items.push({ command, title, score, denied: this.denial(command.id, ctx) });
     }
     if (query.trim() === '') return items.slice(0, limit);
     return items.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit);

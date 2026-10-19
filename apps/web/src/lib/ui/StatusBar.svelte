@@ -17,6 +17,7 @@
   $effect(() => {
     pageText = String(currentPage + 1);
   });
+  const lockText = $derived(session.meta.ownerUnlocked ? t('perm.unlocked') : session.meta.permissions ? t('perm.lockRestricted') : t('perm.lock'));
   let menu = $state<{ x: number; y: number } | null>(null);
   const k = (s: string): string => formatChord(s, isMac);
   const zoomItems = $derived.by((): MenuItem[] => [
@@ -49,6 +50,7 @@
   <span class="vsep"></span>
   <button class="ib" onclick={() => session.rotateView(270)} use:tip={t('ui.rotateLeft')} aria-label={t('ui.rotateLeft')}><Icon name="rotate-ccw" /></button>
   <button class="ib" onclick={() => session.rotateView(90)} use:tip={[t('ui.rotateRight'), k('Mod+Shift+R')]} aria-label={t('ui.rotateRight')}><Icon name="rotate-cw" /></button>
+  {#if session.meta.isEncrypted}<span class="lock" role="img" aria-label={lockText} title={lockText}><Icon name={session.meta.ownerUnlocked ? 'lock-open' : 'lock'} /></span>{/if}
   <span class="st" role="status"><i class="dotok" class:dotun={dirty} style="display:inline-block"></i><span>{dirty ? t('ui.unsaved') : t('ui.saved')}{session.byteSize ? ` · ${formatBytes(session.byteSize)}` : ''}</span></span>
   <button class="ib" class:on={ui.inspectorOpen} onclick={() => ui.toggleInspector()} use:tip={[t('cmd.toggleInspector'), 'F5']} aria-label={t('cmd.toggleInspector')} aria-pressed={ui.inspectorOpen}><Icon name="panel-right" /></button>
 </footer>

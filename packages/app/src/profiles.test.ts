@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
-import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
+import { BASELINE_K, applyToRect, detectedFontSize, pageToViewMatrix, rotatedSize } from '@folio/core';
 import { flatFormDoc, inkRatio, samplePng, scannedFormDoc } from '@folio/testkit';
 import { vectorFromStrokes, vectorToSvg } from '@folio/services';
 import { createTestApp } from './testing.ts';
 
-describe('Profiles and field templates editor @FR-FRM-20', () => {
-  it('a profile built from scratch with six typed fields, reordered, then a template made from it @FR-FRM-20', async () => {
+describe('Profiles editor @FR-FRM-20', () => {
+  it('a profile built from scratch with six typed fields, reordered @FR-FRM-20', async () => {
     const t = await createTestApp();
     const m = t.profiles();
     await m.load();
-    // Built-in sets are listed and read-only.
-    expect(m.templates.filter((x) => x.builtIn).length).toBeGreaterThanOrEqual(6);
     const p = (await m.create('Travel'))!;
     expect(m.editing).toBe(p.id);
     const keys: string[] = [];
@@ -31,18 +29,6 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     await m.moveField(p.id, 'full_name', -1);
     expect(m.current!.fields.map((f) => f.key)).toEqual(['full_name', 'date_of_birth', 'email', 'notes', 'phone', 'seat']);
     expect(m.current!.fields.find((f) => f.key === 'seat')).toMatchObject({ type: 'choice', options: ['Aisle', 'Window'], value: 'Aisle' });
-
-    const tpl = (await m.saveAsTemplate(p.id, 'Travel header'))!;
-    expect(tpl.fields.length).toBe(6);
-    expect(JSON.stringify(tpl)).not.toContain('1988-04-23');
-    // A second profile: the template adds its fields, duplicate keys are skipped and listed.
-    const q = (await m.create('Second', []))!;
-    await m.updateField(q.id, (await m.addField(q.id, 'Full name'))!, { value: 'Keep' });
-    await m.addTemplate(q.id, tpl.id);
-    expect(m.skipped).toEqual(['full_name']);
-    expect(t.toastKeys()).toContain('profiles.skipped');
-    expect(m.current!.fields.find((f) => f.key === 'full_name')!.value).toBe('Keep');
-    expect(m.current!.fields.length).toBe(6);
   });
 
   it('changing a label keeps the key and the remembered mapping; changing a key forgets only its mappings @FR-FRM-20 @FR-AIF-08', async () => {
@@ -50,7 +36,7 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const t = await createTestApp({ ai });
     const m = t.profiles();
     await m.load();
-    await m.create('Me', ['builtin:identity']);
+    await m.create('Me', ['identity']);
     const profile = m.current!;
     await m.updateField(profile.id, 'full_name', { value: 'Marta Esempio' });
     await m.updateField(profile.id, 'country', { value: 'Italy' });
@@ -90,34 +76,28 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     expect(m.current!.fields.some((f) => f.key === 'country')).toBe(false);
   });
 
-  it('exports and imports a template and refuses a newer version; deleting asks first @FR-FRM-20', async () => {
+  it('a new profile starts with the ticked built-in presets, and with nothing when none is ticked @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();
     const m = t.profiles();
     await m.load();
-    const tpl = (await m.createTemplate('Mine'))!;
-    await m.updateTemplate(tpl.id, { fields: [{ key: 'name', label: 'Name', type: 'text', aliases: [], sensitive: false, options: [] }] });
-    t.files.nextSave.push('/out/mine.template.json');
-    expect(await m.exportTemplate(tpl.id)).toBe(true);
-    const text = new TextDecoder().decode(t.files.get('/out/mine.template.json')!);
-    expect(JSON.parse(text)).toMatchObject({ version: 1, kind: 'folio-field-template', name: 'Mine' });
-    t.files.nextOpen.push(['/out/mine.template.json']);
-    const imported = (await m.importTemplate())!;
-    expect(imported.fields.map((f) => f.key)).toEqual(['name']);
-    expect(m.templates.filter((x) => x.name === 'Mine').length).toBe(2);
-    t.files.put('/out/newer.json', new TextEncoder().encode(JSON.stringify({ ...JSON.parse(text), version: 9 })));
-    t.files.nextOpen.push(['/out/newer.json']);
-    expect(await m.importTemplate()).toBeNull();
-    expect(t.toastKeys()).toContain('error.invalidArgument.templateNewer');
-    t.prompts.confirmAnswers = [false];
-    expect(await m.removeTemplate(tpl.id)).toBe(false);
-    t.prompts.confirmAnswers = [true];
-    expect(await m.removeTemplate(tpl.id)).toBe(true);
-    expect(m.templates.some((x) => x.id === tpl.id)).toBe(false);
-    // A built-in template cannot be removed.
-    t.prompts.confirmAnswers = [true];
-    expect(await m.removeTemplate('builtin:identity')).toBe(true);
-    expect(m.templates.some((x) => x.id === 'builtin:identity')).toBe(true);
-    expect(t.toastKeys()).toContain('error.invalidArgument.builtInTemplate');
+    // A static list of preset keys; the UI labels them with settings.profile.template.<key>.
+    expect(m.presets).toEqual(['identity', 'address', 'contacts', 'company', 'bank', 'dates']);
+    expect(m.defaultPresets).toEqual(['identity', 'address', 'contacts']);
+    const p = (await m.create('Home', [...m.defaultPresets]))!;
+    expect(m.editing).toBe(p.id);
+    const keys = m.current!.fields.map((f) => f.key);
+    expect(keys.slice(0, 3)).toEqual(['first_name', 'last_name', 'full_name']);
+    expect(keys).toEqual(expect.arrayContaining(['street', 'postal_code', 'city', 'email', 'phone']));
+    expect(keys).not.toContain('iban');
+    expect(m.current!.fields.every((f) => f.value === '')).toBe(true);
+    const work = (await m.create('Work', ['company', 'dates', 'unknown']))!;
+    expect(work.fields.map((f) => f.key)).toEqual(['company', 'vat_number', 'job_title', 'today']);
+    const empty = (await m.create('Blank', []))!;
+    expect(empty.fields).toEqual([]);
+    expect(m.profiles.map((x) => x.name)).toEqual(['Home', 'Work', 'Blank']);
+    // A profile still needs a name.
+    expect(await m.create('  ', ['identity'])).toBeUndefined();
+    expect(t.toastKeys()).toContain('error.invalidArgument.emptyName');
   });
 
   it('a profile built in the editor fills a scanned form through detection (recorded response) @FR-FRM-20 @FR-AIF-14', async () => {
@@ -330,7 +310,12 @@ describe('Profiles and field templates editor @FR-FRM-20', () => {
     const dots = (await s.doc.getTextLayer(0)).chars.filter((c) => c.text === '…' || c.text === '.' || c.text === '·');
     const widget = (await s.doc.listFormFields()).find((f) => f.value === 'Marco Rossi')!.widgets[0]!;
     const dotBottom = Math.min(...dots.filter((c) => Math.abs(c.rect.y + c.rect.height / 2 - (widget.rect.y + widget.rect.height / 2)) < 12).map((c) => c.rect.y));
-    expect(widget.rect.y).toBeGreaterThan(dotBottom + 2);
+    // The baseline of the text stands exactly `textBaselineOffset` pixels above the dotted line, whatever the line height.
+    const fontSize = detectedFontSize(widget.rect.height);
+    const dotHeight = Math.max(...dots.filter((c) => Math.abs(c.rect.y - dotBottom) < 1).map((c) => c.rect.height));
+    const baseline = widget.rect.y + widget.rect.height / 2 - BASELINE_K * fontSize;
+    expect(baseline).toBeCloseTo(dotBottom + dotHeight * 0.2 + t.app.settings.textBaselineOffset, 0);
+    expect(baseline).toBeGreaterThan(dotBottom + 1);
   });
   it('e-mail and phone entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();

@@ -43,6 +43,22 @@ pnpm cli info some.pdf   # the same services from the command line
 Building the AppImage, the system packages it needs and the test tools are described in
 [docs/BUILDING.md](docs/BUILDING.md).
 
+## Verifying a download
+
+Releases list `SHA256SUMS` and, when the release was signed, detached GPG signatures next to it.
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing            # the file you downloaded matches
+gpg --import folio-release-key.asc                  # public key, also attached to each release
+gpg --verify SHA256SUMS.asc SHA256SUMS              # the checksums come from the maintainer
+gpg --verify Folio_<version>_amd64.AppImage.asc Folio_<version>_amd64.AppImage
+```
+
+Release signing key fingerprint: `TODO-OWNER: paste the 40-character fingerprint here once the key exists`.
+Compare it with `gpg --fingerprint` before trusting the key, and do not rely on the copy attached to
+the same release alone. A release without `.asc` files was not signed. The Windows and macOS
+installers are not code-signed (see [docs/BUILDING.md](docs/BUILDING.md)).
+
 ## How it is built
 
 ```

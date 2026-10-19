@@ -74,4 +74,14 @@ describe('Extract tables @FR-OPT-12', () => {
     ai.configured = false;
     await expect(svc.extractAi(doc, 0, null)).rejects.toMatchObject({ code: 'invalidArgument' });
   });
+
+  it('AI path on a rotated page: the picture sent is the selected area as shown @FR-OPT-12', async () => {
+    const doc = await (await sharedEngine()).open(await fixture('scanned-text'));
+    await doc.rotatePages([0], 90);
+    const ai = new FakeAiProvider();
+    ai.enqueueTable({ rows: [['a']] });
+    await new TableService({ ai, images: new NodeImageCodec() }).extractAi(doc, 0, { x: 72, y: 500, width: 300, height: 200 });
+    // Turned a quarter, the 300 × 200 pt area is drawn 200 wide and 300 tall.
+    expect(ai.tableRequests[0]!.width / ai.tableRequests[0]!.height).toBeCloseTo(200 / 300, 1);
+  });
 });

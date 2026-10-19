@@ -3,6 +3,8 @@ import {
   DATE_HEIGHT_LIMITS,
   Emitter,
   InvalidArgumentError,
+  anchoredRect,
+  detectedFontSize,
   grid,
   endpointHost,
   isLoopbackUrl,
@@ -17,7 +19,7 @@ import {
   type DateFormat,
   type Msg,
 } from '@folio/core';
-import { FIXED_LABEL_TYPES, FIXED_TYPE_ALIASES, FIXED_TYPE_LABELS, uniqueKey, validateProfileValue, type FieldDefinition, type FieldTemplate, type Profile, type ProfileFieldType, type StoredSignature } from '@folio/db';
+import { DEFAULT_PROFILE_PRESETS, FIXED_LABEL_TYPES, FIXED_TYPE_ALIASES, FIXED_TYPE_LABELS, PROFILE_PRESET_KEYS, uniqueKey, validateProfileValue, type Profile, type ProfilePresetKey, type ProfileFieldType, type StoredSignature } from '@folio/db';
 import type { Color, FieldPatch, FieldValue, FileRef, FormField, ImageFormat, OutlineNode, PageIndex, Point, Rect } from '@folio/ports';
 import {
   BUILTIN_STAMPS,
@@ -1268,14 +1270,15 @@ export class TablesModel extends ViewModel {
   }
 }
 
-// ---- Profiles and field templates (FR-FRM-20, FR-AIF-01) --------------------------------------
+// ---- Profiles and their editor (FR-FRM-20, FR-AIF-01) ------------------------------------------
 
 export class ProfilesModel extends ViewModel {
   profiles: Profile[] = [];
-  templates: FieldTemplate[] = [];
+  /** Built-in presets a new profile can start with ("Start with"), in display order; label key `settings.profile.template.<key>`. */
+  readonly presets: readonly ProfilePresetKey[] = PROFILE_PRESET_KEYS;
+  /** The presets ticked by default. */
+  readonly defaultPresets: readonly ProfilePresetKey[] = DEFAULT_PROFILE_PRESETS;
   editing: string | null = null;
-  /** Keys skipped by the last "add template", for the notice. */
-  skipped: string[] = [];
   constructor(private readonly app: AppModel) {
     super();
   }
@@ -1284,7 +1287,6 @@ export class ProfilesModel extends ViewModel {
   }
   async load(): Promise<void> {
     this.profiles = await this.s.profiles.list();
-    this.templates = await this.s.templates.list();
     this.signatures = await this.s.signaturesRepo.list('signature');
     if (this.editing && !this.profiles.some((p) => p.id === this.editing)) this.editing = null;
     this.emit();
@@ -1294,7 +1296,6 @@ export class ProfilesModel extends ViewModel {
   }
   open(id: string | null): void {
     this.editing = id;
-    this.skipped = [];
     this.emit();
   }
   private async run<T>(task: () => Promise<T>): Promise<T | undefined> {
@@ -1304,16 +1305,12 @@ export class ProfilesModel extends ViewModel {
   }
 
   // ---- profiles ---------------------------------------------------------------------------
-  /** New profile: empty, or built from one or more templates (built-in or user-made). */
-  async create(name: string, templateIds: string[] = []): Promise<Profile | undefined> {
+  /** New profile: empty, or started with the entries of built-in presets (keys of `presets`; others are ignored). */
+  async create(name: string, startWith: readonly string[] = []): Promise<Profile | undefined> {
     return this.run(async () => {
-      const p = await this.s.profiles.create(name);
-      for (const id of templateIds) {
-        const t = this.templates.find((x) => x.id === id);
-        if (t) await this.s.profiles.addTemplate(p.id, t.fields);
-      }
+      const p = await this.s.profiles.create(name, startWith);
       this.editing = p.id;
-      return (await this.s.profiles.get(p.id))!;
+      return p;
     });
   }
   async duplicate(id: string): Promise<void> {
@@ -1392,58 +1389,6 @@ export class ProfilesModel extends ViewModel {
     if (at < 0 || to < 0 || to >= keys.length) return;
     [keys[at], keys[to]] = [keys[to]!, keys[at]!];
     await this.run(() => this.s.profiles.reorder(profileId, keys));
-  }
-
-  // ---- templates --------------------------------------------------------------------------
-  async addTemplate(profileId: string, templateId: string): Promise<void> {
-    const t = this.templates.find((x) => x.id === templateId);
-    if (!t) return;
-    const res = await this.run(() => this.s.profiles.addTemplate(profileId, t.fields));
-    this.skipped = res?.skipped ?? [];
-    if (this.skipped.length) this.app.toast('info', msg('profiles.skipped', { count: this.skipped.length, keys: this.skipped.join(', ') }));
-    this.emit();
-  }
-  async saveAsTemplate(profileId: string, name: string): Promise<FieldTemplate | undefined> {
-    const p = this.profiles.find((x) => x.id === profileId);
-    return p ? this.run(() => this.s.templates.fromProfile(p, name)) : undefined;
-  }
-  async createTemplate(name: string): Promise<FieldTemplate | undefined> {
-    return this.run(() => this.s.templates.create(name));
-  }
-  async updateTemplate(id: string, patch: { name?: string; fields?: FieldDefinition[] }): Promise<boolean> {
-    return !!(await this.run(async () => (await this.s.templates.update(id, patch), true)));
-  }
-  async duplicateTemplate(id: string): Promise<void> {
-    await this.run(() => this.s.templates.duplicate(id));
-  }
-  async removeTemplate(id: string): Promise<boolean> {
-    if (!(await this.app.prompts.confirm(msg('profiles.confirmTemplate'), { danger: true, confirmLabel: msg('action.delete') }))) return false;
-    await this.run(() => this.s.templates.remove(id));
-    return true;
-  }
-  async exportTemplate(id: string): Promise<boolean> {
-    const t = this.templates.find((x) => x.id === id);
-    const files = this.s.platform.files;
-    if (!t) return false;
-    const ref = await files.pickSave({ suggestedName: `${t.name}.template.json`, kind: 'json' });
-    if (!ref) return false;
-    await files.write(ref, new TextEncoder().encode(JSON.stringify(this.s.templates.exportJson(t), null, 2)), { atomic: true });
-    return true;
-  }
-  async importTemplate(): Promise<FieldTemplate | null> {
-    const files = this.s.platform.files;
-    const [ref] = await files.pickOpen({ accept: ['json'] });
-    if (!ref) return null;
-    const out = await this.run(async () => {
-      let data: unknown = null;
-      try {
-        data = JSON.parse(new TextDecoder().decode(await files.read(ref)));
-      } catch {
-        /* reported as "not a template file" */
-      }
-      return this.s.templates.importJson(data);
-    });
-    return out ?? null;
   }
 }
 
@@ -1634,7 +1579,10 @@ export class FormAuthoringModel extends ViewModel {
       const tool: FieldTool = p.type === 'checkbox' ? 'checkbox' : p.multiline ? 'multiline' : 'text';
       const name = this.service.autoName(tool, p.label, taken);
       taken.add(name);
-      specs.push(this.service.spec(tool, name, p.page, p.rect, { tooltip: p.label, ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
+      // Text on a printed line stands the configured number of pixels above it, as in the Smart Fill preview.
+      const fontSize = tool === 'text' && !p.cells ? detectedFontSize(p.rect.height) : undefined;
+      const rect = fontSize ? anchoredRect(p.rect, p.lineY, fontSize, this.app.settings.textBaselineOffset) : p.rect;
+      specs.push(this.service.spec(tool, name, p.page, rect, { tooltip: p.label, ...(fontSize && p.lineY !== undefined ? { fontSize } : {}), ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
     }
     if (specs.length === 0) return 0;
     const ok = await this.run(this.service.create(specs, 'cmd.createFields'));
@@ -1740,6 +1688,14 @@ export class CompressModel extends ViewModel {
   async run(): Promise<string | null> {
     const files = this.app.services.platform.files;
     const svc = this.app.services.compress;
+    // The working copy of an encrypted file is reopened with its password, which the session never keeps
+    // (FR-APP-12): it is asked for again, and the copy keeps the protection (FR-OPT-11).
+    let password: string | undefined;
+    if (this.encrypted) {
+      const answer = await this.app.prompts.askPassword(this.session.name, false);
+      if (!answer) return null;
+      password = answer;
+    }
     this.stage = 'running';
     this.progress = 0;
     this.abort = new AbortController();
@@ -1748,6 +1704,7 @@ export class CompressModel extends ViewModel {
       await this.session.settled();
       return svc.run(this.session.doc, this.settings, {
         originalBytes: this.size || (await this.session.doc.save()).length,
+        password,
         signal: this.abort!.signal,
         progress: (done, total) => {
           this.progress = total ? done / total : 1;
@@ -2289,9 +2246,10 @@ export class SmartFillModel extends ViewModel {
     const list = this.signIt && this.signWith ? picked.map((s) => (isDateTarget(s) ? { ...s, value: date, accepted: true } : s)) : picked;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
     const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
-    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
+    const baselineOffset = this.app.settings.textBaselineOffset;
+    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign, baselineOffset });
     if (!cmd) return 0;
-    const plan = svc.plan(list, taken);
+    const plan = svc.plan(list, taken, baselineOffset);
     const count = list.filter((s) => s.accepted && s.value !== '').length + (sign ? this.signFields : 0);
     const pages = [...new Set(list.filter((s) => plan.nameByRef.has(s.ref)).map((s) => s.page))];
     const ok = await this.app.guard(async () => {

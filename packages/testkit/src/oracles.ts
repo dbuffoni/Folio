@@ -209,10 +209,16 @@ export async function pdfcpuFormFields(pdf: Uint8Array): Promise<FieldRow[]> {
   });
 }
 /** Encrypts with AES-256 (fixtures only — Folio itself never writes encrypted files in Release 1). */
-export async function qpdfEncrypt(pdf: Uint8Array, userPassword: string, ownerPassword = userPassword): Promise<Uint8Array> {
+export async function qpdfEncrypt(
+  pdf: Uint8Array,
+  userPassword: string,
+  ownerPassword = userPassword,
+  /** Extra qpdf restriction flags, for example `--print=none --modify=none` (256-bit: print/modify/extract/annotate/form/assemble/accessibility). */
+  restrictions: string[] = [],
+): Promise<Uint8Array> {
   return withTempPdf(pdf, async (path, dir) => {
     const out = join(dir, 'enc.pdf');
-    const r = await exec('qpdf', ['--static-id', '--encrypt', userPassword, ownerPassword, '256', '--', path, out]);
+    const r = await exec('qpdf', ['--static-id', '--encrypt', userPassword, ownerPassword, '256', ...restrictions, '--', path, out]);
     if (r.code !== 0 && r.code !== 3) throw new Error(`qpdf --encrypt failed: ${r.stderr}`);
     return new Uint8Array(await readFile(out));
   });
@@ -254,19 +260,79 @@ export async function pdfsig(pdf: Uint8Array): Promise<PdfsigRow[]> {
   });
 }
 
+let opensslChecked = false;
+/** The certificate fixtures need OpenSSL 3 (`-legacy`, AES-protected PKCS#12); LibreSSL (macOS) and OpenSSL 1.x differ. */
+async function requireOpenssl3(): Promise<void> {
+  if (opensslChecked) return;
+  const v = await exec('openssl', ['version']);
+  if (!/^OpenSSL 3\./.test(v.stdout)) throw new Error(`These fixtures need OpenSSL 3, found: ${v.stdout.trim() || v.stderr.trim()}`);
+  opensslChecked = true;
+}
+
 /** A PKCS#12 file made by OpenSSL, the independent producer our importer is tested against. */
-export async function opensslPkcs12(opts: { cn: string; password: string; ec?: boolean; legacy?: boolean }): Promise<{ p12: Uint8Array; certPem: string }> {
+export async function opensslPkcs12(opts: { cn: string; password: string; ec?: boolean; legacy?: boolean; ed25519?: boolean; curve?: string; /** Raw `-newkey` arguments, e.g. ['rsa-pss'] */ newkey?: string[]; certOnly?: boolean; days?: number }): Promise<{ p12: Uint8Array; certPem: string }> {
+  await requireOpenssl3();
   const dir = await mkdtemp(join(tmpdir(), 'folio-ossl-'));
   try {
     const key = join(dir, 'k.pem');
     const crt = join(dir, 'c.pem');
     const out = join(dir, 'o.p12');
-    const keyArgs = opts.ec ? ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1'] : ['-newkey', 'rsa:2048'];
-    const made = await exec('openssl', ['req', '-x509', ...keyArgs, '-nodes', '-keyout', key, '-out', crt, '-days', '30', '-subj', `/CN=${opts.cn}/O=Folio`, '-addext', 'keyUsage=digitalSignature,nonRepudiation']);
+    const keyArgs = opts.newkey ? ['-newkey', ...opts.newkey] : opts.ed25519 ? ['-newkey', 'ed25519'] : opts.ec || opts.curve ? ['-newkey', 'ec', '-pkeyopt', `ec_paramgen_curve:${opts.curve ?? 'prime256v1'}`] : ['-newkey', 'rsa:2048'];
+    const made = await exec('openssl', ['req', '-x509', ...keyArgs, '-nodes', '-keyout', key, '-out', crt, '-days', String(opts.days ?? 30), '-subj', `/CN=${opts.cn}/O=Folio`, '-addext', 'keyUsage=digitalSignature,nonRepudiation']);
     if (made.code !== 0) throw new Error(`openssl req failed: ${made.stderr}`);
-    const exp = await exec('openssl', ['pkcs12', '-export', '-inkey', key, '-in', crt, '-out', out, '-passout', `pass:${opts.password}`, ...(opts.legacy ? ['-legacy'] : [])]);
+    const exp = await exec('openssl', ['pkcs12', '-export', '-inkey', key, '-in', crt, '-out', out, '-passout', `pass:${opts.password}`, ...(opts.legacy ? ['-legacy'] : []), ...(opts.certOnly ? ['-nokeys'] : [])]);
     if (exp.code !== 0) throw new Error(`openssl pkcs12 failed: ${exp.stderr}`);
     return { p12: new Uint8Array(await readFile(out)), certPem: await readFile(crt, 'utf8') };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * A PKCS#12 file holding a leaf, its CA (and optionally an unrelated extra certificate), as a corporate CA hands them out.
+ * `triple` uses the SHA-1 / 3DES protection older Windows exports have; `friendly` sets the bag name.
+ */
+export async function opensslPkcs12Chain(opts: { cn: string; caCn: string; password: string; triple?: boolean; friendly?: string; extraCa?: boolean; /** Leaf issued by an intermediate; the bundle lists the root first. */ deep?: boolean; /** Extra `openssl pkcs12 -export` arguments. */ args?: string[] }): Promise<{ p12: Uint8Array; leafPem: string; caPem: string }> {
+  await requireOpenssl3();
+  const dir = await mkdtemp(join(tmpdir(), 'folio-ossl-'));
+  try {
+    const f = (n: string) => join(dir, n);
+    const steps: string[][] = [
+      ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', f('ca.key'), '-out', f('ca.pem'), '-days', '30', '-subj', `/CN=${opts.caCn}`, '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=keyCertSign,cRLSign'],
+      ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', f('k.pem'), '-out', f('l.csr'), '-subj', `/CN=${opts.cn}/O=Folio`],
+      ['x509', '-req', '-in', f('l.csr'), '-CA', f('ca.pem'), '-CAkey', f('ca.key'), '-CAcreateserial', '-out', f('l.pem'), '-days', '30'],
+    ];
+    for (const a of steps) {
+      const r = await exec('openssl', a);
+      if (r.code !== 0) throw new Error(`openssl ${a[0]} failed: ${r.stderr}`);
+    }
+    let bundle = await readFile(f('ca.pem'), 'utf8');
+    if (opts.deep) {
+      const mid: string[][] = [
+        ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', f('m.key'), '-out', f('m.csr'), '-subj', '/CN=Intermediate'],
+        ['x509', '-req', '-in', f('m.csr'), '-CA', f('ca.pem'), '-CAkey', f('ca.key'), '-CAcreateserial', '-out', f('m.pem'), '-days', '30', '-extfile', f('m.ext')],
+        ['x509', '-req', '-in', f('l.csr'), '-CA', f('m.pem'), '-CAkey', f('m.key'), '-CAcreateserial', '-out', f('l.pem'), '-days', '30'],
+      ];
+      await writeFile(f('m.ext'), 'basicConstraints=critical,CA:TRUE\nkeyUsage=keyCertSign,cRLSign\n');
+      for (const a of mid) {
+        const r = await exec('openssl', a);
+        if (r.code !== 0) throw new Error(`openssl ${a[0]} failed: ${r.stderr}`);
+      }
+      bundle += await readFile(f('m.pem'), 'utf8');
+    }
+    if (opts.extraCa) {
+      const r = await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', f('x.key'), '-out', f('x.pem'), '-days', '30', '-subj', '/CN=Unrelated']);
+      if (r.code !== 0) throw new Error(`openssl req failed: ${r.stderr}`);
+      bundle += await readFile(f('x.pem'), 'utf8');
+    }
+    await writeFile(f('bundle.pem'), bundle);
+    const args = ['pkcs12', '-export', '-inkey', f('k.pem'), '-in', f('l.pem'), '-certfile', f('bundle.pem'), '-out', f('o.p12'), '-passout', `pass:${opts.password}`];
+    if (opts.friendly) args.push('-name', opts.friendly);
+    if (opts.args) args.push(...opts.args);
+    if (opts.triple) args.push('-keypbe', 'PBE-SHA1-3DES', '-certpbe', 'PBE-SHA1-3DES', '-macalg', 'sha1', '-legacy');
+    const exp = await exec('openssl', args);
+    if (exp.code !== 0) throw new Error(`openssl pkcs12 failed: ${exp.stderr}`);
+    return { p12: new Uint8Array(await readFile(f('o.p12'))), leafPem: await readFile(f('l.pem'), 'utf8'), caPem: await readFile(f('ca.pem'), 'utf8') };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

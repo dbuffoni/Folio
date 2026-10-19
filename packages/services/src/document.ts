@@ -1,5 +1,5 @@
 import { InvalidPdfError, IoError, describePageSize, toHex, type Command } from '@folio/core';
-import type { CryptoService, DocMeta, EditableMeta, FileRef, FileService, PdfDocument, PdfEngine, Size } from '@folio/ports';
+import type { CryptoService, DocMeta, EditableMeta, FileRef, FileService, HiddenDataInventory, HiddenDataOptions, HiddenDataReport, PdfDocument, PdfEngine, Size } from '@folio/ports';
 import { checkpointCommand, inverseCommand, label } from './commands.ts';
 
 export interface OpenedDocument {
@@ -130,6 +130,14 @@ export class DocumentService {
       ({ doc }) => doc.setMetadata(before),
       { kind: 'meta' },
     );
+  }
+  /** FR-SEC-12: what the file carries that the user may not want to share. Read-only. */
+  inspectHiddenData(doc: PdfDocument): Promise<HiddenDataInventory> {
+    return doc.inspectHiddenData();
+  }
+  /** FR-SEC-12 "Remove hidden data": one undoable step; the report says what was verified as gone. */
+  removeHiddenData(opts: HiddenDataOptions): Command<HiddenDataReport> {
+    return checkpointCommand(label('cmd.removeHiddenData'), 'meta', ({ doc }) => doc.removeHiddenData(opts), { kind: 'all' });
   }
   /** FR-SEC-04 "Remove all metadata". */
   removeAllMetadata(): Command<void> {

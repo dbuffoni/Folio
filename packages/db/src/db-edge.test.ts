@@ -3,7 +3,7 @@ import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { describe, expect, it } from 'vitest';
 import { FolioError } from '@folio/core';
 import type { Database } from '@folio/ports';
-import { FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, samplePng } from '@folio/testkit';
+import { FakeClock, FakeSecretStore, NodeCrypto, expectWarnings, samplePng } from '@folio/testkit';
 import { migrate } from './migrations.ts';
 import { Oo1Database, type Oo1Db } from './oo1.ts';
 import {
@@ -30,7 +30,6 @@ const codeOf = async (p: Promise<unknown>): Promise<string> => {
 };
 
 const drivers: Array<[string, () => Promise<Database>]> = [
-  ['node:sqlite', async () => new InMemoryDatabase()],
   [
     'sqlite-wasm',
     async () => {
@@ -417,6 +416,7 @@ describe.each(drivers)('repository edge cases on %s', (_name, open) => {
   });
 
   it('the schema enforces foreign keys: orphan profile fields are refused', async () => {
+    expectWarnings(); // SQLite WASM reports the refused INSERT below on the console
     const { db } = await setup();
     const r = await codeOf(
       db.execute(

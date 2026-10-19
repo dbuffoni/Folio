@@ -6,7 +6,7 @@ import type { BinaryTransport } from '@folio/ports';
 import {
   AlgorithmIdentifier,
   Attribute,
-  Certificate,
+  type Certificate,
   ContentInfo,
   MessageImprint,
   SignedAndUnsignedAttributes,
@@ -15,7 +15,8 @@ import {
   TimeStampResp,
   TSTInfo,
 } from 'pkijs';
-import { ab, commonNameOf, ensureEngine } from './certs.ts';
+import { ab, certFingerprint, commonNameOf, ensureEngine } from './certs.ts';
+import { OID_KP_TIMESTAMPING, certificatesOf, chainTo, extendedKeyUsage, findSigner } from './chain.ts';
 import { OID_TIMESTAMP_TOKEN, parseCms, sha256 } from './cms.ts';
 import { TimestampError } from './errors.ts';
 export { TimestampError };
@@ -150,29 +151,23 @@ async function verifyToken(
   const matches =
     imprint.length === expectedImprint.length && imprint.every((b, i) => b === expectedImprint[i]);
   let signatureOk = false;
-  let authority: Certificate | undefined;
-  try {
-    const certs = (token.certificates ?? []).filter((c): c is Certificate => c instanceof Certificate);
-    authority = certs[0];
-    const res = await token.verify({ signer: 0, data: ab(signatureValue), trustedCerts: certs, checkChain: false, extendedMode: true });
-    signatureOk = !!res.signatureVerified;
-  } catch {
-    signatureOk = false;
-  }
-  let isTrusted = false;
+  // The authority is the certificate the token's signer identifier names and pkijs verified with, not
+  // whatever comes first in the (unsigned) certificate list (R12).
+  const authority = await findSigner(token, 0);
   if (authority) {
-    for (const t of trusted) {
-      try {
-        if (
-          t.subject.isEqual(authority.subject)
-            ? t.serialNumber.isEqual(authority.serialNumber)
-            : await authority.verify(t)
-        )
-          isTrusted = true;
-      } catch {
-        /* not this one */
-      }
+    try {
+      const res = await token.verify({ signer: 0, data: ab(signatureValue), trustedCerts: [authority], checkChain: false, extendedMode: true });
+      signatureOk = !!res.signatureVerified && res.signerCertificate === authority;
+    } catch {
+      signatureOk = false;
     }
+  }
+  // Trusted: the authority itself (by fingerprint) or a real chain to a trusted certificate, and the
+  // certificate is meant for timestamping (RFC 3161 §2.3: id-kp-timeStamping).
+  let isTrusted = false;
+  if (authority && signatureOk && extendedKeyUsage(authority)?.includes(OID_KP_TIMESTAMPING)) {
+    const trustedFp = new Set(await Promise.all(trusted.map(certFingerprint)));
+    isTrusted = (await chainTo(authority, [...certificatesOf(token), ...trusted], trustedFp)).trusted;
   }
   return {
     ok: matches && signatureOk,

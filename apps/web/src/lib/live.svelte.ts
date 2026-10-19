@@ -7,7 +7,11 @@ import { untrack } from 'svelte';
 const state = $state({ v: 0 });
 /** Read inside `$derived`/templates to depend on every model change. */
 export const track = (): number => state.v;
+/** How many times the UI was told to re-evaluate; read by the opt-in profiler to find noisy interactions. */
+let bumps = 0;
+export const bumpCount = (): number => bumps;
 export const bump = (): void => {
+  bumps++;
   state.v++;
 };
 // The page under the viewport changes on every scroll step; it has its own counter so the whole UI

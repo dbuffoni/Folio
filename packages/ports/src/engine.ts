@@ -26,6 +26,25 @@ export interface DocMeta {
   hasSignatures: boolean;
   /** true when the cross-reference table had to be rebuilt (damaged file opened in recovery mode). */
   wasRepaired: boolean;
+  /**
+   * Usage restrictions of the encryption dictionary (/P). Absent when the file is not encrypted, when the
+   * owner password was used to open it, or when the flags could not be read (treated as "allowed").
+   */
+  permissions?: Permissions;
+  /** true when the file was opened with its owner password, which lifts the restrictions for the session. */
+  ownerUnlocked?: boolean;
+}
+
+/** PDF 32000 table 22 usage permissions; `true` means the action is allowed. */
+export interface Permissions {
+  print: boolean;
+  printHighQuality: boolean;
+  modify: boolean;
+  copy: boolean;
+  annotate: boolean;
+  fillForms: boolean;
+  accessibility: boolean;
+  assemble: boolean;
 }
 export type EditableMeta = Pick<DocMeta, 'title' | 'author' | 'subject' | 'keywords'>;
 
@@ -484,6 +503,32 @@ export interface SaveOptions {
   compact?: boolean;
 }
 
+export interface HiddenDataOptions {
+  info: boolean;
+  xmp: boolean;
+  thumbnails: boolean;
+  scripts: boolean;
+  annotationAuthors: boolean;
+  attachments: boolean;
+}
+export interface HiddenDataInventory {
+  /** Document info entries that carry a value. */
+  info: string[];
+  xmp: boolean;
+  thumbnails: number;
+  /** Document-level and page-level JavaScript actions, /OpenAction actions and additional-action entries. */
+  scripts: number;
+  annotationAuthors: number;
+  attachments: AttachmentInfo[];
+  /** false for protected files: the structure cannot be inspected, only info and attachments are covered. */
+  structural: boolean;
+}
+export interface HiddenDataReport {
+  removed: { info: boolean; xmp: boolean; thumbnails: number; scripts: number; annotationAuthors: number; attachments: number };
+  /** Kinds that were requested but could not be handled on this file (for example XMP on a protected file). */
+  skipped: Array<keyof HiddenDataOptions>;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------------------------
@@ -586,6 +631,13 @@ export interface PdfDocument {
   setMetadata(m: Partial<EditableMeta>): Promise<void>;
   /** Removes Info entries and XMP metadata. */
   clearMetadata(): Promise<void>;
+  /** What hidden or personal data the file carries (FR-SEC-12). Never modifies the document. */
+  inspectHiddenData(): Promise<HiddenDataInventory>;
+  /**
+   * Removes the selected kinds of hidden data and rewrites the file so nothing survives in earlier
+   * revisions. Reports only what was verified as gone.
+   */
+  removeHiddenData(opts: HiddenDataOptions): Promise<HiddenDataReport>;
   save(opts?: SaveOptions): Promise<Uint8Array>;
   /** Cheap full-state capture used for history checkpoints and recovery. */
   snapshot(): Promise<Uint8Array>;

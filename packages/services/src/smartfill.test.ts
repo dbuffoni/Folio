@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AiError, History, NetworkError } from '@folio/core';
 import { FakeAiProvider } from '@folio/ai';
-import { DataCipher, FormMappingRepo, PROFILE_TEMPLATES, AiRunsRepo, ProfileRepo, migrate } from '@folio/db';
+import { DataCipher, FormMappingRepo, PROFILE_PRESET_KEYS, AiRunsRepo, ProfileRepo, migrate } from '@folio/db';
 import type { PdfDocument } from '@folio/ports';
 import { FORMS_CORPUS, FakeClock, FakeSecretStore, InMemoryDatabase, NodeCrypto, NodeImageCodec, PERSON, corpusForm, fixture, flatFormDoc, injectionForm, pdfcpuFormFields, sharedEngine } from '@folio/testkit';
 import { AnnotationService } from './annotation.ts';
@@ -17,14 +17,14 @@ const VALUES: Record<string, string> = {
 
 const setup = async (ai?: FakeAiProvider) => {
   const engine = await sharedEngine();
-  const db = new InMemoryDatabase();
+  const db = await InMemoryDatabase.create();
   await migrate(db);
   const clock = new FakeClock();
   let n = 0;
   const newId = () => `s-${++n}`;
   const crypto = new NodeCrypto();
   const profiles = new ProfileRepo(db, clock, newId, new DataCipher(crypto, new FakeSecretStore()));
-  const created = await profiles.create('Personal', Object.keys(PROFILE_TEMPLATES));
+  const created = await profiles.create('Personal', PROFILE_PRESET_KEYS);
   for (const f of created.fields) await profiles.setField(created.id, { ...f, value: VALUES[f.key] ?? '' });
   const profile = (await profiles.get(created.id)) as SmartProfile;
   const mappings = new FormMappingRepo(db, clock, newId);

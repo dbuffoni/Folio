@@ -33,6 +33,13 @@
   }
   const cmd = (id: string) => registry.get(id)!;
   const enabled = (id: string): boolean => (track(), registry.isEnabled(id, commandContext()));
+  /** Why a permission-gated command is off, shown on hover (FR-SEC-07). */
+  const why = (id: string): string | undefined => {
+    track();
+    const key = registry.denial(id, commandContext());
+    return key ? t(key) : undefined;
+  };
+  const toolWhy = (id: ToolId): string | undefined => why(`tool.${id}`);
 
   const layoutMenu = (): MenuItem[] => [
     { icon: 'rows-3', label: t('cmd.layoutContinuous'), checked: session.view.layout === 'continuous', run: () => session.setLayout('continuous') },
@@ -103,13 +110,14 @@
 </script>
 
 {#snippet toolBtn(id: ToolId, icon: string, label: string, shortcut?: string, hint?: string)}
-  <button class="tool" class:on={tool === id} onclick={(e) => pick(id, e)} use:tip={[hint ? `${label} · ${hint}` : label, shortcut]} aria-label={label} aria-pressed={tool === id}>
+  {@const reason = toolWhy(id)}
+  <button class="tool" class:on={tool === id} aria-disabled={reason ? 'true' : undefined} onclick={(e) => !reason && pick(id, e)} use:tip={[reason ?? (hint ? `${label} · ${hint}` : label), shortcut]} aria-label={label} aria-pressed={tool === id}>
     <Icon name={icon} /><span class="lbl">{label}</span>
   </button>
 {/snippet}
 {#snippet cmdBtn(id: string, icon: string, label?: string)}
   {@const c = cmd(id)}
-  <button class="tool" disabled={!enabled(id)} onclick={() => run(id)} use:tip={[t(c.title), k(c.shortcut)]} aria-label={t(c.title)}>
+  <button class="tool" disabled={!enabled(id) && !why(id)} aria-disabled={why(id) ? 'true' : undefined} onclick={() => !why(id) && run(id)} use:tip={[why(id) ?? t(c.title), k(c.shortcut)]} aria-label={t(c.title)}>
     <Icon name={icon} /><span class="lbl">{label ?? t(c.title)}</span>
   </button>
 {/snippet}
@@ -155,7 +163,7 @@
   </div>
 </div>
 
-<div id="toolbar" role="toolbar" aria-label={t(`mode.${mode}`)}>
+<div id="toolbar" class:crowded={mode === 'fill'} role="toolbar" aria-label={t(`mode.${mode}`)}>
   {#if mode === 'view'}
     {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
     {@render toolBtn('snapshot', 'camera', t('tool.snapshot'))}

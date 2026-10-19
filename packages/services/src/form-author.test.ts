@@ -55,6 +55,17 @@ describe('Form authoring @FR-FRM-08 @FR-FRM-11 @FR-FRM-16', () => {
     expect(() => svc.rename(field, 'name', new Set(['name']))).toThrow();
     expect(svc.compatible(moved)).toEqual(['singleline']);
   });
+
+  it('renaming a field inside a group checks the full name it will get @FR-FRM-11', () => {
+    const field = { id: 'addr.city', name: 'addr.city' } as Parameters<FormAuthoringService['rename']>[0];
+    const taken = new Set(['addr.city', 'addr.zip', 'zip2']);
+    // "zip" becomes "addr.zip", which already exists.
+    expect(() => svc.rename(field, 'zip', taken)).toThrow(/already exists/);
+    // "zip2" becomes "addr.zip2", which is free although a top-level "zip2" exists.
+    expect(() => svc.rename(field, 'zip2', taken)).not.toThrow();
+    expect(() => svc.rename(field, 'city', taken)).not.toThrow();
+    expect(() => svc.rename(field, 'a.b', taken)).toThrow();
+  });
 });
 
 describe('Field detection @FR-FRM-15 @FR-FRM-07', () => {

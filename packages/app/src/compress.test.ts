@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { qpdfCheck } from '@folio/testkit';
+import { FIXTURE_PASSWORD, qpdfCheck, sharedEngine } from '@folio/testkit';
 import { createTestApp } from './testing.ts';
 
 describe('Reduce file size dialog model @FR-OPT-01', () => {
@@ -61,5 +61,26 @@ describe('Reduce file size dialog model @FR-OPT-01', () => {
     expect(t.app.sessions.length).toBe(1);
     expect(t.app.active!.dirty).toBe(false);
     expect(t.app.active!.byteSize).toBeLessThan(original * 0.6);
+  });
+
+  it('an encrypted file asks for its password again and its copy stays protected @FR-OPT-11 @FR-APP-12', async () => {
+    const t = await createTestApp();
+    await t.put('/docs/secret.pdf', 'encrypted');
+    t.prompts.passwords = [FIXTURE_PASSWORD];
+    const s = (await t.app.openRef(t.files.ref('/docs/secret.pdf')))!;
+    const m = t.compress(s);
+    await m.start();
+    // The session does not keep the password (FR-APP-12): the copy needs it once more.
+    t.prompts.passwords = [FIXTURE_PASSWORD];
+    t.files.nextSave.push('/out/secret-compressed.pdf');
+    (s as { byteSize?: number }).byteSize = 10 ** 7;
+    expect(await m.run()).toBe('secret-compressed.pdf');
+    expect(m.result!.warnings).toContain('encrypted');
+    await expect((await sharedEngine()).open(t.files.get('/out/secret-compressed.pdf')!)).rejects.toMatchObject({ code: 'passwordRequired' });
+    // Cancelling the password writes nothing.
+    t.prompts.passwords = [null];
+    t.files.nextSave.push('/out/never.pdf');
+    expect(await m.run()).toBeNull();
+    expect(t.files.get('/out/never.pdf')).toBeUndefined();
   });
 });

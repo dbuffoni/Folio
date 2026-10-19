@@ -32,8 +32,9 @@ export class PasswordRequiredError extends FolioError {
   }
 }
 export class InvalidPdfError extends FolioError {
-  constructor(detail?: string) {
-    super('invalidPdf', 'The file is not a valid PDF', { detail });
+  /** `reason` selects a more specific message, `error.invalidPdf.<reason>`, e.g. "formEdit". */
+  constructor(detail?: string, reason?: string) {
+    super('invalidPdf', 'The file is not a valid PDF', { detail, params: reason ? { reason } : undefined });
   }
 }
 export class UnsupportedFeatureError extends FolioError {

@@ -10,3 +10,4 @@ export * from './stamp-size.ts';
 export * from './settings.ts';
 export * from './ai-endpoints.ts';
 export * from './tables.ts';
+export * from './field-geometry.ts';

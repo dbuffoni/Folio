@@ -3,6 +3,7 @@
   import { t } from '#lib/i18n/index.ts';
   import { dep, app, isMac, run, track, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
+  import Logo from './Logo.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import { tip } from './tip.ts';
 
@@ -64,7 +65,7 @@
 
 <header id="titlebar">
   <button class="ib" onclick={openMenu} use:tip={t('ui.mainMenu')} aria-label={t('ui.mainMenu')} aria-haspopup="menu"><Icon name="menu" /></button>
-  <button class="brand" onclick={() => app.showHome()} use:tip={t('ui.home')}><i class="logo">F</i><span>Folio</span></button>
+  <button class="brand" onclick={() => app.showHome()} use:tip={t('ui.home')}><Logo size={20} /><span>Folio</span></button>
   <nav id="tabs" bind:this={strip} aria-label={t('ui.openDocuments')}>
     {#each sessions as s, i (s.id)}
       <!-- Document tabs are navigation buttons with a sibling close button: a control nested in a tab cannot be reached by assistive technology. -->
@@ -81,6 +82,7 @@
         <button class="tabb" aria-current={s.id === activeId ? 'page' : undefined} title={s.name} onclick={() => app.activate(s.id)}>
           <Icon name="file-text" />
           <span class="nm">{s.title}</span>
+          {#if s.meta.isEncrypted}<span class="lock" title={s.meta.permissions ? t('perm.lockRestricted') : s.meta.ownerUnlocked ? t('perm.unlocked') : t('perm.lock')}><Icon name={s.meta.ownerUnlocked ? 'lock-open' : 'lock'} /></span>{/if}
           {#if s.dirty}<i class="dot" title={t('ui.unsaved')}></i>{/if}
         </button>
         <button class="x" style="border:0;background:none;color:inherit;cursor:pointer;padding:0" onclick={() => void app.closeTab(s.id)} aria-label={t('ui.closeTab', { name: s.name })}><Icon name="x" /></button>

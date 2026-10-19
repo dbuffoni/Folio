@@ -44,6 +44,8 @@ export interface SignOptions {
   timestamp?: { url: string; transport: TimestampTransport };
   /** Looks up OCSP/CRL for the chain and stores the answers in /DSS (PAdES-B-LT). Nothing is sent when absent. */
   validationData?: BinaryTransport;
+  /** Checks the chain for revocation and refuses a revoked one, without embedding the answers (FR-SIG-06). */
+  revocationCheck?: BinaryTransport;
 }
 
 export interface SignatureField {
@@ -242,11 +244,17 @@ export async function signPdf(input: Uint8Array, opts: SignOptions): Promise<Uin
     let iw = 0;
     let ih = 0;
     if (app.image) {
-      const img =
-        app.image.mime === 'image/png'
-          ? await doc.embedPng(app.image.bytes)
-          : await doc.embedJpg(app.image.bytes);
-      await img.embed();
+      let img;
+      try {
+        img =
+          app.image.mime === 'image/png'
+            ? await doc.embedPng(app.image.bytes)
+            : await doc.embedJpg(app.image.bytes);
+        await img.embed();
+      } catch (e) {
+        // pdf-lib rejects some broken images with a bare string.
+        throw new SigningError('bad-image', e instanceof Error ? e.message : String(e));
+      }
       imageRef = img.ref;
       imageName = 'Img0';
       const ratio = img.width / img.height;
@@ -313,9 +321,11 @@ export async function signPdf(input: Uint8Array, opts: SignOptions): Promise<Uin
       continue;
     }
     bytes.set(new TextEncoder().encode(toHex(cms).padEnd(placeholder * 2, '0')), contentsStart + 1);
-    if (!opts.validationData) return bytes;
-    const check = await checkChainRevocation(opts.identity.certificates, opts.validationData);
+    const transport = opts.validationData ?? opts.revocationCheck;
+    if (!transport) return bytes;
+    const check = await checkChainRevocation(opts.identity.certificates, transport);
     if (check.state === 'revoked') throw new SigningError('revoked', 'The signing certificate or one above it has been revoked');
+    if (!opts.validationData) return bytes;
     return embedValidationData(bytes, { certs: opts.identity.certificates.map(certDer), ocsps: check.ocsps, crls: check.crls, signatureContents: cms });
   }
   throw new SigningError('too-large', 'The signature does not fit its placeholder');
