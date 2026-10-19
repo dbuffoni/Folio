@@ -182,7 +182,17 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             brew install qpdf poppler mupdf-tools
           else
-            choco install -y qpdf poppler mupdf
+            # The community feed fails now and then and choco still exits 0 for the other packages:
+            # install one at a time, retry, and check that the tool really arrived.
+            for pkg in qpdf poppler mupdf; do
+              for attempt in 1 2 3; do
+                choco install -y "$pkg" && [ -d "/c/ProgramData/chocolatey/lib/$pkg" ] && break
+                echo "::warning::choco install $pkg failed (attempt $attempt)"; sleep 15
+              done
+              [ -d "/c/ProgramData/chocolatey/lib/$pkg" ] || { echo "::error::$pkg could not be installed"; exit 1; }
+            done
+            export PATH="$PATH:/c/ProgramData/chocolatey/bin"
+            echo 'C:\ProgramData\chocolatey\bin' >> "$GITHUB_PATH"
           fi
           qpdf --version
       - name: pdfcpu
