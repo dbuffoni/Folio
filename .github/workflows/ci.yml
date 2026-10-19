@@ -170,6 +170,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The certificate tests build PKCS#12 files with OpenSSL 3 (-legacy, AES protection); macOS ships LibreSSL.
+      - name: OpenSSL 3
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
       # The unit suites validate their output with qpdf, so the oracles come first.
       - name: PDF oracles
         run: |

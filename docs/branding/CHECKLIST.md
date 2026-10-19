@@ -12,7 +12,7 @@ set is supplied later, replace the SVGs there and run the export steps below onc
 | Web favicon | `apps/web/static/favicon.svg`, `favicon.ico` | ✔ |
 | Web manifest, PWA | `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `manifest.webmanifest` | ✔ |
 | Apple touch icon | `apple-touch-icon.png` (from `app-icon-maskable.svg`) | ✔ |
-| Title bar brand button | `Logo.svelte` → `folio-symbol{,-dark}.svg` copied to `static/brand/` at build time | placeholder "F" replaced in 0.1.3 ✔ |
+| Title bar brand button | `Logo.svelte` → `folio-symbol{,-dark}.svg`, committed copies in `apps/web/static/brand/` (so `svelte-check` knows them; keep in sync with `assets/branding`) | placeholder "F" replaced in 0.1.3 ✔ |
 | Splash screen | same component | placeholder "F" replaced in 0.1.3 ✔ |
 | About dialog | same component | placeholder "F" replaced in 0.1.3 ✔ |
 | Window title | "Folio" / "<document> — Folio" | ✔ |

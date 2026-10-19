@@ -11,14 +11,6 @@ for (const dir of ['liberation', 'handwriting']) {
   for (const f of readdirSync(assets + dir)) cpSync(`${assets}${dir}/${f}`, `${out}${dir}/${f}`);
 }
 console.log('fonts copied to static/fonts');
-
-// Brand symbol (light and dark variants) for the title bar, splash and About dialog.
-const brand = fileURLToPath(new URL('../../../assets/branding/', import.meta.url));
-const brandOut = fileURLToPath(new URL('../static/brand/', import.meta.url));
-mkdirSync(brandOut, { recursive: true });
-for (const f of ['folio-symbol.svg', 'folio-symbol-dark.svg']) cpSync(brand + f, brandOut + f);
-console.log('brand symbol copied to static/brand');
-
 // OCR: the tesseract.js worker, the WebAssembly cores (LSTM only, embedded wasm) and the English and
 // Italian data. The library's default is a CDN; nothing is ever fetched from there.
 const require = createRequire(import.meta.url);

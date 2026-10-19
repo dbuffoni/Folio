@@ -260,8 +260,18 @@ export async function pdfsig(pdf: Uint8Array): Promise<PdfsigRow[]> {
   });
 }
 
+let opensslChecked = false;
+/** The certificate fixtures need OpenSSL 3 (`-legacy`, AES-protected PKCS#12); LibreSSL (macOS) and OpenSSL 1.x differ. */
+async function requireOpenssl3(): Promise<void> {
+  if (opensslChecked) return;
+  const v = await exec('openssl', ['version']);
+  if (!/^OpenSSL 3\./.test(v.stdout)) throw new Error(`These fixtures need OpenSSL 3, found: ${v.stdout.trim() || v.stderr.trim()}`);
+  opensslChecked = true;
+}
+
 /** A PKCS#12 file made by OpenSSL, the independent producer our importer is tested against. */
 export async function opensslPkcs12(opts: { cn: string; password: string; ec?: boolean; legacy?: boolean; ed25519?: boolean; curve?: string; /** Raw `-newkey` arguments, e.g. ['rsa-pss'] */ newkey?: string[]; certOnly?: boolean; days?: number }): Promise<{ p12: Uint8Array; certPem: string }> {
+  await requireOpenssl3();
   const dir = await mkdtemp(join(tmpdir(), 'folio-ossl-'));
   try {
     const key = join(dir, 'k.pem');
@@ -283,6 +293,7 @@ export async function opensslPkcs12(opts: { cn: string; password: string; ec?: b
  * `triple` uses the SHA-1 / 3DES protection older Windows exports have; `friendly` sets the bag name.
  */
 export async function opensslPkcs12Chain(opts: { cn: string; caCn: string; password: string; triple?: boolean; friendly?: string; extraCa?: boolean; /** Leaf issued by an intermediate; the bundle lists the root first. */ deep?: boolean; /** Extra `openssl pkcs12 -export` arguments. */ args?: string[] }): Promise<{ p12: Uint8Array; leafPem: string; caPem: string }> {
+  await requireOpenssl3();
   const dir = await mkdtemp(join(tmpdir(), 'folio-ossl-'));
   try {
     const f = (n: string) => join(dir, n);
