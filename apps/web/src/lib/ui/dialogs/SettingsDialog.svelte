@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { OPENAI_KEY_SECRET } from '@folio/ai';
   import { deleteAllData } from '@folio/db';
-  import { DATE_FORMATS, STAMP_SIZE_PCT, formatDate } from '@folio/core';
+  import { DATE_FORMATS, STAMP_SIZE_PCT, TEXT_BASELINE_OFFSET, formatDate } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
   import { AI_PROVIDERS } from '@folio/core';
   import { dep, app, desktop, services, track, ui, VERSION, wizards } from '#lib/state.svelte.ts';
@@ -108,6 +108,15 @@
     app.toast('success', { key: 'toast.settingsReset' });
   }
   /** Out-of-range values go back to the last good one and the toast says what is allowed. */
+  async function setBaselineOffset(input: HTMLInputElement): Promise<void> {
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value < TEXT_BASELINE_OFFSET.min || value > TEXT_BASELINE_OFFSET.max) {
+      input.value = String(s.textBaselineOffset);
+      app.toast('warning', { key: 'settings.baselineOffsetRange', params: { min: TEXT_BASELINE_OFFSET.min, max: TEXT_BASELINE_OFFSET.max } });
+      return;
+    }
+    await app.guard(() => set('textBaselineOffset', value));
+  }
   async function setSizePct(key: 'signatureSizePct' | 'dateSizePct', input: HTMLInputElement): Promise<void> {
     const value = Number(input.value);
     if (!Number.isInteger(value) || value < STAMP_SIZE_PCT.min || value > STAMP_SIZE_PCT.max) {
@@ -215,6 +224,7 @@
         </div>
         <div class="g2">
           <div class="field"><label for="sgp">{t('settings.signatureSize')}</label><input id="sgp" type="number" min={STAMP_SIZE_PCT.min} max={STAMP_SIZE_PCT.max} value={s.signatureSizePct} onchange={(e) => setSizePct('signatureSizePct', e.currentTarget)} /></div>
+          <div class="field"><label for="blo">{t('settings.baselineOffset')}</label><input id="blo" type="number" min={TEXT_BASELINE_OFFSET.min} max={TEXT_BASELINE_OFFSET.max} step="0.5" value={s.textBaselineOffset} onchange={(e) => setBaselineOffset(e.currentTarget)} /><small class="note">{t('settings.baselineOffsetHint')}</small></div>
           <div class="field"><label for="dtp">{t('settings.dateSize')}</label><input id="dtp" type="number" min={STAMP_SIZE_PCT.min} max={STAMP_SIZE_PCT.max} value={s.dateSizePct} onchange={(e) => setSizePct('dateSizePct', e.currentTarget)} /></div>
         </div>
         <div class="field"><span class="hint">{t('settings.sizePctHint')}</span></div>

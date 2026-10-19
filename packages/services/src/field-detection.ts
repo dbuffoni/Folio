@@ -14,6 +14,8 @@ export interface FieldProposal {
   multiline?: boolean;
   /** Comb cells, when the area is a row of equal boxes. */
   cells?: number;
+  /** Printed line the text should stand on (ruled lines and leaders). */
+  lineY?: number;
   label?: string;
   confidence: number;
   source: 'local' | 'ai';
@@ -65,6 +67,7 @@ export class FieldDetectionService {
       rect: a.rect,
       type: a.kind === 'checkbox' ? 'checkbox' : 'text',
       ...(a.kind === 'comb' ? { cells: a.cells } : {}),
+      ...(a.lineY !== undefined ? { lineY: a.lineY } : {}),
       label: a.label,
       confidence: CONFIDENCE_CAP,
       source: 'local' as const,

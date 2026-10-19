@@ -3,6 +3,8 @@ import {
   DATE_HEIGHT_LIMITS,
   Emitter,
   InvalidArgumentError,
+  anchoredRect,
+  detectedFontSize,
   grid,
   endpointHost,
   isLoopbackUrl,
@@ -1577,7 +1579,10 @@ export class FormAuthoringModel extends ViewModel {
       const tool: FieldTool = p.type === 'checkbox' ? 'checkbox' : p.multiline ? 'multiline' : 'text';
       const name = this.service.autoName(tool, p.label, taken);
       taken.add(name);
-      specs.push(this.service.spec(tool, name, p.page, p.rect, { tooltip: p.label, ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
+      // Text on a printed line stands the configured number of pixels above it, as in the Smart Fill preview.
+      const fontSize = tool === 'text' && !p.cells ? detectedFontSize(p.rect.height) : undefined;
+      const rect = fontSize ? anchoredRect(p.rect, p.lineY, fontSize, this.app.settings.textBaselineOffset) : p.rect;
+      specs.push(this.service.spec(tool, name, p.page, rect, { tooltip: p.label, ...(fontSize && p.lineY !== undefined ? { fontSize } : {}), ...(p.cells ? { comb: true, maxLength: p.cells } : {}) }));
     }
     if (specs.length === 0) return 0;
     const ok = await this.run(this.service.create(specs, 'cmd.createFields'));
@@ -2241,9 +2246,10 @@ export class SmartFillModel extends ViewModel {
     const list = this.signIt && this.signWith ? picked.map((s) => (isDateTarget(s) ? { ...s, value: date, accepted: true } : s)) : picked;
     const taken = new Set((await this.session.fields()).map((f) => f.name));
     const sign = this.signIt && this.signWith ? (await this.signCommand(this.signWith))?.command : undefined;
-    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign });
+    const baselineOffset = this.app.settings.textBaselineOffset;
+    const cmd = svc.apply(list, undefined, { taken, flatten: this.flatten, extra: sign, baselineOffset });
     if (!cmd) return 0;
-    const plan = svc.plan(list, taken);
+    const plan = svc.plan(list, taken, baselineOffset);
     const count = list.filter((s) => s.accepted && s.value !== '').length + (sign ? this.signFields : 0);
     const pages = [...new Set(list.filter((s) => plan.nameByRef.has(s.ref)).map((s) => s.page))];
     const ok = await this.app.guard(async () => {

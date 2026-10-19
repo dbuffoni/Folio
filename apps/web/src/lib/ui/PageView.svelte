@@ -15,6 +15,7 @@
     translation,
   } from '@folio/core';
   import type { Annotation, FormField, LinkInfo, Matrix, PageObject, Rect, Rotation } from '@folio/ports';
+  import { detectedFontSize, textBaseline } from '@folio/core';
   import { HIGHLIGHT_COLORS, budgetScale, cappedScale, tileRect, type DetectedArea, type EditableLine } from '@folio/services';
   import { t, tm } from '#lib/i18n/index.ts';
   import { dep, app, models, raw, services, track } from '#lib/state.svelte.ts';
@@ -506,13 +507,16 @@
     {/if}
     {#if smart.stage === 'review'}
       {#each smart.suggestions.filter((s) => s.page === page && s.accepted && s.value !== '' && s.kind === 'detected') as s (s.ref)}
-        <div
-          class="preview"
-          style="{css(s.rect)};font-size:{Math.min(11, s.rect.height * 0.7) * zoom}px;line-height:{vr(s.rect)
-            .height}px;padding-left:2px"
-        >
-          {s.fieldType === 'checkbox' ? '✓' : s.value}
-        </div>
+        {#if s.fieldType === 'checkbox'}
+          <div class="preview" style="{css(s.rect)};font-size:{Math.min(11, s.rect.height * 0.7) * zoom}px;line-height:{vr(s.rect).height}px;padding-left:2px">✓</div>
+        {:else}
+          <!-- The text stands on the same baseline the created field will give it (core field-geometry), so preview and result match. -->
+          {@const fs = detectedFontSize(s.rect.height)}
+          {@const base = vr({ x: s.rect.x, y: textBaseline(s.rect, s.candidate.area?.lineY, fs, app.settings.textBaselineOffset), width: s.rect.width, height: 0 })}
+          <svg class="preview" aria-hidden="true" style="left:{base.x}px;top:{base.y}px;width:{vr(s.rect).width}px;height:1px;overflow:visible"
+            ><text x="2" y="0" font-size={fs * zoom}>{s.value}</text></svg
+          >
+        {/if}
       {/each}
     {/if}
     {#if located}<div class="located" style={css(located.rect)}></div>{/if}

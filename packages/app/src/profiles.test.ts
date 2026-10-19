@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAiProvider } from '@folio/ai';
-import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
+import { BASELINE_K, applyToRect, detectedFontSize, pageToViewMatrix, rotatedSize } from '@folio/core';
 import { flatFormDoc, inkRatio, samplePng, scannedFormDoc } from '@folio/testkit';
 import { vectorFromStrokes, vectorToSvg } from '@folio/services';
 import { createTestApp } from './testing.ts';
@@ -310,7 +310,12 @@ describe('Profiles editor @FR-FRM-20', () => {
     const dots = (await s.doc.getTextLayer(0)).chars.filter((c) => c.text === '…' || c.text === '.' || c.text === '·');
     const widget = (await s.doc.listFormFields()).find((f) => f.value === 'Marco Rossi')!.widgets[0]!;
     const dotBottom = Math.min(...dots.filter((c) => Math.abs(c.rect.y + c.rect.height / 2 - (widget.rect.y + widget.rect.height / 2)) < 12).map((c) => c.rect.y));
-    expect(widget.rect.y).toBeGreaterThan(dotBottom + 2);
+    // The baseline of the text stands exactly `textBaselineOffset` pixels above the dotted line, whatever the line height.
+    const fontSize = detectedFontSize(widget.rect.height);
+    const dotHeight = Math.max(...dots.filter((c) => Math.abs(c.rect.y - dotBottom) < 1).map((c) => c.rect.height));
+    const baseline = widget.rect.y + widget.rect.height / 2 - BASELINE_K * fontSize;
+    expect(baseline).toBeCloseTo(dotBottom + dotHeight * 0.2 + t.app.settings.textBaselineOffset, 0);
+    expect(baseline).toBeGreaterThan(dotBottom + 1);
   });
   it('e-mail and phone entries are chosen by type and named after it, whatever label is typed or stored @FR-FRM-20 @FR-AIF-01', async () => {
     const t = await createTestApp();

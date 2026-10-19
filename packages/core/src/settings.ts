@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AI_PROVIDERS } from './ai-endpoints.ts';
 import { STAMP_SIZE_PCT } from './stamp-size.ts';
+import { TEXT_BASELINE_OFFSET } from './field-geometry.ts';
 
 export const DATE_FORMATS = ['iso', 'dmy', 'mdy', 'long'] as const;
 export type DateFormat = (typeof DATE_FORMATS)[number];
@@ -23,6 +24,8 @@ export const settingsSchema = z.object({
   /** Default size of a placed signature / date stamp as a percentage of the page's body text size. */
   signatureSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
   dateSizePct: z.number().int().min(STAMP_SIZE_PCT.min).max(STAMP_SIZE_PCT.max).default(STAMP_SIZE_PCT.default),
+  /** Pixels (at 100 % zoom) between the printed line and the baseline of text Smart Fill and field detection put on it. */
+  textBaselineOffset: z.number().min(TEXT_BASELINE_OFFSET.min).max(TEXT_BASELINE_OFFSET.max).default(TEXT_BASELINE_OFFSET.default),
   highlightFields: z.boolean().default(true),
   flattenStampsOnSave: z.boolean().default(false),
   /** Smart Fill closes the filled form (flattens it) after applying (FR-AIF-14). */
