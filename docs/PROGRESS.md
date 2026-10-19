@@ -14,7 +14,31 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 | P7 Platform shell | done | web and Tauri adapters, Rust commands with tests, AppImage smoke test; `services-complete` gate passed 2026-10-11 |
 | P8 User interface | done | Svelte screens bound to `packages/app`; Playwright on Chromium, Firefox and WebKit (epics E1–E7, screens, axe in both themes, no-network); visual baselines; AppImage ships the real UI |
 | P9 Release hardening | done locally | interop, golden and performance suites; i18n lint; licence review and notices; bundle budget; CI and release workflows written; `tools/gate.sh P9` passed 2026-10-12 |
-| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 delivered (PR #7); 0.1.2 (digital signatures, 5 cards) built, in review |
+| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 and 0.1.2 delivered; 0.1.3 (quality and protection, 13 cards) built, in review |
+
+## Release 0.1.3
+
+Thirteen cards of the Folio Kanban (Notion): two features, three quality features and eight tasks. Built on a
+branch (`release/0.1.3`) without questions; decisions are in the commit messages and the PR.
+
+| Card | Requirements | Where |
+|---|---|---|
+| Remove metadata (hidden data) | FR-SEC-12, FR-SEC-04 | `engine-pdfium/src/hidden.ts`, `PdfDocument.inspectHiddenData/removeHiddenData`, `DocumentService`, `AppModel.removeHiddenData`, `HiddenDataDialog.svelte` |
+| Respect protected files | FR-SEC-07 | `DocMeta.permissions`, `CommandRegistry` permission gate (`needs`), lock icon, Properties, `AppModel.unlockRestrictions` |
+| Browser tests for remaining screens | various | `apps/web/tests/gaps.spec.ts` (stamp editor, drag reorder, print frame, paste, image resize, certificate password, hidden data, protected file) |
+| Release pipeline checks | - | `release.yml` distro matrix, GPG signing, SBOM validation, `tools/validate-sbom.mjs`, `smoke-distro.sh`, `docs/BUILDING.md` |
+| Usability and screen-reader pass | NFR-11 | partly: `docs/usability-0.1.3.md` (people, Orca, Acrobat and Preview are not available here) |
+| Code review of 0.1.1 and 0.1.2 | - | `docs/review-0.1.3.md`: 19 findings, the blocker and serious ones fixed (signature validation, compress, tables) |
+| Code and test consolidation | - | dead exports removed (jscpd finds 0.06 % duplication), duplicated `node:sqlite` driver rows removed, coverage of signing, certificates and AI raised to >= 90 % lines / 80 % branches |
+| Zero warnings in tests / in build and deploy | - | warning guard in testkit setup and in the Playwright `app` fixture, Svelte a11y warnings fixed, clippy clean, workflows on current action majors |
+| Visual polish pass | - | four-size, two-theme sweep (`tests/visual-sweep/run.mjs`), fixes in `app.css`, toolbar, dialogs |
+| Performance pass | NFR-01, 03 | `tests/perf/ui/run-ui.mjs`, baseline in `docs/perf-0.1.3.md` (nothing needed speeding up) |
+| Branding pass | - | real symbol in title bar, splash and About; `docs/branding/CHECKLIST.md` |
+
+Known limits: the distro matrix, GPG signing and the draft release were never run (no containers or
+GitHub here); the "failed to load ./ita.special-words" line printed by Tesseract's engine during OCR tests is
+third-party stderr and remains; PKCS#12 files protected with 3DES/SHA-1 (common from Windows) are still
+reported as a wrong password.
 
 ## Release 0.1.2
 
