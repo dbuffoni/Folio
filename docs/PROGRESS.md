@@ -34,6 +34,7 @@ branch (`release/0.1.3`) without questions; decisions are in the commit messages
 | Visual polish pass | - | four-size, two-theme sweep (`tests/visual-sweep/run.mjs`), fixes in `app.css`, toolbar, dialogs |
 | Performance pass | NFR-01, 03 | `tests/perf/ui/run-ui.mjs`, baseline in `docs/perf-0.1.3.md` (nothing needed speeding up) |
 | Branding pass | - | real symbol in title bar, splash and About; `docs/branding/CHECKLIST.md` |
+| Field templates removed (owner decision) | FR-FRM-20, FR-AIF-01 | `FieldTemplateRepo` and the template methods of `ProfilesModel` removed; migration 0008 drops `field_templates`; new profiles start from the static `PROFILE_PRESETS` (`ProfilesModel.presets`, `defaultPresets`) |
 
 Known limits: the distro matrix, GPG signing and the draft release were never run (no containers or
 GitHub here); the "failed to load ./ita.special-words" line printed by Tesseract's engine during OCR tests is
@@ -72,7 +73,7 @@ tests (qpdf, pdfcpu, poppler) where PDFs are written, and Playwright scenarios.
 | Reduce file size | FR-OPT-01, 07, 09, 11 | `CompressService`, `engine-pdfium/src/compact.ts`, `CompressModel`, `folio-cli compress` |
 | Create form fields, Edit existing fields | FR-FRM-08, 11, 15, 16, 17 | `engine-pdfium/src/fieldedit.ts`, `FormAuthoringService`, `FieldDetectionService`, Edit form mode |
 | Smart Fill on scanned paper forms | FR-AIF-14 | `SmartFillService.plan/apply`, image-hash fingerprint |
-| Field templates | FR-FRM-20 | migration 0002, `FieldTemplateRepo`, `ProfilesModel`, profiles editor |
+| Field templates (removed in 0.1.3, owner decision) | FR-FRM-20 | migration 0002, `FieldTemplateRepo`, `ProfilesModel`, profiles editor |
 | Make scanned pages searchable, Multi-language OCR, OCR language packs, Read difficult scans with AI | FR-OCR-01…04, 06, 09, 10 | `packages/ocr-tesseract`, `OcrService`, `OcrLanguageRepo`, `addOcrLayer`, Rust `download_file` |
 | Extract tables | FR-OPT-12 | `core/src/tables.ts`, `TableService`, `TablesModel` |
 | Bugs and small features 130, 132, 133, 134 | FR-APP-03, FR-FRM-20, FR-STM-01, FR-STM-05, FR-AIF-04 | `Home.svelte` menu, `ProfilesPane.svelte`, `SignModel.placeDate/dateChoices`, migration 0003, `SmartFillService.signFields` |

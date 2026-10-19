@@ -1,10 +1,10 @@
 import { expect, mode, openPdf, test, tool } from './helpers.ts';
 
-test('profiles editor: create from scratch, typed fields, reorder, save as template, add to another profile @FR-FRM-20 @NFR-11', async ({ app }) => {
+test('profiles editor: create from scratch, typed fields, reorder, then a profile started with built-in presets @FR-FRM-20 @FR-AIF-01 @NFR-11', async ({ app }) => {
   await app.getByRole('button', { name: 'Settings' }).click();
   const settings = app.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Profiles' }).click();
-  // Start from nothing: untick the default templates.
+  // Start from nothing: untick the presets ticked by default.
   for (const name of ['Identity', 'Address', 'Contacts']) await settings.getByRole('checkbox', { name, exact: true }).uncheck();
   await settings.getByRole('textbox', { name: 'New profile' }).fill('Travel');
   await settings.getByRole('button', { name: 'Add', exact: true }).click();
@@ -48,18 +48,17 @@ test('profiles editor: create from scratch, typed fields, reorder, save as templ
   await settings.getByRole('textbox', { name: 'Label: Seat' }).blur();
   await expect(settings.getByText('seat', { exact: true }).first()).toBeVisible();
 
-  await settings.getByRole('textbox', { name: 'Template name' }).fill('Travel header');
-  await settings.getByRole('button', { name: 'Save as template' }).click();
   await settings.getByRole('button', { name: 'Back' }).click();
-  await expect(settings.getByRole('listitem').filter({ hasText: 'Travel header' })).toBeVisible();
-  await expect(settings.getByRole('listitem').filter({ hasText: 'Travel header' }).getByText('Built-in')).toHaveCount(0);
+  await expect(settings.getByRole('listitem').filter({ hasText: 'Travel' })).toBeVisible();
 
-  // A second profile receives the template.
-  await settings.getByRole('textbox', { name: 'New profile' }).fill('Second');
+  // A second profile starts with the ticked built-in presets; there are no user-made templates.
+  await expect(settings.getByRole('heading', { name: 'Field templates' })).toHaveCount(0);
+  await settings.getByRole('checkbox', { name: 'Company', exact: true }).check();
+  await settings.getByRole('textbox', { name: 'New profile' }).fill('Work');
   await settings.getByRole('button', { name: 'Add', exact: true }).click();
-  await settings.getByRole('combobox', { name: 'Add fields from a template…' }).selectOption({ label: 'Travel header' });
-  await settings.getByRole('button', { name: 'Add', exact: true }).last().click();
-  await expect(settings.getByRole('textbox', { name: 'Label: Full name' })).toBeVisible();
+  await expect(settings.getByRole('textbox', { name: 'Label: Company name' })).toBeVisible();
+  await expect(settings.getByRole('textbox', { name: 'Label: VAT number' })).toBeVisible();
+  await expect(settings.getByRole('textbox', { name: 'Label: Full name' })).toHaveCount(0);
 });
 
 test('profile editor keeps every control inside the window at any size @FR-FRM-20 @NFR-11', async ({ app }) => {
