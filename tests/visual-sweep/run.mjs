@@ -14,7 +14,7 @@ async function open(page, name) {
   const [c] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Control+o')]);
   await c.setFiles(resolve(fixtures, name));
   // The new tab becomes the current one (the first document's canvas is still on screen until then).
-  await page.getByRole('navigation', { name: 'Open documents' }).getByRole('button', { name, exact: true }).and(page.locator('[aria-current=page]')).waitFor({ timeout: 30_000 });
+  await page.getByRole('navigation', { name: 'Open documents' }).getByRole('button', { name }).and(page.locator('[aria-current=page]')).waitFor({ timeout: 30_000 });
   await page.locator('.pv canvas').first().waitFor({ timeout: 30_000 });
   await page.waitForTimeout(500);
   const skip = page.getByRole('button', { name: 'Skip' });
