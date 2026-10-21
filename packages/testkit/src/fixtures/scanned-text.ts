@@ -27,3 +27,29 @@ export async function scannedTextDoc(opts: { dpi?: number; rotate?: 0 | 90 | 180
   }
   return doc.save({ useObjectStreams: false });
 }
+
+/**
+ * Any document as a picture: every page is rendered to pixels at `dpi` and placed as the only content of a new
+ * page of the same size, so nothing but the image remains (a scan of that document).
+ */
+export async function pictureOf(pdf: Uint8Array, opts: { dpi?: number; jpeg?: boolean } = {}): Promise<Uint8Array> {
+  const dpi = opts.dpi ?? 150;
+  const engine = await sharedEngine();
+  const src = await engine.open(pdf);
+  try {
+    const out = await PDFDocument.create();
+    out.setCreationDate(new Date('2026-01-15T10:30:00Z'));
+    out.setModificationDate(new Date('2026-01-15T10:30:00Z'));
+    for (let p = 0; p < src.pageCount; p++) {
+      const info = await src.getPageInfo(p);
+      const img = await src.render(p, { scale: dpi / 72, annotations: false, forms: false });
+      const png = new PNG({ width: img.width, height: img.height });
+      png.data = Buffer.from(img.data.buffer, img.data.byteOffset, img.data.length);
+      const page = out.addPage([info.size.width, info.size.height]);
+      page.drawImage(await out.embedPng(PNG.sync.write(png)), { x: 0, y: 0, width: info.size.width, height: info.size.height });
+    }
+    return await out.save({ useObjectStreams: false });
+  } finally {
+    src.dispose();
+  }
+}

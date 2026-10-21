@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RasterImage } from '@folio/ports';
 import { FieldDetectionService } from './index.ts';
-import { detectScanAreas } from './scan-fields.ts';
+import { blankShapes, detectScanAreas } from './scan-fields.ts';
 import { openFixture } from './testing.ts';
 
 /** A grey, slightly noisy "photo of paper" at 2 px per point, drawn with a few helpers. */
@@ -68,6 +68,35 @@ describe('Detect fields on a scan, from the page image alone @FR-FRM-15', () => 
     const found = detectScanAreas(p.image, 2);
     expect(found).toHaveLength(1);
     expect([found[0]!.x, found[0]!.width, found[0]!.y + found[0]!.height]).toEqual([299, 476, 401]);
+  });
+
+  it('finds a comb of equal boxes as one area with its dividers and ignores a plain box of the same size @FR-FRM-15', () => {
+    const p = paper(1200, 1600);
+    p.box(300, 600, 320, 40); // a comb: 16 cells of 20 px, drawn as one frame with dividers
+    for (let k = 1; k < 16; k++) p.hline(300 + k * 20, 600, 1, 1);
+    for (let k = 1; k < 16; k++) for (let y = 600; y < 640; y++) for (let t = 0; t < 2; t++) p.image.data.set([40, 40, 45, 255], (y * 1200 + 300 + k * 20 + t) * 4);
+    p.box(300, 900, 320, 40); // an empty box, no dividers
+    const found = detectScanAreas(p.image, 2);
+    const comb = found.filter((a) => a.dividers);
+    expect(comb).toHaveLength(1);
+    expect(comb[0]!.dividers).toHaveLength(17);
+    expect(comb[0]!.x).toBe(300);
+    expect(found.filter((a) => !a.dividers)).toHaveLength(1);
+  });
+
+  it('paints the lines and boxes over so recognition reads the words around them @FR-FRM-15', () => {
+    const p = paper(600, 400);
+    p.hline(100, 200, 300, 3);
+    p.box(100, 300, 60, 30);
+    const found = detectScanAreas(p.image, 2);
+    const blank = blankShapes(p.image, found, 2);
+    const dark = (img: RasterImage, x: number, y: number): boolean => img.data[(y * img.width + x) * 4]! < 100;
+    expect(dark(p.image, 200, 200)).toBe(true);
+    expect(dark(blank, 200, 200)).toBe(false);
+    expect(dark(p.image, 100, 315)).toBe(true);
+    expect(dark(blank, 100, 315)).toBe(false);
+    // The original is untouched.
+    expect(dark(p.image, 200, 200)).toBe(true);
   });
 
   it('a blank page and a page of text give nothing', () => {

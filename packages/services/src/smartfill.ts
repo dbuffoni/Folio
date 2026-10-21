@@ -36,6 +36,7 @@ import type {
 import type { AnnotationService } from './annotation.ts';
 import { label } from './commands.ts';
 import { detectAreas, isFillable, type DetectedArea, type FormService } from './form.ts';
+import type { FieldDetectionService, OcrDetectOptions } from './field-detection.ts';
 import { FormAuthoringService } from './form-author.ts';
 import type { SignatureService } from './signature.ts';
 import type { StampService } from './stamp.ts';
@@ -377,6 +378,8 @@ export class SmartFillService {
       images?: ImageCodec;
       /** Names and creates the fields of detected areas (FR-AIF-14). */
       authoring?: FormAuthoringService;
+      /** Reads picture-only pages with OCR, so a scan yields labelled areas like a vector page (FR-FRM-15). */
+      detection?: FieldDetectionService;
     },
   ) {}
   private get authoring(): FormAuthoringService {
@@ -387,6 +390,7 @@ export class SmartFillService {
   async collect(
     doc: PdfDocument,
     pages: PageIndex[],
+    ocr?: OcrDetectOptions,
   ): Promise<{ candidates: SmartCandidate[]; layers: Map<PageIndex, TextLayer> }> {
     const fields = (await doc.listFormFields()).filter(isFillable);
     const layers = new Map<PageIndex, TextLayer>();
@@ -412,7 +416,11 @@ export class SmartFillService {
         });
       }
       if (here.length === 0) {
-        const areas = detectAreas(page, await doc.listObjects(page), layer).map((a, k) => ({
+        let found = detectAreas(page, await doc.listObjects(page), layer);
+        // A picture-only page: read it with OCR (once per session) so its fields come with their labels.
+        if (found.length === 0 && this.deps.detection && (await this.deps.detection.isPicturePage(doc, page)))
+          found = (await this.deps.detection.detectScanOcr(doc, page, ocr)) ?? found;
+        const areas = found.map((a, k) => ({
           ...a,
           id: `p${page + 1}-a${k + 1}`,
         }));
@@ -650,10 +658,12 @@ export class SmartFillService {
       maxPages?: number;
       reanalyze?: boolean;
       signal?: AbortSignal;
+      /** Languages for reading scanned pages on this device; without them a scan is not read. */
+      ocr?: OcrDetectOptions;
     },
   ): Promise<AnalysisResult> {
     if (pages.length === 0) throw new InvalidArgumentError('Choose at least one page');
-    const { candidates, layers } = await this.collect(doc, pages);
+    const { candidates, layers } = await this.collect(doc, pages, opts.ocr);
     const scanned = candidates.length === 0 && pages.some((p) => layers.get(p)?.isScanned);
     const fingerprint = candidates.length === 0 ? await this.scanFingerprint(doc, pages) : await this.fingerprint(candidates);
     // A form with no fields and nothing local detection can find (a scan): only the vision model can

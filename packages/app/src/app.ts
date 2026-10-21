@@ -10,7 +10,7 @@ import {
 } from '@folio/core';
 import type { RecentFile } from '@folio/db';
 import type { FileRef, HiddenDataOptions, HiddenDataReport, PageIndex, PdfDocument } from '@folio/ports';
-import { RecoveryScheduler, isImageName, type Ticker } from '@folio/services';
+import { RecoveryScheduler, defaultOcrLanguages, isImageName, type Ticker } from '@folio/services';
 import type { Prompts, Toast, ToastKind } from './prompts.ts';
 import type { Services } from './services.ts';
 import { DocumentSession, type SignatureImpact } from './session.ts';
@@ -221,6 +221,16 @@ export class AppModel {
     this.syncWindow();
     this.emit();
     return session;
+  }
+
+  /**
+   * OCR languages for reading scanned pages on this device: the ones the user chose in the OCR dialog, else the
+   * interface language, kept to those installed (English and Italian ship with the app).
+   */
+  async scanLanguages(): Promise<string[]> {
+    const installed = new Set((await this.services.ocrLanguages.list()).filter((p) => p.installed).map((p) => p.code));
+    const wanted = defaultOcrLanguages(this.settings.language, this.settings.ocr.languages).filter((c) => installed.has(c));
+    return wanted.length ? wanted : installed.has('eng') ? ['eng'] : [];
   }
 
   // ---- signed documents (FR-SEC-13) ----------------------------------------------------------

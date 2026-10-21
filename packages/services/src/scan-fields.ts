@@ -7,6 +7,10 @@ export interface ScanArea {
   y: number;
   width: number;
   height: number;
+  /** Underlines and dotted rows on an upright page: pixel row of the printed line the text stands on. */
+  line?: number;
+  /** A row of equal boxes (a comb for one letter per cell): the x of each divider, left to right, in pixels. */
+  dividers?: number[];
 }
 
 /** Otsu's threshold on a 256-bin histogram, kept in a range that suits paper scans. */
@@ -74,6 +78,27 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
     if (side === 'left') return inkIn(a.x + Math.max(0, a.width - band), a.y, Math.min(a.width, band), a.height) < 0.01;
     return inkIn(a.x, a.y, Math.min(a.width, band), a.height) < 0.01;
   };
+  /** x of every vertical stroke that crosses the whole shape, when they are evenly spaced like the cells of a comb. */
+  const combDividers = (x: number, y: number, bw: number, bh: number): number[] => {
+    const strokes: number[] = [];
+    let run: number[] = [];
+    const flush = (): void => {
+      if (run.length) strokes.push((run[0]! + run[run.length - 1]!) / 2);
+      run = [];
+    };
+    for (let i = x; i < x + bw; i++) {
+      let ink = 0;
+      for (let j = y; j < y + bh; j++) ink += dark[j * w + i]!;
+      if (ink >= bh * 0.85) run.push(i);
+      else flush();
+    }
+    flush();
+    if (strokes.length < 4) return [];
+    const gaps = strokes.slice(1).map((v, k) => v - strokes[k]!);
+    const mean = gaps.reduce((n, g) => n + g, 0) / gaps.length;
+    const even = gaps.every((g) => Math.abs(g - mean) <= mean * 0.25);
+    return even && mean >= pt(6) && mean <= pt(40) ? strokes : [];
+  };
   const out: ScanArea[] = [];
   const dots: Array<{ cx: number; cy: number }> = [];
   const seen = new Uint8Array(w * h);
@@ -138,6 +163,14 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
     const long = Math.max(bw, bh);
     const short = Math.min(bw, bh);
     const limit = Math.max(w, h) * 0.95;
+    // A comb: boxes side by side that share their borders form one wide shape crossed by full-height dividers.
+    if (bw >= bh && long >= pt(30) && short >= pt(10) && short <= pt(48) && long <= limit) {
+      const dividers = combDividers(minX, minY, bw, bh);
+      if (dividers.length >= 4) {
+        out.push({ kind: 'text', x: minX, y: minY, width: bw, height: bh, dividers });
+        continue;
+      }
+    }
     if (short <= pt(4) && long >= pt(36) && long <= limit) {
       // An underline: the field is the strip on the "up" side of the line (right of it on a page turned by 90°).
       const strip = pt(14);
@@ -145,7 +178,7 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
         const down = rotation === 180;
         const height = down ? Math.min(strip, h - (minY + bh)) : Math.min(strip, minY);
         const a: ScanArea = { kind: 'text', x: minX, y: down ? minY + bh : minY - height, width: bw, height };
-        if (height >= pt(6) && free(a, down ? 'below' : 'above')) out.push(a);
+        if (height >= pt(6) && free(a, down ? 'below' : 'above')) out.push(rotation === 0 ? { ...a, line: minY + bh / 2 } : a);
       } else {
         const right = rotation === 90;
         const width = right ? Math.min(strip, w - (minX + bw)) : Math.min(strip, minX);
@@ -175,7 +208,25 @@ export function detectScanAreas(image: RasterImage, pxPerPoint: number, rotation
     const strip = pt(14);
     const horizontal = rotation === 0 || rotation === 180;
     const a: ScanArea = { kind: 'text', x: x0, y: rotation === 180 ? cy + pt(1.5) : cy - strip, width: x1 - x0, height: strip };
-    if (horizontal && free({ ...a, height: strip - pt(2) }, rotation === 180 ? 'below' : 'above')) out.push(a);
+    if (horizontal && free({ ...a, height: strip - pt(2) }, rotation === 180 ? 'below' : 'above')) out.push(rotation === 0 ? { ...a, line: cy } : a);
   }
   return out;
+}
+
+/**
+ * The page image with the printed lines, dotted rows, boxes and squares painted over, so recognition reads the
+ * words around them without the strokes that touch or hide them ("number....." read as "nUMDber").
+ */
+export function blankShapes(image: RasterImage, areas: ScanArea[], pxPerPoint: number): RasterImage {
+  const data = new Uint8ClampedArray(image.data);
+  const fill = (x0: number, y0: number, x1: number, y1: number): void => {
+    for (let y = Math.max(0, Math.floor(y0)); y < Math.min(image.height, Math.ceil(y1)); y++)
+      for (let x = Math.max(0, Math.floor(x0)); x < Math.min(image.width, Math.ceil(x1)); x++) data.set([255, 255, 255, 255], (y * image.width + x) * 4);
+  };
+  const band = 2 * pxPerPoint;
+  for (const a of areas) {
+    if (a.line !== undefined) fill(a.x - 2, a.line - band, a.x + a.width + 2, a.line + band);
+    else fill(a.x - 2, a.y - 2, a.x + a.width + 2, a.y + a.height + 2);
+  }
+  return { ...image, data };
 }

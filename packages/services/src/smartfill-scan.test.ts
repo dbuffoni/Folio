@@ -200,3 +200,27 @@ describe('Smart Fill on scanned paper forms @FR-AIF-14', () => {
     expect(areas.length).toBe(7);
   });
 });
+
+describe('Smart Fill on a picture-only page reads it with OCR first @FR-AIF-14 @FR-FRM-15', () => {
+  it('maps the profile onto the labelled areas OCR found, with no AI and no request @FR-AIF-14 @FR-FRM-15', async () => {
+    const { FieldDetectionService } = await import('./field-detection.ts');
+    const { FakeOcrEngine, ocrLinesForScannedForm } = await import('@folio/testkit');
+    const { pdf, areas } = await scannedFormDoc();
+    const ocr = new FakeOcrEngine(ocrLinesForScannedForm(areas));
+    const detection = new FieldDetectionService({ ocr });
+    const { svc, profile, open } = await setup();
+    const withOcr = new SmartFillService({ ...(svc as unknown as { deps: ConstructorParameters<typeof SmartFillService>[0] }).deps, detection });
+    const { doc, history } = await open(pdf);
+    const res = await withOcr.analyze(doc, [0], profile, { useAi: false, mode: 'mapping_only', ocr: { languages: ['eng'] } });
+    expect(res.source).toBe('heuristic');
+    expect(res.fallbackReason).toBeUndefined();
+    expect(res.suggestions).toHaveLength(7);
+    const ticked = res.suggestions.filter((s) => s.accepted).map((s) => `${s.label}=${s.value}`).sort();
+    expect(ticked).toEqual([`Date of birth=${PERSON.birthDate}`, `Email=${PERSON.email}`, `First name=${PERSON.firstName}`, `Last name=${PERSON.lastName}`, `Tax code=${PERSON.taxId}`].sort());
+    await history.execute(withOcr.apply(res.suggestions, undefined, { taken: new Set() })!);
+    expect((await doc.listFormFields()).map((f) => f.value).sort()).toEqual([PERSON.birthDate, PERSON.email, PERSON.firstName, PERSON.lastName, PERSON.taxId].sort());
+    // Analysing and applying read the page once.
+    expect(ocr.calls).toHaveLength(1);
+    doc.dispose();
+  });
+});

@@ -118,8 +118,8 @@ export class Services {
       this.openAi = new OpenAiProvider({ log: this.aiLog, http: platform.http, secrets: platform.secrets, config: () => ({ baseUrl: this.settings.ai.baseUrl, model: this.settings.ai.model, structured: aiCapabilities(this.settings.ai).structured }) });
       this.ai = this.openAi;
     }
-    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, signatures: this.signatures, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring });
-    this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images });
+    this.detection = new FieldDetectionService({ ai: this.ai, images: platform.images, ocr: opts.ocr });
+    this.smartFill = new SmartFillService({ crypto: platform.crypto, forms: this.forms, annotations: this.annotations, stamps: this.stamps, signatures: this.signatures, mappings: this.mappings, ai: this.ai, runs: this.aiRuns, images: platform.images, authoring: this.authoring, detection: this.detection });
     this.tables = new TableService({ ai: this.ai, images: platform.images });
     this.ocr = new OcrService({ engine: opts.ocr, ai: this.ai, images: platform.images });
     this.ocrLanguages = new OcrLanguageRepo({
