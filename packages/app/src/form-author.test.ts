@@ -51,11 +51,13 @@ describe('Edit form mode @FR-FRM-08 @FR-FRM-11 @FR-FRM-16 @FR-FRM-17', () => {
     expect(await t.author(xfa).toggle()).toBe(false);
     expect(t.toastKeys()).toContain('form.author.blocked.xfa');
     const signed = await t.open('signed');
-    t.prompts.confirmAnswers = [false];
-    expect(await t.author(signed).toggle()).toBe(false);
-    expect(t.prompts.asked).toContain('confirm:form.author.confirmSigned');
-    t.prompts.confirmAnswers = [true];
+    // Entering the authoring mode changes nothing; the first change asks (the gate of the command bus, FR-SEC-13).
     expect(await t.author(signed).toggle()).toBe(true);
+    t.prompts.confirmAnswers = [false];
+    const authoring = t.author(signed);
+    authoring.setTool('text');
+    expect(await authoring.createAt(0, { x: 380, y: 450 }, { x: 540, y: 472 })).toBe(false);
+    expect(t.prompts.asked).toContain('confirm:signed.editConfirm');
   });
 
   it('Detect fields on a vector form: no network, ghosts become fields in one step @FR-FRM-15 @FR-FRM-07', async () => {

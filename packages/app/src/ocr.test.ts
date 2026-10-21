@@ -131,7 +131,7 @@ describe('Recognise text dialog model @FR-OCR-01 @FR-OCR-02 @FR-OCR-06', () => {
     await ms.start();
     t.prompts.confirmAnswers = [false];
     expect(await ms.execute()).toBeNull();
-    expect(t.prompts.asked).toContain('confirm:ocr.confirmSigned');
+    expect(t.prompts.asked).toContain('confirm:signed.editConfirm');
 
     const s = await t.open('scan', '/docs/scan2.pdf');
     const m = t.ocr(s);

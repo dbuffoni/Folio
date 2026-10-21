@@ -1076,7 +1076,6 @@ export class OcrModel extends ViewModel {
       const host = endpointHost(this.app.settings.ai.baseUrl);
       if (!(await this.app.prompts.confirm(msg('ocr.aiPreflight', { count: pages.length, host }), { confirmLabel: msg('ocr.aiSend') }))) return null;
     }
-    if (this.session.meta.hasSignatures && !(await this.app.prompts.confirm(msg('ocr.confirmSigned'), { confirmLabel: msg('action.continue') }))) return null;
     this.stage = 'running';
     this.progress = 0;
     this.abort = new AbortController();
@@ -1403,7 +1402,6 @@ export class FormAuthoringModel extends ViewModel {
   proposals: FieldProposal[] = [];
   notice: DetectionNotice | null = null;
   detecting = false;
-  private warned = false;
 
   constructor(
     private readonly app: AppModel,
@@ -1453,10 +1451,6 @@ export class FormAuthoringModel extends ViewModel {
     if (block) {
       this.app.toast('warning', msg(`form.author.blocked.${block}`));
       return false;
-    }
-    if (this.session.meta.hasSignatures && !this.warned) {
-      if (!(await this.app.prompts.confirm(msg('form.author.confirmSigned'), { confirmLabel: msg('action.continue') }))) return false;
-      this.warned = true;
     }
     this.active = true;
     await this.refresh();
@@ -1800,13 +1794,7 @@ export class OutlineModel extends ViewModel {
     this.emit();
   }
 
-  /** The signed-document warning applies to every edit; false when the user backs out. */
-  private async allowed(): Promise<boolean> {
-    if (!this.signed) return true;
-    return this.app.prompts.confirm(msg('bookmarks.confirmSigned'), { confirmLabel: msg('action.continue') });
-  }
   private async run(cmd: () => ReturnType<typeof this.service.add>, after?: () => void): Promise<boolean> {
-    if (!(await this.allowed())) return false;
     const ok = await this.app.guard(async () => {
       await this.session.run(cmd());
       await this.load();

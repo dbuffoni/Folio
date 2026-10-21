@@ -84,9 +84,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         console.error(problems.join('\n'));
         process.exit(1);
       }
-      console.log(`version files agree: ${readAll(root)[0].version}`);
+      console.log(`version files agree: ${readAll(root)[0]?.version}`);
     } else {
-      console.log(`version set to ${setAll(root, arg)}`);
+      console.log(`version set to ${setAll(root, arg ?? '')}`);
     }
   } catch (e) {
     console.error(String(e instanceof Error ? e.message : e));

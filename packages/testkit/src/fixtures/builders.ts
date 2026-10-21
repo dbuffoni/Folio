@@ -881,6 +881,34 @@ export async function signedDoc(): Promise<Uint8Array> {
   return finish(doc);
 }
 
+/** The registration form (all field types) with a signature field carrying a dummy signature value. */
+export async function signedFormDoc(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await acroFormDoc());
+  const ctx = doc.context;
+  const page = doc.getPages()[0]!;
+  const sig = ctx.register(
+    ctx.obj({
+      Type: 'Sig',
+      Filter: 'Adobe.PPKLite',
+      SubFilter: 'adbe.pkcs7.detached',
+      ByteRange: [0, 100, 200, 100],
+      Contents: PDFHexString.of('00'.repeat(64)),
+      Reason: PDFString.of('Fixture'),
+      M: PDFString.of('D:20260110090000Z'),
+    }),
+  );
+  const widget = ctx.register(
+    ctx.obj({ Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: PDFString.of('Signature1'), V: sig, Rect: [320, 100, 520, 150], F: 132, P: page.ref }),
+  );
+  const annots = page.node.Annots();
+  if (annots) annots.push(widget);
+  else page.node.set(PDFName.of('Annots'), ctx.obj([widget]));
+  const acro = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+  acro.lookup(PDFName.of('Fields'), PDFArray).push(widget);
+  acro.set(PDFName.of('SigFlags'), ctx.obj(3));
+  return finish(doc);
+}
+
 /** Valid header and objects but a truncated tail: the cross-reference table must be rebuilt. */
 export async function damagedDoc(): Promise<Uint8Array> {
   const bytes = await textDoc({ pages: 2, title: 'Damaged' });

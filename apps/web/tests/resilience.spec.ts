@@ -26,6 +26,68 @@ const status = (page: Page) => page.getByRole('contentinfo');
 const undo = (page: Page) => page.getByLabel('Undo', { exact: true });
 const pageBox = async (page: Page) => (await firstPage(page).boundingBox())!;
 
+/** The first change to a signed document asks once (FR-SEC-13); these scenarios are about what follows. */
+const signedEditDialog = (page: Page) => page.getByRole('dialog', { name: 'Are you sure?' });
+async function acceptSignedEdit(page: Page): Promise<void> {
+  const dialog = signedEditDialog(page);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Edit anyway' }).click();
+  await expect(dialog).toBeHidden();
+}
+const signature = (page: Page) => status(page).locator('button.sig');
+
+test('a signed file asks before the first change, shows its state and lets the signatures be removed @FR-SEC-13', async ({ app }) => {
+  await openPdf(app, 'signed.pdf');
+  await expect(signature(app)).toHaveAccessibleName('Signed: valid');
+  await mode(app, 'Annotate');
+  await tool(app, 'Note').click();
+  const box = await pageBox(app);
+  // Escape cancels the question and nothing changes.
+  await app.mouse.click(box.x + 400, box.y + 300);
+  await expect(signedEditDialog(app)).toBeVisible();
+  await expect(signedEditDialog(app).getByText(/digitally signed/)).toBeVisible();
+  await app.keyboard.press('Escape');
+  await expect(signedEditDialog(app)).toBeHidden();
+  await expect(undo(app)).toBeDisabled();
+  await expect(signature(app)).toHaveAccessibleName('Signed: valid');
+  // Edit anyway: the state says the signature will be invalidated, and asks only once.
+  await tool(app, 'Note').click();
+  await app.mouse.click(box.x + 400, box.y + 300);
+  await acceptSignedEdit(app);
+  await expect(undo(app)).toBeEnabled();
+  await expect(signature(app)).toHaveAccessibleName('Signed: your changes will invalidate it');
+  await tool(app, 'Note').click();
+  await app.mouse.click(box.x + 300, box.y + 400);
+  await expect(signedEditDialog(app)).toBeHidden();
+  // The state offers the way out: undo the changes, or remove the signatures.
+  await signature(app).click();
+  await app.getByRole('menuitem', { name: 'Remove signatures' }).click();
+  await app.getByRole('dialog', { name: 'Are you sure?' }).getByRole('button', { name: 'Remove signatures' }).click();
+  await expect(signature(app)).toHaveCount(0);
+  const [out] = await downloads(app, 1, async () => {
+    await app.keyboard.press('Control+s');
+  });
+  expect(Buffer.from(out!.bytes).toString('latin1')).not.toContain('/ByteRange');
+  qpdfCheck(out!);
+});
+
+test('filling in a signed form does not warn about invalidation and keeps the signatures @FR-SEC-13 @FR-FRM-01', async ({ app }) => {
+  await openPdf(app, 'signed-form.pdf');
+  await mode(app, 'Fill & Sign');
+  await app.locator('.fld[aria-label="Your first and last name"]').fill('Ada Lovelace');
+  await app.keyboard.press('Tab');
+  await expect(signedEditDialog(app)).toHaveCount(0);
+  await expect(app.getByText(/Filling in the form keeps the signatures valid/).first()).toBeVisible();
+  await expect(signature(app)).toHaveAccessibleName('Signed: your form entries keep it valid');
+  const [out] = await downloads(app, 1, async () => {
+    await app.keyboard.press('Control+s');
+    await app.getByRole('dialog', { name: 'This file is digitally signed' }).getByRole('button', { name: /^Append changes/ }).click();
+  });
+  const original = readFileSync(fx('signed-form.pdf'));
+  expect(out!.bytes.subarray(0, original.length).equals(original)).toBe(true);
+  expect(qdf(out!)).toContain('(Ada Lovelace)');
+});
+
 test('saving a signed file asks first; "append changes" keeps the signed bytes intact @FR-APP-11', async ({
   app,
 }) => {
@@ -34,6 +96,7 @@ test('saving a signed file asks first; "append changes" keeps the signed bytes i
   await tool(app, 'Note').click();
   const box = await pageBox(app);
   await app.mouse.click(box.x + 400, box.y + 300);
+  await acceptSignedEdit(app);
   await expect(undo(app)).toBeEnabled();
 
   const [out] = await downloads(app, 1, async () => {
@@ -55,6 +118,7 @@ test('cancelling the signed-file warning writes nothing and keeps the edit @FR-A
   await tool(app, 'Note').click();
   const box = await pageBox(app);
   await app.mouse.click(box.x + 400, box.y + 300);
+  await acceptSignedEdit(app);
   let written = 0;
   app.on('download', () => written++);
   await app.keyboard.press('Control+s');

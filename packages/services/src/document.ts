@@ -139,6 +139,18 @@ export class DocumentService {
   removeHiddenData(opts: HiddenDataOptions): Command<HiddenDataReport> {
     return checkpointCommand(label('cmd.removeHiddenData'), 'meta', ({ doc }) => doc.removeHiddenData(opts), { kind: 'all' });
   }
+  /**
+   * FR-SEC-13 "Remove signatures": deletes every signature field of the document (one undo step) and returns
+   * how many there were. The caller rewrites the file on the next save, so no signed revision survives.
+   */
+  removeSignatures(): Command<number> {
+    return checkpointCommand(
+      label('cmd.removeSignatures'),
+      'meta',
+      ({ doc }) => doc.removeSignatures(),
+      { kind: 'all' },
+    );
+  }
   /** FR-SEC-04 "Remove all metadata". */
   removeAllMetadata(): Command<void> {
     return checkpointCommand(label('cmd.removeMetadata'), 'meta', ({ doc }) => doc.clearMetadata(), { kind: 'meta' });

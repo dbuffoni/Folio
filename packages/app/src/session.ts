@@ -1,4 +1,4 @@
-import { Emitter, History, type Command, type HistoryState, type Invalidation } from '@folio/core';
+import { CancelledError, Emitter, History, type Command, type HistoryState, type Invalidation } from '@folio/core';
 import type { Annotation, AnnotId, DocMeta, FileRef, FormField, ObjId, PageIndex, PageInfo, PdfDocument, Permissions, Size } from '@folio/ports';
 import { NavigationService, RenderService, TextService, type TextRange } from '@folio/services';
 import type { Services } from './services.ts';
@@ -30,6 +30,15 @@ export interface SessionInit {
 }
 
 /** One open document (one tab): the PDF, its undo history, selection and view state (SPEC §8.6). */
+/**
+ * What a signed document's signatures are worth right now (FR-SEC-13), from the unsaved changes:
+ * valid (nothing changed), keeps (only form entries, which an incremental save keeps valid), will-break
+ * (a change that invalidates them is waiting to be saved) or broken (already saved that way).
+ */
+export type SignatureStatus = 'none' | 'valid' | 'keeps' | 'will-break' | 'broken';
+/** How one change affects a signed document. */
+export type SignatureImpact = 'keeps' | 'invalidates';
+
 export class DocumentSession {
   readonly id: string;
   readonly doc: PdfDocument;
@@ -50,6 +59,17 @@ export class DocumentSession {
   byteSize?: number;
   meta: DocMeta;
   recentId?: string;
+  /**
+   * The gate of the command bus for signed documents: asked before a command changes a document that has
+   * signatures, it answers whether to go ahead. Set by the application (it owns the prompts).
+   */
+  beforeSignedChange: ((impact: SignatureImpact) => Promise<boolean>) | null = null;
+  /** A change that invalidates the signatures was written to the file. */
+  signaturesBroken = false;
+  /** The user agreed to change the signed document in this session; the question is not asked again. */
+  signedEditAccepted = false;
+  /** The note that form entries keep the signatures valid was shown. */
+  signedHintShown = false;
   /** Set by "Remove hidden data": the next save must rewrite the whole file so removed data cannot survive in earlier revisions. */
   fullRewrite = false;
   mode: Mode = 'view';
@@ -161,7 +181,20 @@ export class DocumentSession {
 
   /** Runs a command through the history. The only way view-models change the document. */
   async run<R>(command: Command<R>): Promise<R> {
+    // One check for every command, so a feature added later cannot forget to warn (FR-SEC-13).
+    if (this.meta.hasSignatures && this.beforeSignedChange) {
+      const impact: SignatureImpact = command.keepsSignatures === true ? 'keeps' : 'invalidates';
+      if (!(await this.beforeSignedChange(impact))) throw new CancelledError();
+    }
     return this.history.execute(command);
+  }
+  /** State of the signatures given the changes made since the file was opened or last saved. */
+  get signatureStatus(): SignatureStatus {
+    if (!this.meta.hasSignatures) return 'none';
+    if (this.signaturesBroken) return 'broken';
+    const unsaved = this.history.unsaved;
+    if (this.fullRewrite || unsaved.some((e) => !e.keepsSignatures) || (this.history.dirty && unsaved.length === 0 && !this.startsDirty)) return 'will-break';
+    return unsaved.length > 0 ? 'keeps' : 'valid';
   }
   /** Waits for running commands, so that a save or a close guard sees their result. */
   settled(): Promise<void> {
@@ -174,6 +207,8 @@ export class DocumentSession {
     return this.history.redo();
   }
   markSaved(ref?: FileRef, byteSize?: number): void {
+    // Whatever invalidating change reached the file stays: the signatures cannot become valid again.
+    if (this.meta.hasSignatures && this.signatureStatus === 'will-break') this.signaturesBroken = true;
     if (ref) {
       this.ref = ref;
       this.name = ref.name;

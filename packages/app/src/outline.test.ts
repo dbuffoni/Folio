@@ -82,7 +82,7 @@ describe('Bookmark editor @FR-EDT-11', () => {
     expect(om.signed).toBe(true);
     t.prompts.confirmAnswers = [false];
     expect(await om.add('Nope')).toBe(false);
-    expect(t.prompts.asked).toContain('confirm:bookmarks.confirmSigned');
+    expect(t.prompts.asked).toContain('confirm:signed.editConfirm');
     expect(s.dirty).toBe(false);
     t.prompts.confirmAnswers = [true];
     expect(await om.add('Yes')).toBe(true);

@@ -203,7 +203,8 @@ export class FormService {
             return f && f.id === field.id && field.type === 'text' ? make(from, f.to) : null;
           },
         ),
-        { fill: { id: field.id, to } },
+        // Filling in a field is what a signed document tolerates (an incremental save keeps it valid).
+        { fill: { id: field.id, to }, keepsSignatures: true },
       );
     return make(currentValue(field), next);
   }

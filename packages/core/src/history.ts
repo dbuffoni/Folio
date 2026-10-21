@@ -33,17 +33,25 @@ export interface Command<R = unknown> {
   readonly undo: 'checkpoint' | ((ctx: CommandContext) => Promise<void>);
   /** Coalesce with the next command (drag moves, typing). Return the merged command or null. */
   merge?(next: Command): Command | null;
+  /**
+   * True only for changes a signed document tolerates: filling in existing form fields, which an incremental
+   * save keeps valid. Everything else (the default) invalidates the signatures, so a new feature cannot forget
+   * the warning (FR-SEC-13).
+   */
+  readonly keepsSignatures?: boolean;
 }
 
 /** Several commands as one undo step (Smart Fill, split, apply-to-many). */
 export class CompositeCommand implements Command<unknown[]> {
   readonly kind: CommandKind;
+  readonly keepsSignatures: boolean;
   readonly undo: 'checkpoint' | ((ctx: CommandContext) => Promise<void>);
   constructor(
     readonly label: Msg,
     private readonly commands: readonly Command[],
   ) {
     this.kind = commands[0]?.kind ?? 'content';
+    this.keepsSignatures = commands.length > 0 && commands.every((c) => c.keepsSignatures === true);
     if (commands.some((c) => c.undo === 'checkpoint')) {
       this.undo = 'checkpoint';
     } else {
@@ -152,6 +160,7 @@ export class CheckpointStore {
 export interface HistoryEntry {
   readonly label: Msg;
   readonly kind: CommandKind;
+  readonly keepsSignatures: boolean;
 }
 export interface HistoryState {
   canUndo: boolean;
@@ -194,6 +203,8 @@ export class History {
   private rev = 0;
   private nextRev = 1;
   private savedRev = 0;
+  /** Length of the done stack at the last save: entries above it are changes not written to the file yet. */
+  private savedDepth = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly ctx: CommandContext;
 
@@ -211,7 +222,7 @@ export class History {
   }
 
   get state(): HistoryState {
-    const entry = (r: Record_): HistoryEntry => ({ label: r.command.label, kind: r.command.kind });
+    const entry = (r: Record_): HistoryEntry => ({ label: r.command.label, kind: r.command.kind, keepsSignatures: r.command.keepsSignatures === true });
     return {
       canUndo: this.doneStack.length > 0,
       canRedo: this.undoneStack.length > 0,
@@ -227,9 +238,14 @@ export class History {
   get revision(): number {
     return this.rev;
   }
+  /** Applied commands not yet written to the file (oldest first). */
+  get unsaved(): readonly HistoryEntry[] {
+    return this.doneStack.slice(Math.min(this.savedDepth, this.doneStack.length)).map((r) => ({ label: r.command.label, kind: r.command.kind, keepsSignatures: r.command.keepsSignatures === true }));
+  }
   /** Call after a successful save. */
   markSaved(): void {
     this.savedRev = this.rev;
+    this.savedDepth = this.doneStack.length;
     this.changed();
   }
 
@@ -280,6 +296,7 @@ export class History {
         await rec.command.undo(this.ctx);
       }
       this.doneStack.pop();
+      this.savedDepth = Math.min(this.savedDepth, this.doneStack.length);
       this.undoneStack.push(rec);
       this.rev = this.doneStack[this.doneStack.length - 1]?.rev ?? 0;
       this.changed();

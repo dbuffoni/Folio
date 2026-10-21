@@ -2,7 +2,7 @@
   import { formatChord, parsePageJump, stepZoom, type DocumentSession } from '@folio/app';
   import { formatBytes } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, isMac, raw, track, trackPage, ui } from '#lib/state.svelte.ts';
+  import { app, dep, isMac, raw, track, trackPage, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import { tip } from './tip.ts';
@@ -19,6 +19,14 @@
   });
   const lockText = $derived(session.meta.ownerUnlocked ? t('perm.unlocked') : session.meta.permissions ? t('perm.lockRestricted') : t('perm.lock'));
   let menu = $state<{ x: number; y: number } | null>(null);
+  // Signatures of the open document (FR-SEC-13): valid, kept by form entries, or about to be invalidated.
+  const sigStatus = $derived(dep(track(), session.signatureStatus));
+  const sigText = $derived(sigStatus === 'valid' ? t('signed.status.valid') : sigStatus === 'keeps' ? t('signed.status.keeps') : sigStatus === 'will-break' ? t('signed.status.willBreak') : sigStatus === 'broken' ? t('signed.status.broken') : '');
+  let sigMenu = $state<{ x: number; y: number } | null>(null);
+  const sigItems = $derived.by((): MenuItem[] => [
+    ...(sigStatus === 'will-break' ? [{ icon: 'undo-2', label: t('signed.undoChanges'), run: () => void raw(session).undo() } as MenuItem] : []),
+    { icon: 'shield-x', label: t('signed.removeShort'), danger: true, run: () => void raw(app).removeSignatures(raw(session)) },
+  ]);
   const k = (s: string): string => formatChord(s, isMac);
   const zoomItems = $derived.by((): MenuItem[] => [
     { icon: 'move-horizontal', label: t('cmd.fitWidth'), shortcut: k('Mod+0'), checked: view.zoomMode === 'fit-width', run: () => session.setZoom('fit-width') },
@@ -51,7 +59,13 @@
   <button class="ib" onclick={() => session.rotateView(270)} use:tip={t('ui.rotateLeft')} aria-label={t('ui.rotateLeft')}><Icon name="rotate-ccw" /></button>
   <button class="ib" onclick={() => session.rotateView(90)} use:tip={[t('ui.rotateRight'), k('Mod+Shift+R')]} aria-label={t('ui.rotateRight')}><Icon name="rotate-cw" /></button>
   {#if session.meta.isEncrypted}<span class="lock" role="img" aria-label={lockText} title={lockText}><Icon name={session.meta.ownerUnlocked ? 'lock-open' : 'lock'} /></span>{/if}
+  {#if sigStatus !== 'none'}
+    <button class="sig {sigStatus}" aria-haspopup="menu" aria-label={sigText} title={sigText} onclick={(e) => (sigMenu = { x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - (sigStatus === 'will-break' ? 90 : 50) })}>
+      <Icon name={sigStatus === 'valid' || sigStatus === 'keeps' ? 'shield-check' : 'shield-alert'} /><span class="siglabel">{sigText}</span>
+    </button>
+  {/if}
   <span class="st" role="status"><i class="dotok" class:dotun={dirty} style="display:inline-block"></i><span>{dirty ? t('ui.unsaved') : t('ui.saved')}{session.byteSize ? ` · ${formatBytes(session.byteSize)}` : ''}</span></span>
   <button class="ib" class:on={ui.inspectorOpen} onclick={() => ui.toggleInspector()} use:tip={[t('cmd.toggleInspector'), 'F5']} aria-label={t('cmd.toggleInspector')} aria-pressed={ui.inspectorOpen}><Icon name="panel-right" /></button>
 </footer>
 {#if menu}<Menu items={zoomItems} anchor={menu} onclose={() => (menu = null)} />{/if}
+{#if sigMenu}<Menu items={sigItems} anchor={sigMenu} onclose={() => (sigMenu = null)} />{/if}

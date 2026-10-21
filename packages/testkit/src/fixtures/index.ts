@@ -51,6 +51,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   'acroform-prefilled': { description: 'Same form with values', build: () => b.acroFormDoc({ prefilled: true }), expectValid: true },
   'acroform-multipage': { description: 'Form with fields on two pages and a radio group', build: b.acroFormMultiPageDoc, expectValid: true },
   'acroform-2': { description: 'Second form with a colliding field name', build: b.acroFormDoc2, expectValid: true },
+  'signed-form': { description: 'Form with all field types and a signature field with a dummy signature', build: b.signedFormDoc, expectValid: true },
   xfa: { description: 'AcroForm declaring an XFA packet', build: b.xfaDoc, expectValid: true },
   'dotted-form': { description: 'Word-style form: labels followed by dotted leaders (…………)', build: async () => (await b.flatFormDoc([{ key: 'name', label: 'Il/la sottoscritto/a', kind: 'dots' }, { key: 'tax', label: 'codice fiscale', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },
   'dotted-form-long': { description: 'Word-style form with long printed labels (review list width tests)', build: async () => (await b.flatFormDoc([{ key: 'tutor', label: 'genitore o tutore legale dell’alunno/a', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono per eventuali comunicazioni', kind: 'dots' }, { key: 'mail', label: '(Indirizzo email per ricevere copia della fattura', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },

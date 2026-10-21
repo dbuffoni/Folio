@@ -605,6 +605,8 @@ export interface PdfDocument {
   setWidgetRect(id: FieldId, widget: number, rect: Rect): Promise<void>;
   /** Removes a field with all its widgets, or just one widget (`widget` given); the last widget removes the field. */
   removeField(id: FieldId, widget?: number): Promise<void>;
+  /** Removes every digital signature: the fields, their signature data and the document flags (FR-SEC-13). Returns how many fields. */
+  removeSignatures(): Promise<number>;
 
   // page content objects
   listObjects(i: PageIndex): Promise<PageObject[]>;
