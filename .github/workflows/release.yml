@@ -39,6 +39,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev patchelf file xvfb dbus-x11 gnome-keyring webkit2gtk-driver qpdf
       - run: pnpm install --frozen-lockfile
+      - name: Version from the tag
+        # The tag is the single source of truth: installer names, the app's About page and the Cargo
+        # package all take it (tools/set-version.ts). A dispatch dry run keeps the committed version.
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm exec tsx tools/set-version.ts "$GITHUB_REF_NAME"
       - run: pnpm appimage
       - run: cargo install tauri-driver --locked
       - run: pnpm appimage:smoke
@@ -103,6 +108,11 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
+      - name: Version from the tag
+        # The tag is the single source of truth: installer names, the app's About page and the Cargo
+        # package all take it (tools/set-version.ts). A dispatch dry run keeps the committed version.
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm exec tsx tools/set-version.ts "$GITHUB_REF_NAME"
       - run: pnpm --filter @folio/desktop bundle:windows
       - uses: actions/upload-artifact@v7
         with:
@@ -124,6 +134,11 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - run: pnpm install --frozen-lockfile
+      - name: Version from the tag
+        # The tag is the single source of truth: installer names, the app's About page and the Cargo
+        # package all take it (tools/set-version.ts). A dispatch dry run keeps the committed version.
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm exec tsx tools/set-version.ts "$GITHUB_REF_NAME"
       - run: pnpm --filter @folio/desktop bundle:macos
       - uses: actions/upload-artifact@v7
         with:
@@ -166,6 +181,12 @@ jobs:
         run: |
           mkdir release-files
           cp dist-release/* sbom.cdx.json THIRD-PARTY-NOTICES.md release-files/
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            for f in release-files/*.AppImage release-files/*.exe release-files/*.dmg; do
+              [[ "$f" == *"_${version}_"* ]] || { echo "::error::$f does not carry the tag version ${version}"; exit 1; }
+            done
+          fi
           cd release-files
           find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs -d '\n' sha256sum > SHA256SUMS
           cat SHA256SUMS
@@ -209,13 +230,20 @@ jobs:
           generate_release_notes: true
           files: release-files/*
       - name: Assert the release is still a draft
+        # Resolved by tag name from the list of releases (drafts included), not by the action's id
+        # output; the JSON that was read is printed so a failure can be diagnosed from the log.
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_ID: ${{ steps.draft.outputs.id }}
+          ACTION_RELEASE_ID: ${{ steps.draft.outputs.id }}
         run: |
-          draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq .draft)"
-          [ "$draft" = true ] || { echo "::error::release ${RELEASE_ID} is not a draft"; exit 1; }
+          echo "action reported release id: ${ACTION_RELEASE_ID:-none}"
+          releases="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate)"
+          found="$(jq -c -s --arg tag "$GITHUB_REF_NAME" '[.[][] | select(.tag_name == $tag)] | map({id, tag_name, name, draft, prerelease, published_at, assets: (.assets | length)})' <<<"$releases")"
+          echo "releases tagged $GITHUB_REF_NAME: $found"
+          [ "$(jq 'length' <<<"$found")" -ge 1 ] || { echo "::error::no release found for tag $GITHUB_REF_NAME"; exit 1; }
+          published="$(jq -r '[.[] | select(.draft == false)] | length' <<<"$found")"
+          [ "$published" = 0 ] || { echo "::error::release $GITHUB_REF_NAME is published (draft=false): $found"; exit 1; }
           echo "::notice title=Draft release ready::Review it under Releases and publish by hand."
 
   # Last job: the bundle that went to the draft is checked as a user would check a download.

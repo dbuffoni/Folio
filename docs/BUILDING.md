@@ -108,11 +108,16 @@ and fetched with `pnpm fixtures:fetch`.
 
 `.github/workflows/release.yml` builds, tests and packages; it **never publishes**. Every path ends
 in a draft (`draft: true`, asserted again through the API after the upload); a person reads it and
-presses Publish.
+presses Publish. The "Assert the release is still a draft" step finds the release by tag name in the
+list of releases, prints what it read, and fails only if a release for the tag has `draft: false`.
 
 ### Procedure
 
-1. Merge everything into the release branch, bump the version, run `pnpm gate` locally.
+1. Merge everything into the release branch, bump the version (`pnpm exec tsx tools/set-version.ts 0.1.4`
+   writes `package.json` x4, `tauri.conf.json`, `Cargo.toml` and `Cargo.lock`; `--check` fails when they
+   disagree and runs as a unit test), run `pnpm gate` locally. On a tag build the workflow runs the same
+   script with the tag name, so assets are named `Folio_<version>_...` after the tag (`v0.1.4-rc1` keeps
+   its suffix) and the `release` job fails if an installer name lacks the version.
 2. **Dry run**: tag a release candidate, `git tag v0.1.3-rc1 && git push origin v0.1.3-rc1`, or start
    the workflow by hand (Actions > Release > Run workflow, any branch). Both run the distribution
    smoke matrix (below). The tag creates a draft pre-release; the manual run only uploads the

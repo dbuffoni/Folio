@@ -14,7 +14,7 @@ import { createBrowserOcr, loadBundledLanguage } from './ocr/index.ts';
 import { createPlatform, isTauri } from './platform/index.ts';
 import { installPerf, installPerfPanel, perfRequested, registerPerfShortcut } from './perf.ts';
 
-export const VERSION = '0.1.0';
+export const VERSION = __APP_VERSION__;
 
 const state = $state({ ready: false, error: '' as string });
 export { track, trackPage, raw };
