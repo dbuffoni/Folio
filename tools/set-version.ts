@@ -34,9 +34,9 @@ export function parseVersion(input: unknown): string {
 
 const JSON_VERSION = /^(\s*"version"\s*:\s*")([^"]*)(")/m;
 // [package] section only: the first `version = "..."` after the header, before the next section.
-const CARGO_TOML_VERSION = /(\[package\][^[]*?\nversion\s*=\s*")([^"]*)(")/;
-// Cargo.lock: the entry of the package named "folio".
-const CARGO_LOCK_VERSION = /(\[\[package\]\]\nname = "folio"\nversion = ")([^"]*)(")/;
+const CARGO_TOML_VERSION = /(\[package\][^[]*?\r?\nversion\s*=\s*")([^"]*)(")/;
+// Cargo.lock: the entry of the package named "folio" (files checked out on Windows may have CRLF line ends).
+const CARGO_LOCK_VERSION = /(\[\[package\]\]\r?\nname = "folio"\r?\nversion = ")([^"]*)(")/;
 
 const PATTERN: Record<Kind, RegExp> = { json: JSON_VERSION, 'cargo-toml': CARGO_TOML_VERSION, 'cargo-lock': CARGO_LOCK_VERSION };
 

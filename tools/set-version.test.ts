@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { VERSION_FILES, checkConsistency, parseVersion, readAll, replaceVersion, setAll } from './set-version.ts';
+import { VERSION_FILES, checkConsistency, parseVersion, readAll, readVersion, replaceVersion, setAll } from './set-version.ts';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 
@@ -34,6 +34,14 @@ describe('set-version (release file names follow the tag) @FR-APP-15', () => {
     expect(replaceVersion('cargo-toml', toml, '0.2.0')).toBe(toml.replace('0.1.0', '0.2.0'));
     const lock = '[[package]]\nname = "other"\nversion = "9.9.9"\n\n[[package]]\nname = "folio"\nversion = "0.1.0"\n';
     expect(replaceVersion('cargo-lock', lock, '0.2.0')).toBe(lock.replace('"0.1.0"', '"0.2.0"'));
+  });
+
+  it('reads and writes files with Windows line ends @FR-APP-15', () => {
+    const lock = '[[package]]\r\nname = "folio"\r\nversion = "0.1.0"\r\n';
+    expect(readVersion('cargo-lock', lock)).toBe('0.1.0');
+    expect(replaceVersion('cargo-lock', lock, '0.2.0')).toBe(lock.replace('0.1.0', '0.2.0'));
+    const toml = '[package]\r\nname = "folio"\r\nversion = "0.1.0"\r\n\r\n[dependencies]\r\n';
+    expect(replaceVersion('cargo-toml', toml, '0.2.0')).toBe(toml.replace('0.1.0', '0.2.0'));
   });
 
   it('writes every version file and keeps a pre-release suffix', () => {
