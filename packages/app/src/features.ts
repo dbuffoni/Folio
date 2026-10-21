@@ -40,6 +40,7 @@ import {
   isFillable,
   isImageName,
   nextStop,
+  stopIndex,
   planFiles,
   planSplit,
   selectParity,
@@ -1921,6 +1922,18 @@ export class FormModel extends ViewModel {
     this.focus = nextStop(this.stops.length, this.focus, direction);
     this.emit();
     const stop = this.stops[this.focus];
+    if (stop) this.session.goToPage(stop.field.widgets[stop.widget]!.page);
+    return stop ?? null;
+  }
+  /**
+   * Tab / Shift+Tab from the field that has focus: the next stop in reading order, across pages. Null at the
+   * last (first) stop, so Tab leaves the form for the next control of the app instead of looping (FR-FRM-02).
+   */
+  advance(id: string, widget: number, direction: 1 | -1): { field: FormField; widget: number } | null {
+    const at = stopIndex(this.stops, id, widget);
+    const stop = at < 0 ? undefined : this.stops[at + direction];
+    this.focus = stop ? at + direction : -1;
+    this.emit();
     if (stop) this.session.goToPage(stop.field.widgets[stop.widget]!.page);
     return stop ?? null;
   }

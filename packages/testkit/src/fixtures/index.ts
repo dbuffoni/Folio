@@ -49,6 +49,7 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   links: { description: 'Internal, web, JavaScript and launch links', build: b.linksDoc, expectValid: true },
   acroform: { description: 'AcroForm with all Release 1 field types', build: () => b.acroFormDoc(), expectValid: true },
   'acroform-prefilled': { description: 'Same form with values', build: () => b.acroFormDoc({ prefilled: true }), expectValid: true },
+  'acroform-multipage': { description: 'Form with fields on two pages and a radio group', build: b.acroFormMultiPageDoc, expectValid: true },
   'acroform-2': { description: 'Second form with a colliding field name', build: b.acroFormDoc2, expectValid: true },
   xfa: { description: 'AcroForm declaring an XFA packet', build: b.xfaDoc, expectValid: true },
   'dotted-form': { description: 'Word-style form: labels followed by dotted leaders (…………)', build: async () => (await b.flatFormDoc([{ key: 'name', label: 'Il/la sottoscritto/a', kind: 'dots' }, { key: 'tax', label: 'codice fiscale', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },

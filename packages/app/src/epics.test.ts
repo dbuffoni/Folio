@@ -470,7 +470,6 @@ describe('E4 Fill a form', () => {
     const radio = form.tab(1)!;
     expect([radio.field.name, radio.widget]).toEqual(['color', 0]);
     await form.set(radio.field, radio.field.widgets[1]!.exportValue!);
-    form.tab(1);
     await form.set(form.tab(1)!.field, 'France');
     await form.set(form.tab(1)!.field, ['EN', 'IT']);
     expect(form.tab(1)!.field.name).toBe('person.name');
@@ -570,6 +569,52 @@ describe('E4 Fill a form', () => {
       'confirm:form.confirmReset',
       'confirm:form.confirmFlatten',
     ]);
+  });
+
+  it('Tab from a field commits it, crosses pages in reading order, and leaves the form at both ends @FR-FRM-02', async () => {
+    const t = await createTestApp();
+    const s = await t.open('acroform-multipage', '/two-pages.pdf');
+    s.setMode('fill');
+    const form = t.form(s);
+    await form.load();
+    const names = (): string[] => form.stops.map((st) => st.field.name);
+    expect(names()).toEqual(['p1.first', 'p1.second', 'p2.first', 'kind', 'p2.last']);
+    const at = (name: string): { id: string; widget: number } => {
+      const st = form.stops.find((x) => x.field.name === name)!;
+      return { id: st.field.id, widget: st.widget };
+    };
+    const walk: string[] = [];
+    let cur = form.tab(1)!;
+    walk.push(`${cur.field.name}@${s.view.page}`);
+    for (;;) {
+      const typed = form.stops.find((x) => x.field.id === cur.field.id)!.field;
+      if (typed.type === 'text') await form.set(typed, `v-${typed.name}`);
+      const next = form.advance(cur.field.id, cur.widget, 1);
+      if (!next) break;
+      cur = next;
+      walk.push(`${cur.field.name}@${s.view.page}`);
+    }
+    // Pages change with the field; the radio group is one stop; past the last field focus is released.
+    expect(walk).toEqual(['p1.first@0', 'p1.second@0', 'p2.first@1', 'kind@1', 'p2.last@1']);
+    expect(form.focus).toBe(-1);
+    // Shift+Tab goes back across the boundary and stops at the first field.
+    const last = at('p2.last');
+    expect(form.advance(last.id, last.widget, -1)!.field.name).toBe('kind');
+    const second = at('p1.second');
+    expect(form.advance(second.id, second.widget, -1)!.field.name).toBe('p1.first');
+    expect(s.view.page).toBe(0);
+    const first = at('p1.first');
+    expect(form.advance(first.id, first.widget, -1)).toBeNull();
+    // Either button of the radio group continues from the group's stop.
+    const kind = form.fields.find((f) => f.name === 'kind')!;
+    expect(form.advance(kind.id, 1, 1)!.field.name).toBe('p2.last');
+    await settle();
+    expect(Object.fromEntries(form.fields.filter((f) => f.type === 'text').map((f) => [f.name, f.value]))).toEqual({
+      'p1.first': 'v-p1.first',
+      'p1.second': 'v-p1.second',
+      'p2.first': 'v-p2.first',
+      'p2.last': 'v-p2.last',
+    });
   });
 
   it('caches the tab order: same array while the fields are unchanged, a new one after load() replaces them @FR-FRM-01 @FR-FRM-02', async () => {

@@ -109,6 +109,44 @@ test('E4 fill a form with the keyboard and save it @FR-FRM-01 @FR-FRM-02', async
   expect(textOf(filled)).toContain('Ada Lovelace');
 });
 
+test('E4 Tab walks a two-page form from the keyboard, commits each value and leaves the form @FR-FRM-02', async ({ app }) => {
+  await openPdf(app, 'acroform-multipage.pdf');
+  await mode(app, 'Fill & Sign');
+  await expect(app.getByRole('status').filter({ hasText: 'This form has' })).toBeVisible();
+  const field = (name: string) => app.locator(`.fld[aria-label="${name}"]`);
+  await field('p1.first').focus();
+  await app.keyboard.type('One');
+  await app.keyboard.press('Tab');
+  await expect(field('p1.second')).toBeFocused();
+  await app.keyboard.type('Two');
+  // The next field is on the second page: Tab brings it into view and focuses it.
+  await app.keyboard.press('Tab');
+  await expect(field('p2.first')).toBeFocused();
+  await expect(field('p2.first')).toBeInViewport();
+  await app.keyboard.type('Three');
+  await app.keyboard.press('Tab');
+  await expect(field('kind: a')).toBeFocused();
+  await app.keyboard.press('Space');
+  await app.keyboard.press('Tab');
+  await expect(field('p2.last')).toBeFocused();
+  await app.keyboard.type('Four');
+  // Shift+Tab goes back, across the page boundary as well.
+  await app.keyboard.press('Shift+Tab');
+  await expect(field('kind: a')).toBeFocused();
+  await app.keyboard.press('Shift+Tab');
+  await expect(field('p2.first')).toBeFocused();
+  await app.keyboard.press('Shift+Tab');
+  await expect(field('p1.second')).toBeFocused();
+  // Past the last field Tab leaves the form instead of looping.
+  await field('p2.last').focus();
+  await app.keyboard.press('Tab');
+  await expect.poll(() => app.evaluate(() => document.activeElement?.classList.contains('fld'))).toBe(false);
+
+  const dump = qdf(await save(app));
+  for (const v of ['One', 'Two', 'Three', 'Four']) expect(dump).toContain(`(${v})`);
+  expect(dump).toMatch(/\/V \/0/); // the radio group has its first button selected
+});
+
 test('E5 Smart Fill without a key maps a flat form on the device @FR-AIF-07 @FR-AIF-05 @NFR-14', async ({ app, outbound }) => {
   await app.getByRole('button', { name: 'Settings' }).click();
   const settings = app.getByRole('dialog', { name: 'Settings' });

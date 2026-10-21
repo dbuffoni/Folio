@@ -4,7 +4,7 @@ import { FolioError, History } from '@folio/core';
 import type { Annotation, FreeTextAnnotation, StampAnnotation } from '@folio/ports';
 import { FakeClock, NodeImageCodec, decodePng, flatFormDoc, inkRatio, meanColor, mutoolDraw, pdfcpuFormFields, pdffonts, pdftoppm, pdftotext, qpdfQdf, samplePng, sharedEngine, signaturePng } from '@folio/testkit';
 import { AnnotationService, alignRects, constrainBox, constrainLine, distributeRects, moveAnnotation, resizeAnnotation, snapRect } from './annotation.ts';
-import { FormService, clampToField, currentValue, detectAreas, formatFieldValue, nextStop, tabOrder } from './form.ts';
+import { FormService, clampToField, currentValue, detectAreas, formatFieldValue, nextStop, stopIndex, tabOrder } from './form.ts';
 import { NavigationService } from './navigation.ts';
 import { ObjectEditService, sampleBackground } from './object-edit.ts';
 import { RenderService, cappedScale, tilesFor } from './render.ts';
@@ -473,8 +473,19 @@ describe('FormService', () => {
   it('walks fields in reading order with Tab and Shift+Tab @FR-FRM-02', async () => {
     const { doc } = await openFixture('acroform');
     const stops = tabOrder(await svc().fields(doc));
-    expect(stops.map((s) => `${s.field.name}${s.field.widgets.length > 1 ? `#${s.widget}` : ''}`)).toEqual(['person.name', 'code', 'notes', 'agree', 'color#0', 'color#1', 'country', 'langs']);
-    expect([nextStop(8, -1, 1), nextStop(8, 7, 1), nextStop(8, 0, -1), nextStop(8, -1, -1), nextStop(0, 0, 1)]).toEqual([0, 0, 7, 7, -1]);
+    // A radio group is one stop.
+    expect(stops.map((s) => s.field.name)).toEqual(['person.name', 'code', 'notes', 'agree', 'color', 'country', 'langs']);
+    expect([nextStop(7, -1, 1), nextStop(7, 6, 1), nextStop(7, 0, -1), nextStop(7, -1, -1), nextStop(0, 0, 1)]).toEqual([0, 0, 6, 6, -1]);
+    // Either button of the group is its stop; the ends of the form have no neighbour to step to.
+    const color = stops[4]!.field;
+    expect([stopIndex(stops, color.id, 0), stopIndex(stops, color.id, 1), stopIndex(stops, 'missing', 0)]).toEqual([4, 4, -1]);
+    doc.dispose();
+  });
+
+  it('orders fields of a two-page form by page, then position, with one stop per radio group @FR-FRM-02', async () => {
+    const { doc } = await openFixture('acroform-multipage');
+    const stops = tabOrder(await svc().fields(doc));
+    expect(stops.map((s) => `${s.field.widgets[s.widget]!.page}:${s.field.name}`)).toEqual(['0:p1.first', '0:p1.second', '1:p2.first', '1:kind', '1:p2.last']);
     doc.dispose();
   });
 

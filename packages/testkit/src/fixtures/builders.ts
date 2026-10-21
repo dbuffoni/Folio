@@ -369,6 +369,31 @@ export async function acroFormDoc(opts: { prefilled?: boolean } = {}): Promise<U
   return finish(doc);
 }
 
+/** Form over two pages (fields created out of reading order): Tab has to cross the page boundary. */
+export async function acroFormMultiPageDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Two-page form');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const form = doc.getForm();
+  const p1 = doc.addPage([612, 792]);
+  const p2 = doc.addPage([612, 792]);
+  const text = (name: string, page: typeof p1, x: number, y: number): void => {
+    const f = form.createTextField(name);
+    f.addToPage(page, { x, y, width: 200, height: 22, font });
+    f.setFontSize(11);
+  };
+  p1.drawText('Page one', { x: 72, y: 730, size: 18, font });
+  // Created bottom-first on purpose: reading order is by position, not by creation.
+  text('p1.second', p1, 72, 600);
+  text('p1.first', p1, 72, 680);
+  p2.drawText('Page two', { x: 72, y: 730, size: 18, font });
+  text('p2.first', p2, 72, 680);
+  const kind = form.createRadioGroup('kind');
+  kind.addOptionToPage('a', p2, { x: 72, y: 640, width: 16, height: 16 });
+  kind.addOptionToPage('b', p2, { x: 142, y: 640, width: 16, height: 16 });
+  text('p2.last', p2, 72, 580);
+  return finish(doc);
+}
+
 /** Second form reusing the field name `person.name` (collision when merged with acroFormDoc). */
 export async function acroFormDoc2(): Promise<Uint8Array> {
   const doc = await newDoc('Second form');

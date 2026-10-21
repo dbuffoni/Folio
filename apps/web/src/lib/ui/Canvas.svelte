@@ -148,8 +148,32 @@
     e.preventDefault();
     session.setZoom('custom', wheelZoom(session.view.zoom, e.deltaY));
   }
+  /** Focuses the control of a form stop once its page is rendered, and brings it into view. */
+  function focusStop(stop: { field: { id: string }; widget: number }): void {
+    let tries = 0;
+    const attempt = (): void => {
+      const node = scroller?.querySelector<HTMLElement>(`.fld[data-field="${CSS.escape(stop.field.id)}"][data-widget="${stop.widget}"]`);
+      if (node) {
+        node.focus({ preventScroll: true });
+        node.scrollIntoView({ block: 'center', inline: 'nearest' });
+      } else if (tries++ < 40) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+  }
   function onkeydown(e: KeyboardEvent): void {
-    if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+    const target = e.target as HTMLElement;
+    const fld = target.closest<HTMLElement>('.fld');
+    if (e.key === 'Tab' && session.mode === 'fill' && fld && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // Inside a field Tab commits its value (the change event of the blur) and moves to the next field in
+      // reading order, across pages; past the last (first) one it leaves the form natively (FR-FRM-02).
+      const stop = m.form.advance(fld.dataset.field ?? '', Number(fld.dataset.widget ?? 0), e.shiftKey ? -1 : 1);
+      if (stop) {
+        e.preventDefault();
+        focusStop(stop);
+      }
+      return;
+    }
+    if (target.closest('input, textarea, select')) return;
     if (e.key === ' ') {
       e.preventDefault();
       scroller?.scrollBy({ top: (e.shiftKey ? -0.9 : 0.9) * viewport.height });
@@ -161,7 +185,7 @@
       const stop = m.form.tab(e.shiftKey ? -1 : 1);
       if (stop) {
         e.preventDefault();
-        requestAnimationFrame(() => scroller?.querySelector<HTMLElement>('.fld')?.focus());
+        focusStop(stop);
       }
     } else if (
       e.key === 'Enter' &&
