@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = new URL('..', import.meta.url);
 const conf = JSON.parse(readFileSync(new URL('apps/desktop/src-tauri/tauri.conf.json', root), 'utf8')) as {
-  app: { windows: Array<{ width: number; height: number; minWidth: number; minHeight: number }> };
+  app: { windows: Array<{ width: number; height: number; minWidth: number; minHeight: number; visible?: boolean }> };
 };
 const rust = readFileSync(new URL('apps/desktop/src-tauri/src/lib.rs', root), 'utf8');
 
@@ -23,9 +23,11 @@ describe('first window of the desktop app @FR-APP-14', () => {
     expect(win.minWidth).toBeLessThanOrEqual(900);
   });
 
-  it('is placed from the monitor work area after the saved size is restored', () => {
+  it('is created hidden, placed from the saved state and the monitor work area, then shown', () => {
+    expect(conf.app.windows[0]).toMatchObject({ visible: false });
     expect(rust).toMatch(/skip_initial_state\("main"\)/);
-    expect(rust.indexOf('restore_state')).toBeLessThan(rust.indexOf('fit_rect(current, work)'));
     expect(rust).toMatch(/monitor\.work_area\(\)/);
+    expect(rust).toMatch(/initial_rect\(saved, scale, configured, work\)/);
+    expect(rust.indexOf('initial_rect(saved')).toBeLessThan(rust.indexOf('window.show()'));
   });
 });

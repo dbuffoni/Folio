@@ -81,6 +81,12 @@ rotate-and-save flow through the real screens.
 
 Other distributions: `apps/desktop/scripts/smoke-distro.sh <image> <AppImage> <pdf>` (see Release).
 
+### Window placement check
+
+`node apps/desktop/scripts/window-sizes.mjs <outdir>` opens the built AppImage under Xvfb at 1366×768, 1920×1080,
+1280×720 and 1024×600, checks that the window and its status bar are inside the screen, and that a size the user
+chose is remembered and clamped on a smaller screen; it writes a screenshot per run.
+
 ## Tests
 
 ```bash
