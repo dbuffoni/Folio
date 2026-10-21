@@ -101,6 +101,23 @@ export function runEngineConformance(
         doc.dispose();
         again.dispose();
       });
+      it('removeSignatures deletes the signature fields and their data, and nothing else @FR-SEC-13', async () => {
+        const doc = await engine.open(await fixture('signed-form'));
+        expect((await doc.getMeta()).hasSignatures).toBe(true);
+        const fields = (await doc.listFormFields()).length;
+        expect(await doc.removeSignatures()).toBe(1);
+        expect((await doc.getMeta()).hasSignatures).toBe(false);
+        expect((await doc.listFormFields()).length).toBe(fields - 1);
+        expect(await doc.removeSignatures()).toBe(0);
+        const bytes = await doc.save();
+        await valid(bytes);
+        expect(Buffer.from(bytes).toString('latin1')).not.toContain('/ByteRange');
+        const again = await engine.open(bytes);
+        expect((await again.getMeta()).hasSignatures).toBe(false);
+        expect((await again.listFormFields()).some((f) => f.name === 'person.name')).toBe(true);
+        doc.dispose();
+        again.dispose();
+      });
       it('incremental save keeps the original bytes as a prefix @FR-APP-11', async () => {
         const original = await fixture('signed');
         const doc = await engine.open(original);

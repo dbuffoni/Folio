@@ -180,7 +180,7 @@ describe('Detect fields on a picture-only page reads it with OCR @FR-FRM-15', ()
     expect(local.proposals).toHaveLength(7);
     ai.enqueue({
       fields: [],
-      newAreas: [{ page: 0, bbox: [0.1, 0.05, 0.5, 0.07], label: 'Referenced by AI', fieldType: 'text', profileKey: null, transform: 'none', confidence: 0.9 }],
+      newAreas: [{ page: 0, bbox: [0.1, 0.05, 0.5, 0.07], label: 'Referenced by AI', fieldType: 'text', profileKey: null, confidence: 0.9 }],
     });
     const improved = await svc.detect(doc, [0], { useAi: true, forceAi: true, ocr: { languages: ['eng'] } });
     expect(ai.requests).toHaveLength(1);

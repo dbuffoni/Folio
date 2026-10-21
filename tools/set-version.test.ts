@@ -16,7 +16,7 @@ function copyOfVersionFiles(): string {
   return dir;
 }
 
-describe('set-version (release file names follow the tag)', () => {
+describe('set-version (release file names follow the tag) @FR-APP-15', () => {
   it('accepts tags, bare versions and pre-release suffixes', () => {
     expect(parseVersion('v0.1.4')).toBe('0.1.4');
     expect(parseVersion('refs/tags/v0.1.4-rc1')).toBe('0.1.4-rc1');
