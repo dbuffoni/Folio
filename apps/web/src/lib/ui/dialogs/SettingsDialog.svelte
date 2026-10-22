@@ -17,7 +17,7 @@
   let { initial = 'appearance' }: { initial?: string } = $props();
   const PANES = ['appearance', 'smartFill', 'profiles', 'ocr', 'certificates', 'general', 'privacy', 'about'] as const;
   // svelte-ignore state_referenced_locally
-  let pane = $state<(typeof PANES)[number]>(initial === 'profiles' ? 'profiles' : initial === 'privacy' ? 'privacy' : initial === 'about' ? 'about' : 'appearance');
+  let pane = $state<(typeof PANES)[number]>(PANES.find((p) => p === (ui.settingsPane ?? initial)) ?? 'appearance');
   const v = $derived(track());
   const s = $derived(dep(v, app.settings));
   const set = app.setSetting.bind(app);

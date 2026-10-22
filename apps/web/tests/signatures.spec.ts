@@ -80,8 +80,11 @@ test('no certificate: the sign dialog points to Settings @FR-SIG-01', async ({ a
   const dialog = app.getByRole('dialog', { name: 'Sign with a certificate' });
   await expect(dialog.getByTestId('dsig-noid')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Sign', exact: true })).toBeDisabled();
-  await app.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
+  // The link goes to the Certificates pane of Settings, not to the first pane.
+  await dialog.getByRole('button', { name: 'Open certificate settings' }).click();
+  const settings = app.getByRole('dialog', { name: 'Settings' });
+  await expect(settings.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Certificates' })).toHaveAttribute('aria-current', 'page');
+  await expect(settings.getByText('My certificates')).toBeVisible();
 });
 
 test('an unsigned document says so in the signatures dialog @FR-SIG-04', async ({ app }) => {

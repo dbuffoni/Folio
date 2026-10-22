@@ -24,7 +24,7 @@
     if (await w.run()) ui.closeDialog();
   }
   function openCertificates(): void {
-    ui.openDialog('settings');
+    ui.openSettings('certificates');
   }
 </script>
 
