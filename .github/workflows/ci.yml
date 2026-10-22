@@ -33,6 +33,7 @@ jobs:
     outputs:
       full: ${{ steps.p.outputs.full }}
       rust: ${{ steps.p.outputs.rust }}
+      browsers: ${{ steps.p.outputs.browsers }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,6 +50,7 @@ jobs:
           if [ "$EVENT" = pull_request ] && git diff --name-only "origin/${BASE_REF}...HEAD" | grep -qE '^(apps/desktop/|\.github/workflows/|pnpm-lock\.yaml$|rust-toolchain\.toml$)'; then rust=true; fi
           echo "full=$full" >> "$GITHUB_OUTPUT"
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          if [ "$full" = true ]; then echo 'browsers=["chromium","firefox","webkit"]' >> "$GITHUB_OUTPUT"; else echo 'browsers=["chromium"]' >> "$GITHUB_OUTPUT"; fi
           echo "heavy tier: $full, rust jobs: $rust"
 
   # Everything that needs no browser and no Tauri (SPEC §15 headless-first rule).
@@ -95,9 +97,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
-    # The heavy browsers are skipped on ordinary pull requests.
-    if: matrix.browser == 'chromium' || needs.plan.outputs.full == 'true'
+        # Chromium alone on ordinary pull requests, the three of them in the heavy tier.
+        browser: ${{ fromJSON(needs.plan.outputs.browsers) }}
     name: e2e (${{ matrix.browser }})
     runs-on: ubuntu-22.04
     timeout-minutes: 20
