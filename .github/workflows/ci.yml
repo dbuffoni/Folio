@@ -114,8 +114,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: PDF oracles
-        timeout-minutes: 5
-        run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils mupdf-tools
+        # The Ubuntu mirror is sometimes slow (45 MB for mupdf-tools): retry, and allow ten minutes.
+        timeout-minutes: 10
+        run: sudo apt-get update && sudo apt-get install -y -o Acquire::Retries=3 qpdf poppler-utils mupdf-tools
       - name: Playwright version
         id: pw
         run: echo "v=$(pnpm --filter @folio/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
