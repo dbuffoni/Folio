@@ -151,14 +151,22 @@
   /** Focuses the control of a form stop once its page is rendered, and brings it into view. */
   function focusStop(stop: { field: { id: string }; widget: number }): void {
     let tries = 0;
-    const attempt = (): void => {
+    const attempt = (): boolean => {
       const node = scroller?.querySelector<HTMLElement>(`.fld[data-field="${CSS.escape(stop.field.id)}"][data-widget="${stop.widget}"]`);
-      if (node) {
-        node.focus({ preventScroll: true });
-        node.scrollIntoView({ block: 'center', inline: 'nearest' });
-      } else if (tries++ < 40) requestAnimationFrame(attempt);
+      if (!node) return false;
+      node.focus({ preventScroll: true });
+      node.scrollIntoView({ block: 'center', inline: 'nearest' });
+      // Going to another page scrolls to that page's top in the next frames: bring the field back into view after it.
+      requestAnimationFrame(() => requestAnimationFrame(() => node.scrollIntoView({ block: 'center', inline: 'nearest' })));
+      return true;
     };
-    requestAnimationFrame(attempt);
+    // A field that is already on screen takes focus at once, so keys typed right after Tab reach it; one on a page
+    // that is not rendered yet is waited for.
+    if (attempt()) return;
+    const later = (): void => {
+      if (!attempt() && tries++ < 40) requestAnimationFrame(later);
+    };
+    requestAnimationFrame(later);
   }
   function onkeydown(e: KeyboardEvent): void {
     const target = e.target as HTMLElement;
