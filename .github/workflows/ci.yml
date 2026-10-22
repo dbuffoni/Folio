@@ -22,10 +22,40 @@ env:
   PDFCPU_VERSION: 0.16.2
 
 jobs:
+  # Decides how much to run. Every pull request gets the fast tier: static checks, the unit, conformance and
+  # interop suites, and the web e2e in Chromium. The heavy tier (Firefox and WebKit, Windows and macOS, performance
+  # budgets) runs on main, on release pull requests (head branch release/*) and on demand. The Rust jobs (Linux
+  # clippy and tests, the AppImage) run when the desktop shell, a workflow or a lock file changed, and always in
+  # the heavy tier. Skipped jobs count as passed for required checks.
+  plan:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.p.outputs.full }}
+      rust: ${{ steps.p.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          full=false
+          if [ "$EVENT" != pull_request ] || [[ "$HEAD_REF" == release/* ]]; then full=true; fi
+          rust=$full
+          if [ "$EVENT" = pull_request ] && git diff --name-only "origin/${BASE_REF}...HEAD" | grep -qE '^(apps/desktop/|\.github/workflows/|pnpm-lock\.yaml$|rust-toolchain\.toml$)'; then rust=true; fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "heavy tier: $full, rust jobs: $rust"
+
   # Everything that needs no browser and no Tauri (SPEC §15 headless-first rule).
   headless:
+    needs: plan
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -43,7 +73,9 @@ jobs:
       - run: pnpm check
       - run: pnpm coverage
       - run: pnpm test:interop
-      - run: pnpm bench
+      # Timing budgets on a shared runner are noisy: heavy tier only.
+      - if: needs.plan.outputs.full == 'true'
+        run: pnpm bench
       - run: pnpm trace
       # `pnpm licenses` alone is pnpm's own command; the repo's checker is the script of that name.
       - run: pnpm exec tsx tools/licenses.ts --check
@@ -56,10 +88,23 @@ jobs:
             tests/golden/baselines/__diff__
           if-no-files-found: ignore
 
-  # Web build driven in three browsers: epics, screens, accessibility, no-network.
+  # Web build driven in the browsers: epics, screens, accessibility, no-network. Chromium on every pull request;
+  # Firefox and WebKit in the heavy tier, one job each so they run side by side.
   e2e:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    # The heavy browsers are skipped on ordinary pull requests.
+    if: matrix.browser == 'chromium' || needs.plan.outputs.full == 'true'
+    name: e2e (${{ matrix.browser }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 20
+    env:
+      # apt hung for 30 minutes in needrestart once: never ask questions.
+      DEBIAN_FRONTEND: noninteractive
+      NEEDRESTART_MODE: a
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -67,23 +112,43 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils mupdf-tools
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @folio/web exec playwright install --with-deps chromium firefox webkit
+      - name: PDF oracles
+        timeout-minutes: 5
+        run: sudo apt-get update && sudo apt-get install -y qpdf poppler-utils mupdf-tools
+      - name: Playwright version
+        id: pw
+        run: echo "v=$(pnpm --filter @folio/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw.outputs.v }}-${{ matrix.browser }}
+      - name: Browser and its system libraries
+        timeout-minutes: 8
+        run: |
+          if [ "${{ steps.browsers.outputs.cache-hit }}" = true ]; then
+            pnpm --filter @folio/web exec playwright install-deps ${{ matrix.browser }}
+          else
+            pnpm --filter @folio/web exec playwright install --with-deps ${{ matrix.browser }}
+          fi
       # Visual baselines are rendered with the fonts of the reference machine; they are compared
       # in the release checklist, not on shared runners.
-      - run: pnpm test:e2e --grep-invert "screens in the"
+      - run: pnpm test:e2e --project=${{ matrix.browser }} --grep-invert "screens in the"
       - run: pnpm exec tsx tools/bundle-size.ts
+        if: matrix.browser == 'chromium'
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-results
+          name: playwright-results-${{ matrix.browser }}
           path: apps/web/test-results
 
-  # Release build of the desktop app and its smoke test under Xvfb.
-  appimage:
+  # Rust lints and tests of the desktop shell on Linux, beside the AppImage build so the two compile in parallel.
+  rust-check:
+    needs: plan
+    if: needs.plan.outputs.rust == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -97,9 +162,29 @@ jobs:
       - name: System libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev patchelf file xvfb dbus-x11 gnome-keyring webkit2gtk-driver qpdf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev patchelf file
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @folio/desktop check
+
+  # Release build of the desktop app and its smoke test under Xvfb.
+  appimage:
+    needs: plan
+    if: needs.plan.outputs.rust == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsecret-1-dev patchelf file xvfb dbus-x11 gnome-keyring webkit2gtk-driver qpdf
+      - run: pnpm install --frozen-lockfile
       - run: pnpm appimage
       - run: cargo install tauri-driver --locked
       - run: pnpm appimage:smoke
@@ -115,6 +200,8 @@ jobs:
   # Windows and macOS: the desktop shell must keep compiling, passing its Rust tests and bundling
   # (SPEC NFR-09, §14). Installers are unsigned; there is no smoke test off Linux yet.
   desktop-cross-platform:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +215,7 @@ jobs:
             artifact: folio-macos
             path: apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -144,7 +231,9 @@ jobs:
           components: clippy
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @folio/desktop check
+      # Clippy runs once, on Linux (rust-check); here the platform-specific code is compiled by the bundle and its
+      # unit tests run.
+      - run: cd apps/desktop/src-tauri && cargo test
       - run: pnpm --filter @folio/desktop ${{ matrix.bundle }}
       - uses: actions/upload-artifact@v7
         with:
@@ -153,6 +242,8 @@ jobs:
 
   # Unit, conformance and interop suites on Windows and macOS: they must not depend on the host OS.
   tests-cross-platform:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
