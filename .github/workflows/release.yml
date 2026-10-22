@@ -65,7 +65,8 @@ jobs:
           if-no-files-found: error
 
   # Release candidates only (tag v*-rc*) and on demand: the AppImage must also start on other
-  # distributions. Ubuntu 20.04 (glibc 2.31) is informational: the AppImage is built on 22.04
+  # distributions. Arch is informational too: it ships only a WebKit driver for webkit2gtk 6.0, which cannot drive the
+  # 4.1 engine the app uses ("Automation.resolveBrowsingContext was not found"). Ubuntu 20.04 (glibc 2.31) is informational: the AppImage is built on 22.04
   # (glibc 2.35), so a failure there documents the real minimum glibc instead of blocking the draft.
   distro-smoke:
     needs: appimage
@@ -78,7 +79,7 @@ jobs:
       matrix:
         include:
           - { image: 'fedora:42', informational: false }
-          - { image: 'archlinux:latest', informational: false }
+          - { image: 'archlinux:latest', informational: true }
           - { image: 'ubuntu:20.04', informational: true }
     steps:
       - uses: actions/checkout@v7
