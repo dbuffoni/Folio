@@ -369,6 +369,31 @@ export async function acroFormDoc(opts: { prefilled?: boolean } = {}): Promise<U
   return finish(doc);
 }
 
+/** Form over two pages (fields created out of reading order): Tab has to cross the page boundary. */
+export async function acroFormMultiPageDoc(): Promise<Uint8Array> {
+  const doc = await newDoc('Two-page form');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const form = doc.getForm();
+  const p1 = doc.addPage([612, 792]);
+  const p2 = doc.addPage([612, 792]);
+  const text = (name: string, page: typeof p1, x: number, y: number): void => {
+    const f = form.createTextField(name);
+    f.addToPage(page, { x, y, width: 200, height: 22, font });
+    f.setFontSize(11);
+  };
+  p1.drawText('Page one', { x: 72, y: 730, size: 18, font });
+  // Created bottom-first on purpose: reading order is by position, not by creation.
+  text('p1.second', p1, 72, 600);
+  text('p1.first', p1, 72, 680);
+  p2.drawText('Page two', { x: 72, y: 730, size: 18, font });
+  text('p2.first', p2, 72, 680);
+  const kind = form.createRadioGroup('kind');
+  kind.addOptionToPage('a', p2, { x: 72, y: 640, width: 16, height: 16 });
+  kind.addOptionToPage('b', p2, { x: 142, y: 640, width: 16, height: 16 });
+  text('p2.last', p2, 72, 580);
+  return finish(doc);
+}
+
 /** Second form reusing the field name `person.name` (collision when merged with acroFormDoc). */
 export async function acroFormDoc2(): Promise<Uint8Array> {
   const doc = await newDoc('Second form');
@@ -853,6 +878,34 @@ export async function signedDoc(): Promise<Uint8Array> {
   );
   page.node.set(PDFName.of('Annots'), ctx.obj([widget]));
   doc.catalog.set(PDFName.of('AcroForm'), ctx.obj({ Fields: [widget], SigFlags: 3 }));
+  return finish(doc);
+}
+
+/** The registration form (all field types) with a signature field carrying a dummy signature value. */
+export async function signedFormDoc(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await acroFormDoc());
+  const ctx = doc.context;
+  const page = doc.getPages()[0]!;
+  const sig = ctx.register(
+    ctx.obj({
+      Type: 'Sig',
+      Filter: 'Adobe.PPKLite',
+      SubFilter: 'adbe.pkcs7.detached',
+      ByteRange: [0, 100, 200, 100],
+      Contents: PDFHexString.of('00'.repeat(64)),
+      Reason: PDFString.of('Fixture'),
+      M: PDFString.of('D:20260110090000Z'),
+    }),
+  );
+  const widget = ctx.register(
+    ctx.obj({ Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: PDFString.of('Signature1'), V: sig, Rect: [320, 100, 520, 150], F: 132, P: page.ref }),
+  );
+  const annots = page.node.Annots();
+  if (annots) annots.push(widget);
+  else page.node.set(PDFName.of('Annots'), ctx.obj([widget]));
+  const acro = doc.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+  acro.lookup(PDFName.of('Fields'), PDFArray).push(widget);
+  acro.set(PDFName.of('SigFlags'), ctx.obj(3));
   return finish(doc);
 }
 

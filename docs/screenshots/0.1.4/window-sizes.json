@@ -1,0 +1,30 @@
+[
+ {
+  "screen": "1366x768",
+  "window": "1100x728 at 133,20",
+  "content": "1100x728",
+  "statusBarBottom": 728,
+  "fits": true
+ },
+ {
+  "screen": "1920x1080",
+  "window": "1100x780 at 410,150",
+  "content": "1100x780",
+  "statusBarBottom": 780,
+  "fits": true
+ },
+ {
+  "screen": "1024x600",
+  "window": "1008x560 at 8,20",
+  "content": "1008x560",
+  "statusBarBottom": 560,
+  "fits": true
+ },
+ {
+  "screen": "1280x720",
+  "window": "1100x680 at 90,20",
+  "content": "1100x680",
+  "statusBarBottom": 680,
+  "fits": true
+ }
+]

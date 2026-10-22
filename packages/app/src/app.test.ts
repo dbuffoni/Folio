@@ -616,6 +616,16 @@ describe('command palette and shortcuts', () => {
     expect([t.ui.palette, t.ui.dialog]).toEqual([false, 'settings']);
   });
 
+  it('a link to a Settings pane opens that pane and plain Settings opens the first one @FR-APP-10', async () => {
+    const t = await createTestApp();
+    t.ui.openSettings('certificates');
+    expect([t.ui.dialog, t.ui.settingsPane]).toEqual(['settings', 'certificates']);
+    t.ui.openDialog('merge');
+    expect(t.ui.settingsPane).toBeNull();
+    t.ui.openDialog('settings');
+    expect([t.ui.dialog, t.ui.settingsPane]).toEqual(['settings', null]);
+  });
+
   it('runs the default shortcuts of Appendix A; tool keys are ignored while typing', async () => {
     const t = await createTestApp();
     const s = await t.open('text', '/a.pdf');

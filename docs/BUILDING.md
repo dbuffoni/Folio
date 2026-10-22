@@ -81,6 +81,12 @@ rotate-and-save flow through the real screens.
 
 Other distributions: `apps/desktop/scripts/smoke-distro.sh <image> <AppImage> <pdf>` (see Release).
 
+### Window placement check
+
+`node apps/desktop/scripts/window-sizes.mjs <outdir>` opens the built AppImage under Xvfb at 1366×768, 1920×1080,
+1280×720 and 1024×600, checks that the window and its status bar are inside the screen, and that a size the user
+chose is remembered and clamped on a smaller screen; it writes a screenshot per run.
+
 ## Tests
 
 ```bash
@@ -108,11 +114,16 @@ and fetched with `pnpm fixtures:fetch`.
 
 `.github/workflows/release.yml` builds, tests and packages; it **never publishes**. Every path ends
 in a draft (`draft: true`, asserted again through the API after the upload); a person reads it and
-presses Publish.
+presses Publish. The "Assert the release is still a draft" step finds the release by tag name in the
+list of releases, prints what it read, and fails only if a release for the tag has `draft: false`.
 
 ### Procedure
 
-1. Merge everything into the release branch, bump the version, run `pnpm gate` locally.
+1. Merge everything into the release branch, bump the version (`pnpm exec tsx tools/set-version.ts 0.1.4`
+   writes `package.json` x4, `tauri.conf.json`, `Cargo.toml` and `Cargo.lock`; `--check` fails when they
+   disagree and runs as a unit test), run `pnpm gate` locally. On a tag build the workflow runs the same
+   script with the tag name, so assets are named `Folio_<version>_...` after the tag (`v0.1.4-rc1` keeps
+   its suffix) and the `release` job fails if an installer name lacks the version.
 2. **Dry run**: tag a release candidate, `git tag v0.1.3-rc1 && git push origin v0.1.3-rc1`, or start
    the workflow by hand (Actions > Release > Run workflow, any branch). Both run the distribution
    smoke matrix (below). The tag creates a draft pre-release; the manual run only uploads the
@@ -132,7 +143,7 @@ presses Publish.
 `apps/desktop/scripts/smoke-distro.sh <image> <appimage> <pdf>`, which starts a container
 (docker or podman), installs Xvfb, D-Bus, qpdf and the WebKit driver with the distribution's package
 manager and runs the normal `smoke.mjs` scenario against the unpacked AppImage (no FUSE). Images:
-`fedora:42`, `archlinux:latest` (both must pass) and `ubuntu:20.04` (glibc 2.31, informational: the
+`fedora:42` (must pass), `archlinux:latest` (informational, in its own job nothing waits for: its only WebKit driver is for webkit2gtk 6.0 and cannot drive the 4.1 engine) and `ubuntu:20.04` (glibc 2.31, informational: the
 AppImage is built on Ubuntu 22.04 and probably needs a newer glibc, so a failure there is the answer
 to "what is the minimum glibc?", not a broken release). `FOLIO_SMOKE_NO_SANDBOX=1` (the default)
 turns off WebKit's own sandbox, which cannot start in an unprivileged container.

@@ -3,7 +3,7 @@
 // document is reloaded from the result (SPEC §8.7: one writer at a time, hand-over on saved bytes).
 import { InvalidArgumentError, InvalidPdfError } from '@folio/core';
 import type { FieldPatch, FieldSpec, Rect } from '@folio/ports';
-import type { PDFDocument as PDFDocumentT, PDFField as PDFFieldT, PDFFont as PDFFontT } from 'pdf-lib';
+import type { PDFArray as PDFArrayT, PDFDict as PDFDictT, PDFDocument as PDFDocumentT, PDFField as PDFFieldT, PDFFont as PDFFontT } from 'pdf-lib';
 
 type Lib = typeof import('pdf-lib');
 
@@ -245,4 +245,69 @@ export async function deleteField(input: Uint8Array, id: string, widget?: number
     }
   }
   return pdf.save({ useObjectStreams: false, updateFieldAppearances: false });
+}
+
+/**
+ * Removes every signature (FR-SEC-13): the signature fields and their widgets, the signature dictionaries
+ * they point at, the document-level signature flags and the certification (DocMDP) entry. Works on the raw
+ * structure because a signature field often has no appearance stream, which the form helpers need.
+ * Returns the new bytes and how many signature fields were removed.
+ */
+export async function deleteSignatures(input: Uint8Array): Promise<{ bytes: Uint8Array; removed: number }> {
+  const { lib, pdf } = await load(input);
+  const ctx = pdf.context;
+  const { PDFName, PDFDict, PDFArray, PDFRef } = lib;
+  const acro = pdf.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+  let removed = 0;
+  const dropped = new Set<string>();
+  const dropObject = (ref: unknown): void => {
+    if (ref instanceof PDFRef) {
+      dropped.add(ref.toString());
+      ctx.delete(ref);
+    }
+  };
+  const isSignature = (d: PDFDictT, inherited?: unknown): boolean => {
+    const ft = d.lookupMaybe(PDFName.of('FT'), PDFName) ?? inherited;
+    return ft instanceof PDFName && ft.decodeText() === 'Sig';
+  };
+  /** Walks the field tree; signature fields leave their parent's array. */
+  const walk = (fields: PDFArrayT, inherited?: unknown): void => {
+    for (let i = fields.size() - 1; i >= 0; i--) {
+      const ref = fields.get(i);
+      const dict = fields.lookupMaybe(i, PDFDict);
+      if (!dict) continue;
+      const ft = dict.lookupMaybe(PDFName.of('FT'), PDFName) ?? inherited;
+      if (isSignature(dict, inherited)) {
+        removed++;
+        const kids = dict.lookupMaybe(PDFName.of('Kids'), PDFArray);
+        const widgets: unknown[] = kids ? Array.from({ length: kids.size() }, (_, k) => kids.get(k)) : [ref];
+        for (const w of widgets) dropObject(w);
+        dropObject(dict.get(PDFName.of('V')));
+        fields.remove(i);
+        dropObject(ref);
+      } else {
+        const kids = dict.lookupMaybe(PDFName.of('Kids'), PDFArray);
+        if (kids) walk(kids, ft);
+      }
+    }
+  };
+  if (acro) {
+    const fields = acro.lookupMaybe(PDFName.of('Fields'), PDFArray);
+    if (fields) walk(fields);
+    acro.delete(PDFName.of('SigFlags'));
+  }
+  // Widgets on the pages that belong to the removed fields.
+  for (const page of pdf.getPages()) {
+    const annots = page.node.Annots();
+    if (!annots) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const ref = annots.get(i);
+      if (ref instanceof PDFRef && dropped.has(ref.toString())) annots.remove(i);
+    }
+  }
+  if (removed > 0) {
+    pdf.catalog.delete(PDFName.of('Perms'));
+    return { bytes: await pdf.save({ useObjectStreams: false, updateFieldAppearances: false }), removed };
+  }
+  return { bytes: input, removed };
 }

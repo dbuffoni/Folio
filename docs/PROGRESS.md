@@ -14,7 +14,29 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 | P7 Platform shell | done | web and Tauri adapters, Rust commands with tests, AppImage smoke test; `services-complete` gate passed 2026-10-11 |
 | P8 User interface | done | Svelte screens bound to `packages/app`; Playwright on Chromium, Firefox and WebKit (epics E1–E7, screens, axe in both themes, no-network); visual baselines; AppImage ships the real UI |
 | P9 Release hardening | done locally | interop, golden and performance suites; i18n lint; licence review and notices; bundle budget; CI and release workflows written; `tools/gate.sh P9` passed 2026-10-12 |
-| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 and 0.1.2 delivered; 0.1.3 (quality and protection, 13 cards) built, in review |
+| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 and 0.1.2 delivered; 0.1.3 (quality and protection, 13 cards) delivered; 0.1.4 (6 cards) built, in review |
+
+## Release 0.1.4
+
+Six cards of the Folio Kanban (Notion), built on `release/0.1.4`. Assumptions taken (owner): the window restores the
+remembered size and position; every non-form change counts as invalidating a signature (DocMDP is not read).
+
+| Card | Requirements | Where |
+|---|---|---|
+| Use OCR to locate properly the forms | FR-FRM-15, FR-AIF-14 | `services/src/scan-ocr.ts` (OCR as a text layer, printed lines as leaders), `scan-fields.ts` (comb dividers, `blankShapes`), `FieldDetectionService.detectScanOcr`, `SmartFillService.collect`, `FormAuthoringModel.detect` (progress, cancel, "Improve with AI" merges); golden test with real Tesseract in `ocr-tesseract/src/scan-fields.test.ts` |
+| Fix releases filename | FR-APP-15 | `tools/set-version.ts` (+ test), version step in `release.yml`, asset-name check, `__APP_VERSION__` from `package.json` |
+| Assert the release is still a draft fails | FR-APP-15 | the guard finds the release by tag in the release list and logs it (`release.yml`); only a real tag run can prove it |
+| Cycle through form fields using Tab | FR-FRM-02 | `FormModel.advance`, `tabOrder` (radio group = one stop), `Canvas.svelte` `focusStop`; e2e on a two-page form |
+| Ensure protection of the signed document | FR-SEC-13, FR-APP-11 | `Command.keepsSignatures`, `DocumentSession.run` gate, `signatureStatus`, `AppModel.removeSignatures`, `PdfDocument.removeSignatures`, status-bar chip; per-feature prompts removed |
+| Wrong size when opening in window | FR-APP-14 | `apps/desktop/src-tauri/src/lib.rs` (`initial_rect`, `fit_rect`, hidden-then-shown window), `apps/desktop/scripts/window-sizes.mjs` |
+
+Verification: `test_module_pic.pdf` (the file of the card, supplied locally in `test_assets/`, not in the repository) gives
+10 fields with labels, the same as the native `test_module.pdf`; the repository tests use a picture made from
+`flatFormDoc` (`scanned-labelled-form`). Screenshots (two themes, four window sizes) in `docs/screenshots/0.1.4`, window
+placement in the real AppImage under Xvfb at 1366×768, 1920×1080, 1280×720 and 1024×600 (`window-sizes.mjs`).
+
+Known limits: turned (90/180/270°) scans are read by shape only (no OCR labels); the draft guard and the file names of
+Windows and macOS installers are proven by a tag run, not here; the window sizing was not run on Windows or macOS.
 
 ## Release 0.1.3
 

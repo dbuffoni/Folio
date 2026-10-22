@@ -73,11 +73,37 @@ test('Detect fields: a vector form gets its fields, a plain paper scan gets them
 
   // A scan with no text: the shapes in the image, labelled as a guess.
   await editForm(app, 'scanned-form.pdf');
-  await expect(panel.getByText('7 fields proposed')).toBeVisible();
+  await expect(panel.getByText('7 fields proposed')).toBeVisible({ timeout: 60_000 });
   await expect(panel.getByText(/Found by looking at the page image/)).toBeVisible();
   await expect(app.locator('.aprop')).toHaveCount(7);
 
   // Nothing that looks like a field: a message, not silence.
   await editForm(app, 'invoice.pdf');
-  await expect(panel.getByText('No fields found on this page. Draw them by hand, or try Detect with AI.')).toBeVisible();
+  await expect(panel.getByText('No fields found on this page. Draw them by hand, or use Improve with AI when it is set up.')).toBeVisible();
+});
+
+test('Detect fields on a form that is only a picture: read with OCR on this device, labelled like a native form, nothing sent @FR-FRM-15 @NFR-14', async ({ app, outbound }) => {
+  test.setTimeout(180_000);
+  await openPdf(app, 'scanned-labelled-form.pdf');
+  await mode(app, 'Fill & Sign');
+  await app.getByRole('button', { name: 'Edit form', exact: true }).click();
+  await app.getByRole('button', { name: 'Detect fields', exact: true }).click();
+  const panel = app.getByRole('complementary', { name: 'Inspector' });
+  // The first reading shows its progress and can be cancelled; the AI is not offered when it is not set up.
+  await expect(app.getByRole('button', { name: 'Improve with AI' })).toHaveCount(0);
+  await expect(panel.getByText('6 fields proposed')).toBeVisible({ timeout: 150_000 });
+  await expect(panel.getByText(/read with OCR on this device/)).toBeVisible();
+  for (const label of ['First name', 'Date of birth', 'Email', 'Phone number', 'Tax code', 'Send me the newsletter']) await expect(panel.getByText(new RegExp(`^${label} · `))).toBeVisible();
+  await expect(app.locator('.aprop')).toHaveCount(6);
+  await panel.getByRole('button', { name: 'Create 6 fields' }).click();
+  await expect(app.locator('.afld')).toHaveCount(6);
+  await expect(app.locator('.afld[aria-label="Email"]')).toHaveCount(1);
+  expect(outbound).toEqual([]);
+
+  // The page is read once: detecting again is immediate.
+  await app.getByRole('button', { name: 'Undo', exact: true }).click();
+  await app.getByRole('button', { name: 'Detect fields', exact: true }).click();
+  await expect(panel.getByText('6 fields proposed')).toBeVisible({ timeout: 5_000 });
+  const saved = await save(app);
+  qpdfCheck(saved);
 });

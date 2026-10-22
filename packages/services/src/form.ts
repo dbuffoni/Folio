@@ -16,11 +16,25 @@ export function emptyValue(f: FormField): FieldValue {
 }
 export const isFillable = (f: FormField): boolean => !f.readOnly && f.type !== 'button' && f.type !== 'signature';
 
-/** Reading order for Tab / Shift+Tab: page, then top to bottom, then left to right (FR-FRM-02). */
+/**
+ * Reading order for Tab / Shift+Tab: page, then top to bottom, then left to right (FR-FRM-02).
+ * A radio group is one stop (its selected button, else its first), as in every form reader.
+ */
 export function tabOrder(fields: FormField[]): Array<{ field: FormField; widget: number }> {
-  const stops = fields.filter(isFillable).flatMap((field) => field.widgets.map((w, widget) => ({ field, widget, w })));
+  const stops = fields
+    .filter(isFillable)
+    .flatMap((field) => {
+      const all = field.widgets.map((w, widget) => ({ field, widget, w }));
+      if (field.type !== 'radio') return all;
+      const chosen = all.find((s) => s.w.exportValue !== undefined && s.w.exportValue === field.value);
+      return [chosen ?? all[0]!].filter(Boolean);
+    });
   stops.sort((a, b) => a.w.page - b.w.page || (Math.abs(a.w.rect.y - b.w.rect.y) > Math.min(a.w.rect.height, b.w.rect.height) / 2 ? b.w.rect.y - a.w.rect.y : a.w.rect.x - b.w.rect.x));
   return stops.map(({ field, widget }) => ({ field, widget }));
+}
+/** Index of the stop a focused widget belongs to (any button of a radio group is its group's stop). */
+export function stopIndex(stops: Array<{ field: FormField; widget: number }>, id: string, widget: number): number {
+  return stops.findIndex((s) => s.field.id === id && (s.field.type === 'radio' || s.widget === widget));
 }
 export function nextStop(count: number, current: number, direction: 1 | -1): number {
   if (count === 0) return -1;
@@ -189,7 +203,8 @@ export class FormService {
             return f && f.id === field.id && field.type === 'text' ? make(from, f.to) : null;
           },
         ),
-        { fill: { id: field.id, to } },
+        // Filling in a field is what a signed document tolerates (an incremental save keeps it valid).
+        { fill: { id: field.id, to }, keepsSignatures: true },
       );
     return make(currentValue(field), next);
   }

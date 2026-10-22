@@ -94,10 +94,15 @@ export class FindModel {
   }
 }
 
+/** The panes of the Settings dialog. */
+export type SettingsPane = 'appearance' | 'smartFill' | 'profiles' | 'ocr' | 'certificates' | 'general' | 'privacy' | 'about';
+
 /** Window-level UI state that is not tied to a document. */
 export class UiState {
   readonly changed = new Emitter<void>();
   dialog: DialogId | null = null;
+  /** The Settings pane to show when the dialog opens (a link such as "Import a certificate in Settings" names it). */
+  settingsPane: SettingsPane | null = null;
   palette = false;
   sidebarOpen = true;
   inspectorOpen = true;
@@ -107,7 +112,13 @@ export class UiState {
   private emit(): void {
     this.changed.emit();
   }
+  /** Opens Settings on a given pane, not on the first one. */
+  openSettings(pane: SettingsPane): void {
+    this.settingsPane = pane;
+    this.openDialog('settings');
+  }
   openDialog(id: DialogId): void {
+    if (id !== 'settings') this.settingsPane = null;
     this.dialog = id;
     this.palette = false;
     this.emit();

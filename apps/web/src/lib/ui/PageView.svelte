@@ -531,6 +531,8 @@
         {#if f.type === 'text' && f.multiline}
           <textarea
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             title={f.label ?? f.name}
             aria-label={f.label ?? f.name}
@@ -541,6 +543,8 @@
         {:else if f.type === 'text'}
           <input
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             type={f.password ? 'password' : 'text'}
             title={f.label ?? f.name}
@@ -607,6 +611,8 @@
         {:else if f.type === 'checkbox'}
           <input
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             type="checkbox"
             title={f.label ?? f.name}
@@ -618,6 +624,8 @@
         {:else if f.type === 'radio'}
           <input
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             type="radio"
             name={f.id}
@@ -630,6 +638,8 @@
         {:else if f.type === 'dropdown'}
           <select
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             title={f.label ?? f.name}
             aria-label={f.label ?? f.name}
@@ -643,6 +653,8 @@
         {:else if f.type === 'listbox'}
           <select
             class={cls}
+            data-field={f.id}
+            data-widget={stop.widget}
             {style}
             multiple={f.multiSelect}
             size={Math.max(2, f.options?.length ?? 2)}

@@ -45,31 +45,126 @@ fn paths_from_urls(urls: &[url::Url]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The configured window size, reduced so title bar, task bar and dock stay on screen (logical pixels).
-fn fitted_size(configured: (f64, f64), screen: (f64, f64)) -> (f64, f64) {
-    const ROOM: f64 = 0.9;
+/// A window rectangle in logical pixels (origin top-left of the virtual desktop).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// Room kept inside the work area: the outer size includes title bar and borders on some platforms and
+/// not on others (X11 frames), so the window never fills the area completely.
+const MARGIN_W: f64 = 16.0;
+const MARGIN_H: f64 = 40.0;
+
+/// Fits a window into the monitor's work area (the screen without task bar and dock): shrinks it so the
+/// bottom border and status bar stay visible, then moves it inside. A saved size larger than the current
+/// screen is clamped by the same rule; a window that already fits is left where it is.
+pub fn fit_rect(window: Rect, work: Rect) -> Rect {
+    let w = window.w.min((work.w - MARGIN_W).max(1.0)).floor();
+    let h = window.h.min((work.h - MARGIN_H).max(1.0)).floor();
+    let max_x = work.x + work.w - w;
+    let max_y = work.y + work.h - h;
+    Rect {
+        x: window.x.max(work.x).min(max_x).round(),
+        y: window.y.max(work.y).min(max_y).round(),
+        w,
+        h,
+    }
+}
+
+/// The smallest size the window may be given on this screen: the configured minimum, never above what fits.
+pub fn fit_minimum(min: (f64, f64), work: Rect) -> (f64, f64) {
     (
-        configured.0.min((screen.0 * ROOM).floor()),
-        configured.1.min((screen.1 * ROOM).floor()),
+        min.0.min((work.w - MARGIN_W).max(1.0)).floor(),
+        min.1.min((work.h - MARGIN_H).max(1.0)).floor(),
     )
 }
 
-/// Small screens (1366x768 laptops) cannot hold the 1280x820 default: shrink and centre the window.
-fn fit_window_to_screen(app: &AppHandle) {
+/// The window as the window-state plugin remembered it (physical pixels).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+pub struct SavedWindow {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+/// Reads the saved window out of the plugin's state file; anything unreadable counts as nothing saved.
+pub fn parse_saved_window(json: &str, label: &str) -> Option<SavedWindow> {
+    let all: serde_json::Value = serde_json::from_str(json).ok()?;
+    let w: SavedWindow = serde_json::from_value(all.get(label)?.clone()).ok()?;
+    (w.width >= 1.0 && w.height >= 1.0).then_some(w)
+}
+
+/// Where the first frame goes: the remembered place (clamped to the work area, so a size larger than the screen
+/// or a monitor that is gone cannot hide the window), or the configured default centred.
+pub fn initial_rect(saved: Option<SavedWindow>, scale: f64, configured: (f64, f64), work: Rect) -> Rect {
+    let wanted = match saved {
+        Some(w) => Rect { x: w.x / scale, y: w.y / scale, w: w.width / scale, h: w.height / scale },
+        None => Rect {
+            x: work.x + ((work.w - configured.0) / 2.0).max(0.0),
+            y: work.y + ((work.h - configured.1) / 2.0).max(0.0),
+            w: configured.0,
+            h: configured.1,
+        },
+    };
+    let mut fitted = fit_rect(wanted, work);
+    if saved.is_none() {
+        fitted.x = (work.x + (work.w - fitted.w) / 2.0).round();
+        fitted.y = (work.y + (work.h - fitted.h) / 2.0).round();
+    }
+    fitted
+}
+
+/// Sizes and places the window from what was remembered and the screen it opens on, then shows it. The window is
+/// created hidden (`visible: false`) so it never flashes at the wrong size; a hidden window has no size to read,
+/// so the remembered one comes from the state file rather than from the window.
+fn place_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let (Ok(Some(monitor)), Ok(current)) = (window.current_monitor(), window.outer_size()) else {
-        return;
-    };
-    let scale = monitor.scale_factor();
-    let screen = monitor.size().to_logical::<f64>(scale);
-    let size = current.to_logical::<f64>(scale);
-    let (w, h) = fitted_size((size.width, size.height), (screen.width, screen.height));
-    if (w, h) != (size.width, size.height) {
-        let _ = window.set_size(tauri::LogicalSize::new(w, h));
-        let _ = window.center();
+    let configured = app
+        .config()
+        .app
+        .windows
+        .first()
+        .map(|w| (w.width, w.height))
+        .unwrap_or((1100.0, 780.0));
+    let saved = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .and_then(|dir| std::fs::read_to_string(dir.join(".window-state.json")).ok())
+        .and_then(|text| parse_saved_window(&text, "main"));
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| window.available_monitors().ok().and_then(|m| m.into_iter().next()));
+    if let Some(monitor) = monitor {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let (p, s) = (area.position.to_logical::<f64>(scale), area.size.to_logical::<f64>(scale));
+        let work = Rect { x: p.x, y: p.y, w: s.width, h: s.height };
+        let fitted = initial_rect(saved, scale, configured, work);
+        log::info!("window placement: scale {scale}, work area {work:?}, saved {saved:?}, placed {fitted:?}");
+        let (min_w, min_h) = fit_minimum((900.0, 560.0), work);
+        let _ = window.set_min_size(Some(tauri::LogicalSize::new(min_w, min_h)));
+        let _ = window.set_size(tauri::LogicalSize::new(fitted.w, fitted.h));
+        let _ = window.set_position(tauri::LogicalPosition::new(fitted.x, fitted.y));
+        if saved.is_some_and(|w| w.maximized) {
+            let _ = window.maximize();
+        }
+    } else {
+        log::warn!("window placement skipped: no monitor information");
     }
+    let _ = window.show();
 }
 
 /// Paths among launch arguments that look like documents; flags are ignored.
@@ -181,7 +276,11 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .skip_initial_state("main")
+                .build(),
+        )
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -199,7 +298,7 @@ pub fn run() {
                 .map(|p| p.to_string_lossy().to_string());
             let refs = accept_paths(app.handle(), paths_from_args(&args, cwd.as_deref()));
             app.manage(PendingOpen(Mutex::new(refs), Default::default()));
-            fit_window_to_screen(app.handle());
+            place_window(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -291,16 +390,69 @@ mod tests {
         assert!(paths_from_args(&["folio".to_string()], None).is_empty());
     }
 
+    fn work(w: f64, h: f64) -> Rect {
+        Rect { x: 0.0, y: 0.0, w, h }
+    }
+
     #[test]
     fn the_window_never_exceeds_the_screen() {
+        // 1366x768 laptop with a task bar: 1366x728 work area; the 1100x780 default loses height.
+        let r = fit_rect(Rect { x: 100.0, y: 80.0, w: 1100.0, h: 780.0 }, work(1366.0, 728.0));
+        assert_eq!((r.w, r.h), (1100.0, 688.0));
+        assert!(r.y + r.h <= 728.0, "bottom border stays visible");
+        // Large screen: untouched.
+        let big = Rect { x: 200.0, y: 100.0, w: 1100.0, h: 780.0 };
+        assert_eq!(fit_rect(big, work(2560.0, 1400.0)), big);
+    }
+
+    #[test]
+    fn a_saved_size_larger_than_the_screen_is_clamped() {
+        let r = fit_rect(Rect { x: -300.0, y: -50.0, w: 3000.0, h: 2000.0 }, work(1920.0, 1040.0));
+        assert_eq!(r, Rect { x: 0.0, y: 0.0, w: 1904.0, h: 1000.0 });
+    }
+
+    #[test]
+    fn a_window_saved_on_a_removed_monitor_comes_back_inside() {
+        let r = fit_rect(Rect { x: 2400.0, y: 900.0, w: 1100.0, h: 780.0 }, work(1920.0, 1040.0));
+        assert_eq!((r.x, r.y), (820.0, 260.0));
+        // Work area that does not start at the origin (second monitor, top bar).
+        let area = Rect { x: 1920.0, y: 30.0, w: 1280.0, h: 690.0 };
+        let r = fit_rect(Rect { x: 100.0, y: 100.0, w: 1100.0, h: 780.0 }, area);
+        assert_eq!((r.x, r.y, r.h), (1920.0, 70.0, 650.0));
+    }
+
+    #[test]
+    fn the_saved_window_is_read_from_the_state_file() {
+        let json = r#"{"main":{"width":1400,"height":900,"x":10,"y":20,"prev_x":0,"prev_y":0,"maximized":false,"visible":true}}"#;
         assert_eq!(
-            fitted_size((1280.0, 820.0), (1366.0, 768.0)),
-            (1229.0, 691.0)
+            parse_saved_window(json, "main"),
+            Some(SavedWindow { x: 10.0, y: 20.0, width: 1400.0, height: 900.0, maximized: false })
         );
-        assert_eq!(
-            fitted_size((1280.0, 820.0), (2560.0, 1440.0)),
-            (1280.0, 820.0)
-        );
+        for bad in ["", "{}", "not json", r#"{"main":{"width":0,"height":0,"x":0,"y":0}}"#, r#"{"other":{"width":9,"height":9,"x":0,"y":0}}"#] {
+            assert_eq!(parse_saved_window(bad, "main"), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_first_window_is_centred_and_a_remembered_one_comes_back_inside_the_screen() {
+        let screen = work(1366.0, 728.0);
+        // Nothing remembered: the configured size, shrunk to the screen, centred.
+        let first = initial_rect(None, 1.0, (1100.0, 780.0), screen);
+        assert_eq!(first, Rect { x: 133.0, y: 20.0, w: 1100.0, h: 688.0 });
+        // Remembered on a bigger screen: clamped, position kept where it still fits.
+        let big = SavedWindow { x: 300.0, y: 200.0, width: 1800.0, height: 1000.0, maximized: false };
+        let back = initial_rect(Some(big), 1.0, (1100.0, 780.0), screen);
+        assert_eq!((back.w, back.h), (1350.0, 688.0));
+        assert!(back.x >= 0.0 && back.x + back.w <= 1366.0 && back.y + back.h <= 728.0);
+        // Remembered and still fitting: restored exactly. Physical pixels are divided by the scale factor.
+        let fits = SavedWindow { x: 200.0, y: 40.0, width: 1600.0, height: 1000.0, maximized: false };
+        assert_eq!(initial_rect(Some(fits), 2.0, (1100.0, 780.0), screen), Rect { x: 100.0, y: 20.0, w: 800.0, h: 500.0 });
+    }
+
+    #[test]
+    fn the_minimum_size_follows_small_screens() {
+        assert_eq!(fit_minimum((900.0, 560.0), work(1366.0, 728.0)), (900.0, 560.0));
+        assert_eq!(fit_minimum((900.0, 560.0), work(800.0, 500.0)), (784.0, 460.0));
     }
 
     #[test]

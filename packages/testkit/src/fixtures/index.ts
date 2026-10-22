@@ -1,10 +1,10 @@
 import { qpdfEncrypt } from '../oracles.ts';
 import * as b from './builders.ts';
-import { scannedTextDoc } from './scanned-text.ts';
+import { pictureOf, scannedTextDoc } from './scanned-text.ts';
 
 export * from './builders.ts';
 export { PERSON } from './people.ts';
-export { scannedTextDoc } from './scanned-text.ts';
+export { pictureOf, scannedTextDoc } from './scanned-text.ts';
 
 export const FIXTURE_PASSWORD = 'open-sesame';
 /** Password-protected copy of the invoice (AES-256, made with qpdf). */
@@ -49,7 +49,9 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   links: { description: 'Internal, web, JavaScript and launch links', build: b.linksDoc, expectValid: true },
   acroform: { description: 'AcroForm with all Release 1 field types', build: () => b.acroFormDoc(), expectValid: true },
   'acroform-prefilled': { description: 'Same form with values', build: () => b.acroFormDoc({ prefilled: true }), expectValid: true },
+  'acroform-multipage': { description: 'Form with fields on two pages and a radio group', build: b.acroFormMultiPageDoc, expectValid: true },
   'acroform-2': { description: 'Second form with a colliding field name', build: b.acroFormDoc2, expectValid: true },
+  'signed-form': { description: 'Form with all field types and a signature field with a dummy signature', build: b.signedFormDoc, expectValid: true },
   xfa: { description: 'AcroForm declaring an XFA packet', build: b.xfaDoc, expectValid: true },
   'dotted-form': { description: 'Word-style form: labels followed by dotted leaders (…………)', build: async () => (await b.flatFormDoc([{ key: 'name', label: 'Il/la sottoscritto/a', kind: 'dots' }, { key: 'tax', label: 'codice fiscale', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },
   'dotted-form-long': { description: 'Word-style form with long printed labels (review list width tests)', build: async () => (await b.flatFormDoc([{ key: 'tutor', label: 'genitore o tutore legale dell’alunno/a', kind: 'dots' }, { key: 'phone', label: 'Numero di telefono per eventuali comunicazioni', kind: 'dots' }, { key: 'mail', label: '(Indirizzo email per ricevere copia della fattura', kind: 'dots' }], 'Iscrizione')).pdf, expectValid: true },
@@ -57,6 +59,24 @@ export const FIXTURES: Record<string, FixtureEntry> = {
   scan: { description: 'Image-only pages', build: () => b.scanDoc(), expectValid: true },
   images: { description: 'Text plus PNG and JPEG image objects', build: b.imagesDoc, expectValid: true },
   annotated: { description: 'Annotations written by another tool', build: b.annotatedDoc, expectValid: true },
+  'scanned-labelled-form': {
+    description: 'A paper form as a 150 dpi picture: labels, a ruled line, a box, underscores, a dotted line, a comb and a check square',
+    build: async () =>
+      pictureOf(
+        (
+          await b.flatFormDoc([
+            { key: 'first_name', label: 'First name', kind: 'underline' },
+            { key: 'birth_date', label: 'Date of birth', kind: 'box' },
+            { key: 'email', label: 'Email', kind: 'underscores' },
+            { key: 'phone', label: 'Phone number', kind: 'dots' },
+            { key: 'tax_id', label: 'Tax code', kind: 'comb' },
+            { key: 'newsletter', label: 'Send me the newsletter', kind: 'checkbox' },
+          ])
+        ).pdf,
+        { dpi: 150 },
+      ),
+    expectValid: true,
+  },
   'scanned-form': { description: 'Scanned paper form: image only, 5 boxes and 2 check squares', build: async () => (await b.scannedFormDoc()).pdf, expectValid: true },
   'scanned-form-90': { description: 'The same scan with /Rotate 90', build: async () => (await b.scannedFormDoc({ rotate: 90 })).pdf, expectValid: true },
   'scanned-text': { description: 'The multilingual page as a 200 dpi image only (OCR input)', build: () => scannedTextDoc(), expectValid: true },

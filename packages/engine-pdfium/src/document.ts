@@ -59,7 +59,7 @@ import type {
 import * as annots from './annotations.ts';
 import * as forms from './forms.ts';
 import { compact } from './compact.ts';
-import { addFields, deleteField, moveWidget, patchField } from './fieldedit.ts';
+import { addFields, deleteField, deleteSignatures, moveWidget, patchField } from './fieldedit.ts';
 import { ensureFieldsArray, importWithForms } from './formrepair.ts';
 import { scanHiddenData, scrubHiddenData } from './hidden.ts';
 import { getAscii, getUtf16, scope, type Arena, type Pdfium, type Ptr } from './mem.ts';
@@ -1000,6 +1000,15 @@ export class PdfiumDocument implements PdfDocument, DocInternals {
   }
   async removeField(id: FieldId, widget?: number): Promise<void> {
     await this.rewriteForms((bytes) => deleteField(bytes, id, widget));
+  }
+  async removeSignatures(): Promise<number> {
+    let removed = 0;
+    await this.rewriteForms(async (bytes) => {
+      const out = await deleteSignatures(bytes);
+      removed = out.removed;
+      return out.bytes;
+    });
+    return removed;
   }
   async listObjects(i: PageIndex): Promise<PageObject[]> {
     return objects.list(this, i);

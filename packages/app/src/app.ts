@@ -10,10 +10,10 @@ import {
 } from '@folio/core';
 import type { RecentFile } from '@folio/db';
 import type { FileRef, HiddenDataOptions, HiddenDataReport, PageIndex, PdfDocument } from '@folio/ports';
-import { RecoveryScheduler, isImageName, type Ticker } from '@folio/services';
+import { RecoveryScheduler, defaultOcrLanguages, isImageName, type Ticker } from '@folio/services';
 import type { Prompts, Toast, ToastKind } from './prompts.ts';
 import type { Services } from './services.ts';
-import { DocumentSession } from './session.ts';
+import { DocumentSession, type SignatureImpact } from './session.ts';
 
 export type Tile = 'merge' | 'split' | 'organise' | 'fill' | 'sign' | 'images';
 /** Task tiles of the home screen, in order (FR-APP-03). */
@@ -210,6 +210,7 @@ export class AppModel {
 
   private async addSession(init: ConstructorParameters<typeof DocumentSession>[0]): Promise<DocumentSession> {
     const session = new DocumentSession(init, this.services);
+    session.beforeSignedChange = (impact) => this.confirmSignedChange(session, impact);
     await session.refreshPages();
     session.changed.on(() => {
       this.syncWindow();
@@ -220,6 +221,64 @@ export class AppModel {
     this.syncWindow();
     this.emit();
     return session;
+  }
+
+  /**
+   * OCR languages for reading scanned pages on this device: the ones the user chose in the OCR dialog, else the
+   * interface language, kept to those installed (English and Italian ship with the app).
+   */
+  async scanLanguages(): Promise<string[]> {
+    const installed = new Set((await this.services.ocrLanguages.list()).filter((p) => p.installed).map((p) => p.code));
+    const wanted = defaultOcrLanguages(this.settings.language, this.settings.ocr.languages).filter((c) => installed.has(c));
+    return wanted.length ? wanted : installed.has('eng') ? ['eng'] : [];
+  }
+
+  // ---- signed documents (FR-SEC-13) ----------------------------------------------------------
+
+  private signedQuestion = new Map<string, Promise<boolean>>();
+  /**
+   * The gate of the command bus for a signed document. Filling in form fields keeps the signatures valid
+   * when the file is saved with "Append changes": one note per session, no question. Any other change
+   * asks once per session whether to go on, and the answer holds until the file is closed.
+   */
+  private confirmSignedChange(session: DocumentSession, impact: SignatureImpact): Promise<boolean> {
+    if (impact === 'keeps') {
+      if (!session.signedHintShown) {
+        session.signedHintShown = true;
+        this.toast('info', msg('signed.keepsHint'));
+      }
+      return Promise.resolve(true);
+    }
+    if (session.signedEditAccepted) return Promise.resolve(true);
+    let pending = this.signedQuestion.get(session.id);
+    if (!pending) {
+      pending = this.prompts
+        .confirm(msg('signed.editConfirm', { name: session.name }), { danger: true, confirmLabel: msg('signed.editAnyway') })
+        .then((ok) => {
+          if (ok) session.signedEditAccepted = true;
+          return ok;
+        })
+        .finally(() => this.signedQuestion.delete(session.id));
+      this.signedQuestion.set(session.id, pending);
+    }
+    return pending;
+  }
+  /**
+   * Deletes every signature of the open document (one undo step; the next save rewrites the file) so it can be
+   * edited and saved freely. Asks first: the signatures cannot be recovered once the file is saved.
+   */
+  async removeSignatures(session = this.active): Promise<boolean> {
+    if (!session?.meta.hasSignatures) return false;
+    if (!(await this.prompts.confirm(msg('signed.removeConfirm', { name: session.name }), { danger: true, confirmLabel: msg('signed.removeAction') }))) return false;
+    await session.settled();
+    session.signedEditAccepted = true;
+    const ok = await this.guard(async () => {
+      await session.run(this.services.documents.removeSignatures());
+      session.fullRewrite = true;
+      return true;
+    });
+    if (ok) this.toast('success', msg('signed.removed'));
+    return !!ok;
   }
 
   /** Adds an in-memory document (merge result, extracted pages, images) as a new unsaved tab. */

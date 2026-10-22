@@ -1,6 +1,6 @@
 [package]
 name = "folio"
-version = "0.1.0"
+version = "0.1.4"
 description = "Folio — open-source everyday PDF editor"
 authors = ["Folio contributors"]
 license = "GPL-3.0-or-later"

@@ -226,7 +226,9 @@
     {/each}
     <span class="vsep"></span>
     <button class="tool" disabled={m.author.detecting} onclick={() => m.author.detect([session.view.page])} use:tip={t('author.detect')}><Icon name="scan-line" /><span class="lbl">{t('author.detect')}</span></button>
-    <button class="tool" disabled={m.author.detecting || !aiAvailable} onclick={() => m.author.detect([session.view.page], true)} use:tip={aiAvailable ? t('author.detectAi') : t('author.detectAiOff')}><Icon name="sparkles" /><span class="lbl">{t('author.detectAi')}</span></button>
+    {#if aiAvailable}
+      <button class="tool" disabled={m.author.detecting} onclick={() => m.author.detect([session.view.page], true)} use:tip={t('author.detectAi')}><Icon name="sparkles" /><span class="lbl">{t('author.detectAi')}</span></button>
+    {/if}
   {:else if mode === 'fill'}
     <button class="tool" onclick={() => m.author.toggle()} use:tip={t('author.editForm')}><Icon name="pencil-ruler" /><span class="lbl">{t('author.editForm')}</span></button>
     <span class="vsep"></span>

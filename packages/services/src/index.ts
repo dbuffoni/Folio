@@ -27,3 +27,5 @@ export * from './tables.ts';
 export * from './signing/errors.ts';
 export * from './signing/certificates.ts';
 export type * from './signing/index.ts';
+export * from './scan-fields.ts';
+export * from './scan-ocr.ts';

@@ -40,6 +40,7 @@ import {
   isFillable,
   isImageName,
   nextStop,
+  stopIndex,
   planFiles,
   planSplit,
   selectParity,
@@ -1075,7 +1076,6 @@ export class OcrModel extends ViewModel {
       const host = endpointHost(this.app.settings.ai.baseUrl);
       if (!(await this.app.prompts.confirm(msg('ocr.aiPreflight', { count: pages.length, host }), { confirmLabel: msg('ocr.aiSend') }))) return null;
     }
-    if (this.session.meta.hasSignatures && !(await this.app.prompts.confirm(msg('ocr.confirmSigned'), { confirmLabel: msg('action.continue') }))) return null;
     this.stage = 'running';
     this.progress = 0;
     this.abort = new AbortController();
@@ -1402,7 +1402,6 @@ export class FormAuthoringModel extends ViewModel {
   proposals: FieldProposal[] = [];
   notice: DetectionNotice | null = null;
   detecting = false;
-  private warned = false;
 
   constructor(
     private readonly app: AppModel,
@@ -1452,10 +1451,6 @@ export class FormAuthoringModel extends ViewModel {
     if (block) {
       this.app.toast('warning', msg(`form.author.blocked.${block}`));
       return false;
-    }
-    if (this.session.meta.hasSignatures && !this.warned) {
-      if (!(await this.app.prompts.confirm(msg('form.author.confirmSigned'), { confirmLabel: msg('action.continue') }))) return false;
-      this.warned = true;
     }
     this.active = true;
     await this.refresh();
@@ -1541,23 +1536,51 @@ export class FormAuthoringModel extends ViewModel {
 
   // ---- Detect fields (FR-FRM-15) -------------------------------------------------------------
 
-  /** Proposes fields for pages: local on vector pages, the vision model on scans or when `forceAi`. */
+  /** Pages being read with OCR while detecting: how many are done of how many. */
+  reading: { done: number; total: number } | null = null;
+  private readAbort: AbortController | null = null;
+  /** Stops reading a scan (the Cancel of the progress line). */
+  cancelReading(): void {
+    this.readAbort?.abort();
+  }
+  /** The vision model is set up: "Improve with AI" is offered (never started by itself). */
+  async aiAvailable(): Promise<boolean> {
+    const settings = this.app.settings.ai;
+    return settings.enabled && aiGates(settings).vision && (await this.app.services.ai.isConfigured());
+  }
+  /**
+   * Proposes fields for pages: local on vector pages, on scans too (read with OCR on this device, once per
+   * page and session), and with the vision model only when `forceAi` ("Improve with AI") merges its findings.
+   */
   async detect(pages: PageIndex[], forceAi = false): Promise<number> {
     this.detecting = true;
     this.notice = null;
+    this.reading = null;
+    this.readAbort = new AbortController();
     this.emit();
     const settings = this.app.settings.ai;
     const gates = aiGates(settings);
+    const signal = this.readAbort.signal;
     const res = await this.app.guard(async () => {
       await this.refresh();
+      const ocrOn = this.app.services.detection.ocrAvailable;
       return this.app.services.detection.detect(this.session.doc, pages, {
         useAi: settings.enabled && gates.vision && (await this.app.services.ai.isConfigured()),
         forceAi,
+        signal,
+        ...(ocrOn ? { ocr: { languages: await this.app.scanLanguages(), signal } } : {}),
+        progress: (done, total) => {
+          this.reading = done < total ? { done, total } : null;
+          this.emit();
+        },
       });
     });
     this.detecting = false;
+    this.reading = null;
+    this.readAbort = null;
     if (res) {
-      this.proposals = res.proposals;
+      // "Improve with AI" merges with what is already proposed instead of replacing it.
+      this.proposals = forceAi && this.proposals.length ? this.app.services.detection.merge([...this.proposals, ...res.proposals]) : res.proposals;
       this.notice = res.notice ?? (res.proposals.length === 0 && forceAi && !gates.vision ? 'visionOff' : null);
     }
     this.emit();
@@ -1799,13 +1822,7 @@ export class OutlineModel extends ViewModel {
     this.emit();
   }
 
-  /** The signed-document warning applies to every edit; false when the user backs out. */
-  private async allowed(): Promise<boolean> {
-    if (!this.signed) return true;
-    return this.app.prompts.confirm(msg('bookmarks.confirmSigned'), { confirmLabel: msg('action.continue') });
-  }
   private async run(cmd: () => ReturnType<typeof this.service.add>, after?: () => void): Promise<boolean> {
-    if (!(await this.allowed())) return false;
     const ok = await this.app.guard(async () => {
       await this.session.run(cmd());
       await this.load();
@@ -1921,6 +1938,18 @@ export class FormModel extends ViewModel {
     this.focus = nextStop(this.stops.length, this.focus, direction);
     this.emit();
     const stop = this.stops[this.focus];
+    if (stop) this.session.goToPage(stop.field.widgets[stop.widget]!.page);
+    return stop ?? null;
+  }
+  /**
+   * Tab / Shift+Tab from the field that has focus: the next stop in reading order, across pages. Null at the
+   * last (first) stop, so Tab leaves the form for the next control of the app instead of looping (FR-FRM-02).
+   */
+  advance(id: string, widget: number, direction: 1 | -1): { field: FormField; widget: number } | null {
+    const at = stopIndex(this.stops, id, widget);
+    const stop = at < 0 ? undefined : this.stops[at + direction];
+    this.focus = stop ? at + direction : -1;
+    this.emit();
     if (stop) this.session.goToPage(stop.field.widgets[stop.widget]!.page);
     return stop ?? null;
   }
@@ -2145,6 +2174,7 @@ export class SmartFillModel extends ViewModel {
         maxPages: settings.maxPagesPerRun,
         reanalyze,
         signal: this.abort!.signal,
+        ocr: { languages: await this.app.scanLanguages(), signal: this.abort!.signal },
       }),
     );
     if (!result) {

@@ -52,9 +52,16 @@ case "${ID_LIKE:-} ${ID}" in
   *fedora*|*rhel*)
     dnf install -y -q xorg-x11-server-Xvfb xauth dbus-daemon dbus-x11 gnome-keyring qpdf libsecret mesa-dri-drivers gtk3 \
       dejavu-sans-fonts webkit2gtk4.1 webkit2gtk4.1-devel
+    # Which package ships the driver differs between releases: ask the package manager.
+    command -v WebKitWebDriver >/dev/null || find /usr -name WebKitWebDriver -type f 2>/dev/null | grep -q . || dnf install -y -q '*/WebKitWebDriver'
     ;;
   *arch*)
     pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth dbus gnome-keyring qpdf libsecret mesa gtk3 ttf-dejavu webkit2gtk-4.1
+    if ! find /usr -name WebKitWebDriver -type f 2>/dev/null | grep -q .; then
+      pacman -Fy --noconfirm >/dev/null
+      owner="$(pacman -Fq WebKitWebDriver | head -1 | sed 's#.*/##')"
+      [ -z "$owner" ] || pacman -S --noconfirm --needed "$owner"
+    fi
     ;;
   *)
     echo "unsupported distribution: ${ID}" >&2

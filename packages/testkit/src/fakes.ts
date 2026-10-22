@@ -236,6 +236,21 @@ export class ManualTicker {
 }
 
 /** Scripted text recognition: every page "reads" the same lines, placed by fractions of the image. */
+/**
+ * What a reader would see next to the boxes of `scannedFormDoc` (612 × 792 pt page): the label left of every text
+ * box and right of every check square, as lines for `FakeOcrEngine`.
+ */
+export function ocrLinesForScannedForm(areas: Array<{ rect: { x: number; y: number; width: number; height: number }; kind: 'text' | 'checkbox'; label: string }>): Array<{ text: string; box: [number, number, number, number] }> {
+  return areas.map((a) => {
+    const top = 1 - (a.rect.y + a.rect.height) / 792;
+    const bottom = 1 - a.rect.y / 792;
+    const width = a.label.length * 6;
+    const box: [number, number, number, number] =
+      a.kind === 'checkbox' ? [(a.rect.x + a.rect.width + 6) / 612, top, (a.rect.x + a.rect.width + 6 + width) / 612, bottom] : [(a.rect.x - 8 - width) / 612, top + 0.004, (a.rect.x - 8) / 612, bottom - 0.004];
+    return { text: a.label, box };
+  });
+}
+
 export class FakeOcrEngine implements OcrEngine {
   readonly calls: Array<{ languages: string[]; width: number; height: number }> = [];
   failWith: Error | null = null;

@@ -36,7 +36,7 @@
     <label style="width:auto"><input type="radio" name="sfs" checked={sf.scope === 'all'} onchange={() => (sf.setScope('all'), void sf.analyse(false))} /> {t('smartfill.scope.all')}</label>
   </div>
   {#if sf.result}
-    <div class="callout info"><Icon name="shield-check" /><span>{t(sf.result.source === 'heuristic' && sf.result.fallbackReason && !['notConfigured', 'offline'].includes(sf.result.fallbackReason) ? 'smartfill.source.afterRequest' : `smartfill.source.${sf.result.source}`)} {#if sf.result.source === 'ai'}{t(ai.mode === 'mapping_only' ? 'smartfill.privacy.mapping' : 'smartfill.privacy.values')}{/if} <button class="link" onclick={() => ui.openDialog('settings')}>{t('smartfill.change')}</button></span></div>
+    <div class="callout info"><Icon name="shield-check" /><span>{t(sf.result.source === 'heuristic' && sf.result.fallbackReason && !['notConfigured', 'offline'].includes(sf.result.fallbackReason) ? 'smartfill.source.afterRequest' : `smartfill.source.${sf.result.source}`)} {#if sf.result.source === 'ai'}{t(ai.mode === 'mapping_only' ? 'smartfill.privacy.mapping' : 'smartfill.privacy.values')}{/if} <button class="link" onclick={() => ui.openSettings('smartFill')}>{t('smartfill.change')}</button></span></div>
   {/if}
 </div>
 {#if stage === 'analysing'}

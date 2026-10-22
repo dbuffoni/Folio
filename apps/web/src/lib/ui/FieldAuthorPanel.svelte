@@ -33,6 +33,10 @@
 
 <div class="ins-h"><Icon name="pencil-ruler" /><span class="grow">{t('author.title')}</span><button class="ib" onclick={() => author.toggle()} aria-label={t('action.close')}><Icon name="x" /></button></div>
 
+{#if author.detecting && author.reading}
+  <div class="ins-s"><div class="callout" role="status"><Icon name="scan-text" /><span>{author.reading.total > 1 ? t('author.reading', { done: author.reading.done + 1, total: author.reading.total }) : t('author.readingPage')}</span><button class="link" onclick={() => author.cancelReading()}>{t('action.cancel')}</button></div></div>
+{/if}
+
 {#if author.notice}
   <div class="ins-s"><div class="callout"><Icon name="info" /><span>{t(`author.notice.${author.notice}`)}</span></div></div>
 {/if}

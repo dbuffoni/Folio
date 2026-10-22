@@ -85,7 +85,9 @@ export async function readSignatures(bytes: Uint8Array): Promise<RawSignature[]>
           visit(kid, name);
         }
       }
-    const v = field.lookupMaybe(n('V'), PDFDict);
+    // /V of a text field is a string, of a choice field an array: only a signature field holds a dictionary.
+    const raw = field.lookup(n('V'));
+    const v = raw instanceof PDFDict ? raw : undefined;
     if (!v || field.lookup(n('FT')) !== n('Sig')) return;
     const range = v.lookupMaybe(n('ByteRange'), PDFArray);
     const contents = v.lookup(n('Contents'));

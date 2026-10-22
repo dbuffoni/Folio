@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyToRect, pageToViewMatrix, rotatedSize } from '@folio/core';
 import { FakeAiProvider } from '@folio/ai';
-import { flatFormDoc, scannedFormDoc } from '@folio/testkit';
+import { FakeOcrEngine, flatFormDoc, ocrLinesForScannedForm, scannedFormDoc } from '@folio/testkit';
 import { createTestApp } from './testing.ts';
 
 describe('Edit form mode @FR-FRM-08 @FR-FRM-11 @FR-FRM-16 @FR-FRM-17', () => {
@@ -51,11 +51,13 @@ describe('Edit form mode @FR-FRM-08 @FR-FRM-11 @FR-FRM-16 @FR-FRM-17', () => {
     expect(await t.author(xfa).toggle()).toBe(false);
     expect(t.toastKeys()).toContain('form.author.blocked.xfa');
     const signed = await t.open('signed');
-    t.prompts.confirmAnswers = [false];
-    expect(await t.author(signed).toggle()).toBe(false);
-    expect(t.prompts.asked).toContain('confirm:form.author.confirmSigned');
-    t.prompts.confirmAnswers = [true];
+    // Entering the authoring mode changes nothing; the first change asks (the gate of the command bus, FR-SEC-13).
     expect(await t.author(signed).toggle()).toBe(true);
+    t.prompts.confirmAnswers = [false];
+    const authoring = t.author(signed);
+    authoring.setTool('text');
+    expect(await authoring.createAt(0, { x: 380, y: 450 }, { x: 540, y: 472 })).toBe(false);
+    expect(t.prompts.asked).toContain('confirm:signed.editConfirm');
   });
 
   it('Detect fields on a vector form: no network, ghosts become fields in one step @FR-FRM-15 @FR-FRM-07', async () => {
@@ -116,5 +118,50 @@ describe('Edit form mode @FR-FRM-08 @FR-FRM-11 @FR-FRM-16 @FR-FRM-17', () => {
     expect(await s.undo()).toBe(true);
     await m.refresh();
     expect(m.fields).toEqual([]);
+  });
+
+  it('Detect fields on a picture-only page reads it with OCR on this device: labelled fields, progress, no AI, undoable @FR-FRM-15', async () => {
+    const { pdf, areas } = await scannedFormDoc();
+    const ocr = new FakeOcrEngine(ocrLinesForScannedForm(areas));
+    const ai = new FakeAiProvider();
+    const t = await createTestApp({ ai, ocr });
+    t.files.put('/scan.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/scan.pdf')))!;
+    const m = t.author(s);
+    await m.toggle();
+    const seen: Array<{ done: number; total: number } | null> = [];
+    m.changed.on(() => seen.push(m.reading));
+    // AI is off and nothing leaves the device.
+    expect(await m.detect([0])).toBe(7);
+    expect(m.notice).toBe('scanOcr');
+    expect(ai.requests).toHaveLength(0);
+    expect(seen.some((r) => r?.total === 1)).toBe(true);
+    expect(m.reading).toBeNull();
+    expect(m.proposals.map((p) => p.label).sort()).toEqual(['Date of birth', 'Email', 'First name', 'Last name', 'Newsletter', 'Privacy', 'Tax code']);
+    // The read languages are the user's: English by default.
+    expect(ocr.calls.map((c) => c.languages)).toEqual([['eng']]);
+    // Fields are named after their labels, as on a native page.
+    expect(await m.createProposals()).toBe(7);
+    expect((await s.doc.listFormFields()).map((f) => f.name).sort()).toEqual(['DateOfBirth', 'Email', 'FirstName', 'LastName', 'Newsletter', 'Privacy', 'TaxCode']);
+    expect(await s.undo()).toBe(true);
+    // The page is not read again in this session.
+    await m.refresh();
+    expect(await m.detect([0])).toBe(7);
+    expect(ocr.calls).toHaveLength(1);
+  });
+
+  it('reading a scan can be cancelled and leaves nothing proposed @FR-FRM-15', async () => {
+    const { pdf, areas } = await scannedFormDoc();
+    const ocr = new FakeOcrEngine(ocrLinesForScannedForm(areas));
+    const t = await createTestApp({ ocr });
+    t.files.put('/scan.pdf', pdf);
+    const s = (await t.app.openRef(t.files.ref('/scan.pdf')))!;
+    const m = t.author(s);
+    await m.toggle();
+    ocr.onPage = () => m.cancelReading();
+    expect(await m.detect([0])).toBe(0);
+    expect(m.proposals).toEqual([]);
+    expect(m.detecting).toBe(false);
+    expect(t.toastKeys()).not.toContain('error.unexpected');
   });
 });
