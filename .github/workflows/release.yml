@@ -249,6 +249,8 @@ jobs:
   # Last job: the bundle that went to the draft is checked as a user would check a download.
   verify:
     needs: release
+    # distro-smoke is skipped on plain tags, and a skipped ancestor would skip this job too.
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
