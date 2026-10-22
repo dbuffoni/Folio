@@ -143,7 +143,7 @@ list of releases, prints what it read, and fails only if a release for the tag h
 `apps/desktop/scripts/smoke-distro.sh <image> <appimage> <pdf>`, which starts a container
 (docker or podman), installs Xvfb, D-Bus, qpdf and the WebKit driver with the distribution's package
 manager and runs the normal `smoke.mjs` scenario against the unpacked AppImage (no FUSE). Images:
-`fedora:42` (must pass), `archlinux:latest` (informational: its only WebKit driver is for webkit2gtk 6.0 and cannot drive the 4.1 engine) and `ubuntu:20.04` (glibc 2.31, informational: the
+`fedora:42` (must pass), `archlinux:latest` (informational, in its own job nothing waits for: its only WebKit driver is for webkit2gtk 6.0 and cannot drive the 4.1 engine) and `ubuntu:20.04` (glibc 2.31, informational: the
 AppImage is built on Ubuntu 22.04 and probably needs a newer glibc, so a failure there is the answer
 to "what is the minimum glibc?", not a broken release). `FOLIO_SMOKE_NO_SANDBOX=1` (the default)
 turns off WebKit's own sandbox, which cannot start in an unprivileged container.
