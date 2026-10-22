@@ -8,6 +8,7 @@ import {
   pki,
   qpdfCheck,
   textDoc,
+  fixture,
 } from '@folio/testkit';
 import {
   CertificateError,
@@ -409,5 +410,18 @@ describe('Validation, edge cases @FR-SIG-04 @FR-SIG-05 @FR-SIG-06', () => {
     for (let i = 60; i < 80; i++) bad[start + i] = bad[start + i] === 0x30 ? 0x31 : 0x30;
     const [r] = await validateSignatures(bad);
     expect(r!.status === 'invalid' || r!.status === 'unknown' || r!.timestamp?.verified === false).toBe(true);
+  });
+});
+
+describe('Checking signatures of a filled-in form @FR-SIG-04 @FR-SIG-05', () => {
+  it('reads the signature of a file whose text, choice and check fields hold values (their /V is not a dictionary)', async () => {
+    const { identity } = await pki();
+    const signed = await signPdf(await fixture('acroform-prefilled'), { identity });
+    const reports = await validateSignatures(signed);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.fieldName).toMatch(/Signature/);
+    // A second signature on top of the filled form is found as well.
+    const again = await validateSignatures(await signPdf(signed, { identity }));
+    expect(again).toHaveLength(2);
   });
 });

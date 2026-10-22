@@ -101,3 +101,20 @@ test('the Sign tool menu also offers the certificate commands @FR-SIG-01 @FR-SIG
   await app.getByRole('menuitem', { name: 'Check digital signatures…' }).click();
   await expect(app.getByRole('dialog', { name: 'Digital signatures' })).toBeVisible();
 });
+
+test('a signed form with filled-in fields can be checked: no error, the signature is listed @FR-SIG-04 @FR-SIG-05', async ({ app }) => {
+  await importIdentity(app, makeP12('Ada Lovelace', 'pw'), 'pw');
+  await app.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click();
+  await openPdf(app, 'acroform-prefilled.pdf');
+  await menu(app, 'Sign with a certificate…');
+  const dialog = app.getByRole('dialog', { name: 'Sign with a certificate' });
+  const [signed] = await downloads(app, 1, () => dialog.getByRole('button', { name: 'Sign', exact: true }).click());
+  const [chooser] = await Promise.all([app.waitForEvent('filechooser'), app.keyboard.press('Control+o')]);
+  await chooser.setFiles(signed!.path);
+  await expect(tabs(app).getByRole('button', { name: basename(signed!.path), exact: true })).toHaveAttribute('aria-current', 'page');
+  await menu(app, 'Check digital signatures…');
+  const panel = app.getByRole('dialog', { name: 'Digital signatures' });
+  await expect(panel.getByTestId('sig-summary')).toBeVisible();
+  await expect(panel.getByTestId('sig-none')).toHaveCount(0);
+  await expect(app.getByText(/Expected instance of/)).toHaveCount(0);
+});
