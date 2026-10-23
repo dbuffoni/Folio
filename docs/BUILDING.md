@@ -112,7 +112,7 @@ and fetched with `pnpm fixtures:fetch`.
 | Rust | a pull request that touches `apps/desktop/`, a workflow, `pnpm-lock.yaml` or `rust-toolchain.toml` | clippy and Rust tests on Linux (`rust-check`) beside the AppImage build and smoke test |
 | Heavy | push to `main`, pull requests from `release/*` branches, manual runs | everything above plus e2e in Firefox and WebKit (one job each), performance budgets, unit suites on Windows and macOS, installer builds for Windows and macOS |
 
-Browsers are cached by Playwright version, and apt runs without prompts (`NEEDRESTART_MODE=a`) because a prompt once held a job for the full 30 minutes. Clippy runs only on Linux; Windows and macOS compile the code through the bundle and run `cargo test`.
+The `.deb` files apt downloads are cached per package set and ISO week (`.github/actions/apt-cache`): the Ubuntu mirror of the runners once delivered 51 MB at 33 kB/s and held a job for 25 minutes, so only the first run of the week pays for the download. Browsers are cached by Playwright version, and apt runs without prompts (`NEEDRESTART_MODE=a`) because a prompt once held a job for the full 30 minutes. Clippy runs only on Linux; Windows and macOS compile the code through the bundle and run `cargo test`.
 
 ### Baselines
 

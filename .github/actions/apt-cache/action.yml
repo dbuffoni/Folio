@@ -1,0 +1,28 @@
+name: apt package cache
+description: >
+  Keeps the .deb files apt downloads between runs, so a slow Ubuntu mirror (33 kB/s once held a job for 25 minutes)
+  is only paid for by the first run of the week. Every apt command after this step, also the ones Playwright runs, uses
+  the cache directory. Add a final step `sudo chmod -R a+rX "$HOME/apt-cache"` to the job so the cache can be saved.
+inputs:
+  key:
+    description: Name of the package set, e.g. oracles or rust-libs.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: week
+      shell: bash
+      run: echo "w=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: ~/apt-cache
+        key: apt-${{ runner.os }}-${{ inputs.key }}-${{ steps.week.outputs.w }}
+        restore-keys: |
+          apt-${{ runner.os }}-${{ inputs.key }}-
+    - shell: bash
+      run: |
+        mkdir -p "$HOME/apt-cache/partial"
+        echo "Dir::Cache::archives \"$HOME/apt-cache\";" | sudo tee /etc/apt/apt.conf.d/99folio-cache >/dev/null
+        # Debs of packages the cache already holds are not downloaded again; the index is small and fetched each time.
+        echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99folio-retries >/dev/null
+        ls "$HOME/apt-cache" | wc -l | xargs echo "cached debs:"
