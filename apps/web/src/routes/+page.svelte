@@ -3,7 +3,7 @@
   import { t, tm } from '#lib/i18n/index.ts';
   import { dep, app, boot, commandContext, isMac, models, registry, services, sign, start, track, ui } from '#lib/state.svelte.ts';
   import Canvas from '#lib/ui/Canvas.svelte';
-  import Coach from '#lib/ui/Coach.svelte';
+  import Tutorial from '#lib/ui/Tutorial.svelte';
   import ExportDialog from '#lib/ui/dialogs/ExportDialog.svelte';
   import Logo from '#lib/ui/Logo.svelte';
   import HiddenDataDialog from '#lib/ui/dialogs/HiddenDataDialog.svelte';
@@ -207,7 +207,7 @@
     </Dialog>
   {/if}
   <PromptHost />
-  <Coach />
+  <Tutorial />
   <Toasts />
   {#if dropping}<div class="dropveil">{t('ui.dropHere')}</div>{/if}
 {/if}

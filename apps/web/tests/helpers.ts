@@ -42,6 +42,8 @@ export const test = base.extend<Fixtures>({
     });
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 30_000 });
+    // Tests that are not about the tutorial start from the usual state: tutorial seen.
+    if (!testInfo.title.includes('@tutorial')) await dismissCoach(page);
     await use(page);
     if (testInfo.status !== testInfo.expectedStatus && errors.length) console.warn('browser errors:\n' + errors.join('\n'));
     expect(errors, 'no errors in the browser console').toEqual([]);
@@ -68,9 +70,13 @@ export async function openPdf(page: Page, ...files: string[]): Promise<void> {
 /** The strip of open documents in the title bar. */
 export const tabs = (page: Page): Locator => page.getByRole('navigation', { name: 'Open documents' });
 
+/** Closes the welcome tutorial if it is showing (first start of a fresh browser profile). */
 export async function dismissCoach(page: Page): Promise<void> {
-  const skip = page.getByRole('button', { name: 'Skip' });
-  if (await skip.isVisible().catch(() => false)) await skip.click();
+  const tutorial = page.getByRole('dialog', { name: 'Welcome to Folio' });
+  if (await tutorial.isVisible().catch(() => false)) {
+    await tutorial.getByRole('button', { name: 'Skip', exact: true }).click();
+    await expect(tutorial).toBeHidden();
+  }
 }
 
 export const mode = (page: Page, name: 'View' | 'Organise' | 'Annotate' | 'Fill & Sign' | 'Edit'): Promise<void> =>

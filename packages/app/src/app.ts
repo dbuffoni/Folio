@@ -16,6 +16,7 @@ import type { Prompts, Toast, ToastKind } from './prompts.ts';
 import type { Services } from './services.ts';
 import { DocumentSession, type SignatureImpact } from './session.ts';
 import { checkIsDue, checkUpdates } from './updates.ts';
+import type { SettingsPane, UiState } from './ui.ts';
 
 export type Tile = 'merge' | 'split' | 'organise' | 'fill' | 'sign' | 'images';
 /** Task tiles of the home screen, in order (FR-APP-03). */
@@ -165,6 +166,18 @@ export class AppModel {
     this.update = null;
     if (version) await this.setSetting('updates', { ...this.settings.updates, skippedVersion: version });
     else this.emit();
+  }
+  // ---- tutorial (FR-APP-17) ------------------------------------------------------------------
+
+  /** Closes the tutorial however it ended (Done, Skip, Esc, a link) and remembers it was seen, so it does not reopen by itself. */
+  async endTutorial(ui: UiState): Promise<void> {
+    ui.closeTutorial();
+    if (!this.settings.onboardingDone) await this.setSetting('onboardingDone', true);
+  }
+  /** A link inside a slide: ends the tutorial and opens Settings on the pane the slide talks about. */
+  async tutorialToSettings(ui: UiState, pane: SettingsPane): Promise<void> {
+    await this.endTutorial(ui);
+    ui.openSettings(pane);
   }
   async openUpdate(): Promise<void> {
     if (this.update) await this.services.platform.shell.openExternal(this.update.url);

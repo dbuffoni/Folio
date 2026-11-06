@@ -192,7 +192,7 @@ export async function start(): Promise<void> {
         },
       });
     }
-    ui.startCoach(app.settings.onboardingDone);
+    ui.startTutorial(app.settings.onboardingDone);
     state.ready = true;
     bump();
     // After `ready`: the prompt needs the shell's dialogs, and waiting for it earlier would never end.

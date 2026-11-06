@@ -177,6 +177,7 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     // Settings & help
     { id: 'settings.open', title: 'cmd.settings', group: 'settings', icon: 'settings', keywords: 'preferences options theme language units ai key', run: ({ ui }) => ui.openDialog('settings') },
     { id: 'settings.profiles', title: 'cmd.profiles', group: 'settings', icon: 'contact', keywords: 'my data reference auto fill', run: ({ ui }) => ui.openDialog('profiles') },
+    { id: 'help.tutorial', title: 'cmd.tutorial', group: 'help', icon: 'book-open', run: ({ ui }) => ui.openTutorial() },
     { id: 'help.shortcuts', title: 'cmd.shortcuts', group: 'help', icon: 'keyboard', run: ({ ui }) => ui.openDialog('shortcuts') },
     { id: 'help.privacy', title: 'cmd.privacy', group: 'help', icon: 'shield', run: ({ ui }) => ui.openDialog('privacy') },
     { id: 'help.about', title: 'cmd.about', group: 'help', icon: 'badge-info', run: ({ ui }) => ui.openDialog('about') },

@@ -97,6 +97,9 @@ export class FindModel {
 /** The panes of the Settings dialog. */
 export type SettingsPane = 'appearance' | 'smartFill' | 'profiles' | 'ocr' | 'certificates' | 'general' | 'privacy' | 'about';
 
+/** Slides of the tutorial: modes, automatic form filling, profile, AI and key, data on the device, done. */
+export const TUTORIAL_SLIDES = 6;
+
 /** Window-level UI state that is not tied to a document. */
 export class UiState {
   readonly changed = new Emitter<void>();
@@ -106,8 +109,8 @@ export class UiState {
   palette = false;
   sidebarOpen = true;
   inspectorOpen = true;
-  /** Coach marks step (0–2), or null when finished or skipped. */
-  coach: number | null = null;
+  /** Tutorial slide shown (0-based), or null when it is closed. */
+  tutorial: number | null = null;
 
   private emit(): void {
     this.changed.emit();
@@ -140,19 +143,32 @@ export class UiState {
     this.inspectorOpen = !this.inspectorOpen;
     this.emit();
   }
-  /** First run: three skippable coach marks (modes, sign, command palette). */
-  startCoach(done: boolean): void {
-    this.coach = done ? null : 0;
+  /** First start: the tutorial opens by itself unless it was seen before (setting `onboardingDone`). */
+  startTutorial(alreadySeen: boolean): void {
+    this.tutorial = alreadySeen ? null : 0;
     this.emit();
   }
-  nextCoach(): boolean {
-    if (this.coach === null) return false;
-    this.coach = this.coach >= 2 ? null : this.coach + 1;
+  /** Help ▸ Tutorial: always from the first slide, over whatever is on screen. */
+  openTutorial(): void {
+    this.dialog = null;
+    this.palette = false;
+    this.tutorial = 0;
     this.emit();
-    return this.coach === null;
   }
-  skipCoach(): void {
-    this.coach = null;
+  /** Moves on; false after the last slide (the caller then closes the tutorial). */
+  nextTutorial(): boolean {
+    if (this.tutorial === null || this.tutorial >= TUTORIAL_SLIDES - 1) return false;
+    this.tutorial++;
+    this.emit();
+    return true;
+  }
+  backTutorial(): void {
+    if (this.tutorial === null || this.tutorial === 0) return;
+    this.tutorial--;
+    this.emit();
+  }
+  closeTutorial(): void {
+    this.tutorial = null;
     this.emit();
   }
 }

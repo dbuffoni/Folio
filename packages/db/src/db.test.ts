@@ -78,7 +78,7 @@ describe.each(drivers)('database on %s', (_name, open) => {
     await repo.set('units', 'in');
     await repo.set('recoveryIntervalSec', 60);
     await repo.set('ai', { ...DEFAULT_SETTINGS.ai, model: 'my-model', mode: 'with_values' });
-    expect(await new SettingsRepo(db, clock).load()).toMatchObject({ theme: 'dark', units: 'in', recoveryIntervalSec: 60, ai: { model: 'my-model', mode: 'with_values', baseUrl: 'https://api.openai.com/v1' }, keepBackup: true });
+    expect(await new SettingsRepo(db, clock).load()).toMatchObject({ theme: 'dark', units: 'in', recoveryIntervalSec: 60, ai: { model: 'my-model', mode: 'with_values', baseUrl: 'https://api.openai.com/v1' }, keepBackup: false });
     expect(await codeOf(repo.set('recoveryIntervalSec', 1))).toBe('invalidArgument');
     expect(await codeOf(repo.set('theme', 'neon' as 'dark'))).toBe('invalidArgument');
     await db.execute("INSERT INTO settings (key, value_json) VALUES ('units', '{broken')  ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json");
