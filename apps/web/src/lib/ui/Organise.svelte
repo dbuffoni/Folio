@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { DocumentSession } from '@folio/app';
+  import { formatChord, type DocumentSession } from '@folio/app';
   import { describePageSize } from '@folio/core';
   import { t } from '#lib/i18n/index.ts';
-  import { dep, models, run, track, ui } from '#lib/state.svelte.ts';
+  import { dep, isMac, models, run, track, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import Thumb from './Thumb.svelte';
@@ -47,8 +47,8 @@
     menu = { x: e.clientX, y: e.clientY, page };
   }
   const items = $derived.by((): MenuItem[] => [
-    { icon: 'rotate-cw', label: t('cmd.rotateCw'), shortcut: 'R', run: () => void org.rotate(90) },
-    { icon: 'rotate-ccw', label: t('cmd.rotateCcw'), shortcut: 'Shift+R', run: () => void org.rotate(270) },
+    { icon: 'rotate-cw', label: t('cmd.rotateCw'), shortcut: formatChord('Alt+R', isMac), run: () => void org.rotate(90) },
+    { icon: 'rotate-ccw', label: t('cmd.rotateCcw'), shortcut: formatChord('Alt+Shift+R', isMac), run: () => void org.rotate(270) },
     { icon: 'trash-2', label: t('action.delete'), shortcut: 'Del', danger: true, run: () => void org.delete() },
     { icon: 'copy', label: t('cmd.duplicate'), run: () => void org.duplicate() },
     { icon: 'file-output', label: t('ui.extractNew'), run: () => void org.extract(false) },

@@ -196,6 +196,9 @@ Release 1 shipped as version 0.1.0. This table stays as the record of what it co
 | FR-APP-13 | Repair: if a file is damaged, open in recovery mode (best effort) and show a banner. | P1 |
 | FR-APP-14 | **Window fits the screen** (Release 0.1.4, desktop): the first window is 1100 × 780 (an A4 page at fit-width without horizontal scroll, plus the side panes), reduced to the work area of the monitor it opens on (screen without task bar or dock, minus a margin) so the bottom border and status bar stay visible on 1366 × 768 and 1920 × 1080 screens; the last size and position are remembered and restored, then clamped to the current work area (a size larger than the screen, a monitor that is gone); the minimum size (900 × 560) is lowered on screens smaller than that. Same on Linux, Windows and macOS. | 0.1.4 |
 | FR-APP-15 | **Release files follow the tag** (Release 0.1.4): the version of the installers (`Folio_<version>_…`), of the About page and of the Cargo package is the release tag `vX.Y.Z` (a pre-release suffix such as `-rc1` is kept); `tools/set-version.ts` writes it into every file that carries a version, a unit test fails when those files disagree, and the release job fails when an installer name lacks the version. The "release is still a draft" guard finds the release by tag and logs what it read. | 0.1.4 |
+| FR-APP-16 | **Update notice** (Release 0.1.5, desktop only, ADR 0008): setting *Check for updates*, **off by default**; with it off no request is made. When on, at most once a day after start-up, one GET of the latest release of `dbuffoni/Folio` through a dedicated, argument-less Rust route (not a generic origin). Drafts and pre-releases are ignored, versions are compared as semver; a newer one shows a dismissible banner with a link to the release page and *Skip this version*. Failures are silent, except for *Settings ▸ Privacy ▸ Check now*. Notify only: Folio never downloads or installs (the updater stays Post-R1). The Privacy pane describes the request. | 0.1.5 |
+| FR-APP-17 | **Tutorial** (Release 0.1.5): replaces the coach marks with a six-slide modal with Back / Next / Skip — modes; automatic form filling; the profile (link to *Settings ▸ Profiles*); the AI service and API key (what is sent, what is lost without it, link to *Settings ▸ Smart Fill*); data stays on the device with the two switches for backup and update check, both off; done. Shown at the first start even without a document; *Help ▸ Tutorial* reopens it; users who already completed the old coach marks (`onboardingDone`) are not shown it again. Settings can be opened directly on a given pane. | 0.1.5 |
+| FR-APP-18 | **Tool shortcuts do not capture typing** (Release 0.1.5): the nine bare-letter tool shortcuts become Alt+letter (Option on macOS), matched on `event.code`; the old keys are removed (Appendix A). | 0.1.5 |
 
 ### 6.2 Viewer and navigation (VIEW)
 
@@ -459,7 +462,7 @@ The GUI is the product. This section is normative: acceptance of each feature in
 - **Progress**: inline progress bars on long operations (merge, split, export) with Cancel; app stays responsive.
 - **Error messages** state what happened, why, and what to do ("This file is protected with a password. Enter it to continue."). Never show raw exception text; a "Details" disclosure shows technical info and a *Copy diagnostics* button.
 - **Skeleton loaders** for thumbnails and pages; low-resolution preview first, sharp render after.
-- **First-run coach marks** (3 steps, skippable): modes, sign, command palette.
+- **First-run tutorial** (Release 0.1.5, replaces the three coach marks; FR-APP-17): a six-slide modal, skippable, shown at the first start even with no document open and reopened from *Help ▸ Tutorial*.
 
 ### 7.6 Keyboard shortcuts (defaults; remappable Post-R1)
 See Appendix A. Rules: Ctrl on Linux/Windows maps to Cmd on macOS through a single `Mod` abstraction; no shortcut conflicts with OS defaults; every shortcut is shown in the tooltip and the command palette.
@@ -864,7 +867,7 @@ CREATE TABLE history_spill (            -- optional: undo checkpoints spilled to
 |---|---|---|
 | FR-AIF-01 | **Profiles**: manage reference data (key/label/type/value, aliases) with built-in presets for common sets (identity, address, contacts, company, bank details, dates). Import/export JSON. Multiple profiles, one default. | P1 |
 | FR-AIF-02 | **Settings → AI**: API key (stored securely), base URL (default `https://api.openai.com/v1`, user-changeable for compatible endpoints/proxies), model name (free text + list from `/models`), mode, "include page image" toggle, "Test connection". Feature is completely hidden/disabled until configured. | P1 |
-| FR-AIF-03 | **Auto-fill with my data** button (banner, Fill & Sign mode, command palette). Works on pages selected by the user (default: current page, option: all pages). | P1 |
+| FR-AIF-03 | **Auto-fill with my data** button (banner, Fill & Sign mode, command palette). Works on pages selected by the user (default: current page, option: all pages). Release 0.1.5: with no profile yet, the button shows a popover anchored next to it — *Create a profile first* with a *Create profile* button that opens Settings on Profiles; Esc closes it and focus returns to the button (no toast). | P1 |
 | FR-AIF-04 | **Pre-flight transparency dialog** (first run and whenever mode changes): shows exactly what will be sent (field labels/text snippets, optionally a page image, profile *keys* only or keys+values), estimated tokens, with "Don't ask again for this mode". | P1 |
 | FR-AIF-05 | **Review panel** with per-field: detected label, proposed profile key, resulting value, confidence (high/medium/low), accept checkbox, inline edit, and "Locate" highlight on the page. Low-confidence suggestions are unchecked by default. | P1 |
 | FR-AIF-06 | **Apply** as one undoable composite command. For AcroForm fields set values; for non-fillable areas create text boxes/check marks positioned in detected boxes. | P1 |
@@ -951,7 +954,7 @@ Rust is used **only** where a web runtime cannot do the job. Everything is expos
 | HTTP proxy | command `http_request` using `reqwest` (rustls): reads the API key from the keyring by reference (`SecretRef`), injects headers, enforces host allow-list (user-configured AI base URL only), size and time limits | No CORS, key never exposed to JS |
 | Clipboard | `tauri-plugin-clipboard-manager` (images) | Image paste/copy |
 | Opener | `tauri-plugin-opener` | External links |
-| Updater | `tauri-plugin-updater` (signed) — Post-R1; AppImage supports it | Updates |
+| Updater | `tauri-plugin-updater` (signed) — Post-R1; AppImage supports it. Release 0.1.5 only *notifies* (FR-APP-16, ADR 0008) | Updates |
 | Logging | `tauri-plugin-log` to file | Diagnostics |
 | Printing | print the rendered PDF via webview print (`window.print` of a generated iframe) with fallback "Open in system viewer to print" | Webview limitation, see risk R6 |
 
@@ -1334,6 +1337,7 @@ The plan decides **what** and **when**; this SPEC stays the reference for **how*
 | 0.1.2 | 5 cards: Certificate management, Sign with a digital certificate, Visible digital signature appearance, Validate existing digital signatures, Signature timestamps | Delivered |
 | 0.1.3 | 13 cards: Remove metadata (hidden data), Respect protected files, Usability and screen-reader pass (partly: needs people), Browser tests for remaining screens, Release pipeline checks, and eight quality tasks (code review, code and test consolidation, zero warnings in tests and in build, visual polish, performance, branding). Owner decision: user-made field templates of 0.1.1 (FR-FRM-20) removed; new profiles start from built-in presets | Delivered |
 | 0.1.4 | 6 cards: Use OCR to locate properly the forms (FR-FRM-15), Fix releases filename (FR-APP-15), Assert the release is still a draft fails (FR-APP-15), Cycle through form fields using Tab (FR-FRM-02), Ensure protection of the signed document (FR-SEC-13), Wrong size when opening in window (FR-APP-14). Assumptions: the window restores the remembered size and position; every non-form change invalidates a signature | In progress |
+| 0.1.5 | 5 cards: Backup off by default with an optional backup folder (FR-APP-04), Update check (FR-APP-16), Tutorial (FR-APP-17), Smart Fill needs-a-profile popover (FR-AIF-03), Tool shortcuts as Alt+letter (FR-APP-18). Card *Open with* was already implemented and is out of this release. | In progress |
 
 ---
 
@@ -1453,7 +1457,9 @@ These were designed in this document and then consciously moved out of Release 1
 
 ## 19. Appendices
 
-### Appendix A — Default keyboard shortcuts (`Mod` = Ctrl on Linux/Windows, ⌘ on macOS)
+### Appendix A — Default keyboard shortcuts (`Mod` = Ctrl on Linux/Windows, ⌘ on macOS; `Alt` = Option ⌥ on macOS)
+
+Since Release 0.1.5 the nine tool shortcuts (select, edit text, highlight, note, text box, shape, sign, rotate pages clockwise / counter-clockwise) are **Alt+letter**; the bare letters were removed so that typing never switches tool by accident. They are matched on the physical key (`event.code`), so Option on macOS and other layouts work.
 
 | Action | Shortcut | | Action | Shortcut |
 |---|---|---|---|---|
@@ -1461,14 +1467,14 @@ These were designed in this document and then consciously moved out of Release 1
 | Save / Save As | Mod+S / Mod+Shift+S | | Next / previous match | Enter / Shift+Enter |
 | Close tab | Mod+W | | Command palette | Mod+K |
 | Undo / Redo | Mod+Z / Mod+Shift+Z | | Zoom in / out / fit width | Mod+= / Mod+- / Mod+0 |
-| Select tool | V | | Actual size | Mod+1 |
-| Edit text tool | E | | Rotate view | Mod+Shift+R |
-| Highlight | H | | Toggle sidebar / inspector | F4 / F5 |
-| Note | N | | Organise mode | Mod+Shift+O |
-| Text box | T | | Rotate pages CW / CCW | R / Shift+R |
+| Select tool | Alt+V | | Actual size | Mod+1 |
+| Edit text tool | Alt+E | | Rotate view | Mod+Shift+R |
+| Highlight | Alt+H | | Toggle sidebar / inspector | F4 / F5 |
+| Note | Alt+N | | Organise mode | Mod+Shift+O |
+| Text box | Alt+T | | Rotate pages CW / CCW | Alt+R / Alt+Shift+R |
 | Reserved | — | | Delete | Del |
-| Shape | S | | Duplicate | Mod+D |
-| Sign | G | | Select all | Mod+A |
+| Shape | Alt+S | | Duplicate | Mod+D |
+| Sign | Alt+G | | Select all | Mod+A |
 | Insert date | Mod+Shift+D | | Print | Mod+P |
 | Cancel tool / deselect | Esc | | Next / previous field | Tab / Shift+Tab |
 

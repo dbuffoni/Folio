@@ -370,7 +370,7 @@
  "dialog.recovery.body": "Folio closed unexpectedly. These documents have unsaved work:",
  "dialog.recovery.restore": "Restore",
  "dialog.recovery.title": "Restore unsaved changes?",
- "dialog.shortcuts.mac": "Ctrl is ⌘ on macOS",
+ "dialog.shortcuts.mac": "Ctrl is ⌘ and Alt is ⌥ (Option) on macOS",
  "dialog.shortcuts.title": "Keyboard shortcuts",
  "dialog.signed.body": "{name} is digitally signed. Append changes keeps the signed version inside the file, so the signatures stay valid if you only filled in the form. Rewrite the file replaces it and invalidates the signatures.",
  "dialog.signed.incremental": "Append changes (keeps the signed version)",

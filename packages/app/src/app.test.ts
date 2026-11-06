@@ -8,7 +8,7 @@ import { createTestApp, markers, settle } from './testing.ts';
 import { fitZoom, layoutPages, navigate, parsePageJump, renderWindow, sameSet, scrollTopFor, stepZoom, themeFilter, themeInvertsImages, visibleRange, wheelZoom } from './viewer.ts';
 import { PasswordRequiredError, UnsupportedFeatureError } from '@folio/core';
 
-const key = (k: string, mods: Partial<{ ctrl: boolean; shift: boolean; alt: boolean; meta: boolean }> = {}) => ({ key: k, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt });
+const key = (k: string, mods: Partial<{ ctrl: boolean; shift: boolean; alt: boolean; meta: boolean }> = {}) => ({ key: k, ...(mods.alt && /^[a-z]$/i.test(k) ? { code: `Key${k.toUpperCase()}` } : {}), ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt });
 
 describe('opening files', () => {
   it('opens from the dialog, a drop, a CLI argument or "Open with"; reopening activates the tab @FR-APP-01', async () => {
@@ -635,6 +635,31 @@ describe('command palette and shortcuts', () => {
     expect([formatChord('Mod+Shift+S', false), formatChord('Mod+Shift+S', true), formatChord('Del', false), formatChord('Mod+K', true)]).toEqual(['Ctrl+Shift+S', '⌘⇧S', 'Del', '⌘K']);
   });
 
+  it('the nine tool shortcuts are Alt+letter (Option on macOS), read from the physical key; bare letters do nothing @FR-APP-18', async () => {
+    const t = await createTestApp();
+    const s = await t.open('text', '/a.pdf');
+    const ids = { v: 'tool.select', e: 'tool.edit-text', h: 'tool.highlight', n: 'tool.note', t: 'tool.textbox', s: 'tool.rect', g: 'sign.sign', r: 'pages.rotateCw' } as const;
+    s.setMode('organise');
+    t.organise(s).click(0);
+    for (const [letter, id] of Object.entries(ids)) {
+      const bare = t.registry.match({ key: letter, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }, t.ctx(), { isMac: false, typing: false });
+      expect(bare?.id, `bare ${letter}`).not.toBe(id);
+      const alt = t.registry.match({ key: letter, code: `Key${letter.toUpperCase()}`, ctrlKey: false, metaKey: false, shiftKey: false, altKey: true }, t.ctx(), { isMac: false, typing: false });
+      expect(alt?.id, `Alt+${letter}`).toBe(id);
+    }
+    // macOS: Option+V produces "√", Option+Shift+R produces "‰"; the physical key still names the tool.
+    const mac = (k: string, code: string, shift = false) => t.registry.match({ key: k, code, ctrlKey: false, metaKey: false, shiftKey: shift, altKey: true }, t.ctx(), { isMac: true, typing: false })?.id;
+    expect(mac('√', 'KeyV')).toBe('tool.select');
+    expect(mac('‰', 'KeyR', true)).toBe('pages.rotateCcw');
+    // Ctrl+Alt is not a tool shortcut, and Mod+Shift+R still rotates the view.
+    expect(t.registry.match({ key: 'v', code: 'KeyV', ctrlKey: true, metaKey: false, shiftKey: false, altKey: true }, t.ctx(), { isMac: false, typing: false })).toBeUndefined();
+    expect(t.registry.match({ key: 'r', code: 'KeyR', ctrlKey: true, metaKey: false, shiftKey: true, altKey: false }, t.ctx(), { isMac: false, typing: false })?.id).toBe('view.rotate');
+    expect([formatChord('Alt+V', false), formatChord('Alt+Shift+R', false), formatChord('Alt+V', true), formatChord('Alt+Shift+R', true)]).toEqual(['Alt+V', 'Alt+Shift+R', '⌥V', '⌥⇧R']);
+    expect(t.registry.conflicts(['Mod+Q', 'Mod+N', 'Mod+T', 'Mod+R', 'Mod+L', 'Mod+Tab', 'Alt+F4', 'F11', 'F12'])).toEqual([]);
+    const bareShortcuts = t.registry.all().filter((c) => c.shortcut && /^(Shift\+)?[A-Z]$/.test(c.shortcut));
+    expect(bareShortcuts.map((c) => c.id)).toEqual([]);
+  });
+
   it('searches every action, tool and setting; unavailable ones are hidden @FR-APP-09', async () => {
     const t = await createTestApp();
     const tr = (k: string) => ({ 'cmd.merge': 'Merge PDFs', 'cmd.settings': 'Settings', 'tool.highlight': 'Highlight', 'cmd.save': 'Save', 'cmd.rotateCw': 'Rotate pages clockwise', 'cmd.sign': 'Sign', 'cmd.palette': 'Command palette' })[k] ?? k;
@@ -686,23 +711,23 @@ describe('command palette and shortcuts', () => {
       if (cmd) await cmd.run(t.ctx());
       return cmd?.id;
     };
-    expect(await press('h')).toBe('tool.highlight');
+    expect(await press('h', { alt: true })).toBe('tool.highlight');
     expect([s.mode, t.tools(s).tool]).toEqual(['annotate', 'highlight']);
-    expect(await press('e')).toBe('tool.edit-text');
+    expect(await press('e', { alt: true })).toBe('tool.edit-text');
     expect(s.mode).toBe('edit');
-    expect(await press('n')).toBe('tool.note');
-    expect(await press('t')).toBe('tool.textbox');
-    expect(await press('s')).toBe('tool.rect');
-    expect(await press('v')).toBe('tool.select');
-    expect(await press('h', {}, true)).toBeUndefined();
+    expect(await press('n', { alt: true })).toBe('tool.note');
+    expect(await press('t', { alt: true })).toBe('tool.textbox');
+    expect(await press('s', { alt: true })).toBe('tool.rect');
+    expect(await press('v', { alt: true })).toBe('tool.select');
+    expect(await press('h', { alt: true }, true)).toBeUndefined();
     expect(await press('k', { ctrl: true }, true)).toBe('view.palette');
     expect(await press('o', { ctrl: true, shift: true })).toBe('mode.organise');
     expect(s.mode).toBe('organise');
-    expect(await press('r')).toBeUndefined();
+    expect(await press('r', { alt: true })).toBeUndefined();
     t.organise(s).click(1);
-    expect(await press('r')).toBe('pages.rotateCw');
+    expect(await press('r', { alt: true })).toBe('pages.rotateCw');
     await settle();
-    expect(await press('R', { shift: true })).toBe('pages.rotateCcw');
+    expect(await press('R', { alt: true, shift: true })).toBe('pages.rotateCcw');
     await settle();
     expect(await press('d', { ctrl: true })).toBe('pages.duplicate');
     await settle();

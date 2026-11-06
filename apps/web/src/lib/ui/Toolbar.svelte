@@ -52,7 +52,7 @@
     { icon: 'contrast', label: t('cmd.pageContrast'), checked: session.view.theme === 'high-contrast', run: () => session.setTheme('high-contrast') },
   ];
   const shapeMenu = (): MenuItem[] => [
-    { icon: 'square', label: t('ui.rectangle'), shortcut: 'S', run: () => pick('rect') },
+    { icon: 'square', label: t('ui.rectangle'), shortcut: k('Alt+S'), run: () => pick('rect') },
     { icon: 'circle', label: t('ui.ellipse'), run: () => pick('ellipse') },
     { icon: 'minus', label: t('ui.line'), run: () => pick('line') },
     { icon: 'move-up-right', label: t('ui.arrow'), run: () => pick('arrow') },
@@ -165,7 +165,7 @@
 
 <div id="toolbar" class:crowded={mode === 'fill'} role="toolbar" aria-label={t(`mode.${mode}`)}>
   {#if mode === 'view'}
-    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
+    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), k('Alt+V'))}
     {@render toolBtn('snapshot', 'camera', t('tool.snapshot'))}
     {@render toolBtn('table', 'table', t('tool.table'))}
     <span class="vsep"></span>
@@ -195,14 +195,14 @@
     <span class="chip acc">{t('ui.selected', { count: selCount })}</span>
     <button class="btn sm" onclick={() => m.organise.selectAll()}>{t('ui.selectAll')}</button>
   {:else if mode === 'annotate'}
-    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
+    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), k('Alt+V'))}
     <span class="vsep"></span>
-    {@render toolBtn('highlight', 'highlighter', t('tool.highlight'), 'H', t('tool.sticky'))}
+    {@render toolBtn('highlight', 'highlighter', t('tool.highlight'), k('Alt+H'), t('tool.sticky'))}
     {@render toolBtn('underline', 'underline', t('tool.underline'))}
     {@render toolBtn('strikeout', 'strikethrough', t('tool.strikeout'))}
     {@render toolBtn('squiggly', 'spline', t('tool.squiggly'))}
-    {@render toolBtn('note', 'message-square', t('tool.note'), 'N')}
-    {@render toolBtn('textbox', 'type', t('tool.textbox'), 'T')}
+    {@render toolBtn('note', 'message-square', t('tool.note'), k('Alt+N'))}
+    {@render toolBtn('textbox', 'type', t('tool.textbox'), k('Alt+T'))}
     {@render menuBtn('square', t('tool.shapes'), shapeMenu, 'S', ['rect', 'ellipse', 'line', 'arrow', 'polyline'].includes(tool))}
     <span class="vsep"></span>
     <button class="tool" onclick={() => (session.setSidebarTab('annotations'), !ui.sidebarOpen && ui.toggleSidebar())} use:tip={t('tool.comments')}><Icon name="messages-square" /><span class="lbl">{t('tool.comments')}</span></button>
@@ -238,7 +238,7 @@
     {@render toolBtn('cross', 'x', t('tool.cross'))}
     <button class="tool" class:on={m.form.highlight} aria-pressed={m.form.highlight} onclick={() => m.form.toggleHighlight()} use:tip={t('tool.highlightFields')}><Icon name="scan-line" /><span class="lbl">{t('tool.highlightFields')}</span></button>
     <span class="vsep"></span>
-    {@render menuBtn('signature', t('cmd.sign'), signMenu, 'G')}
+    {@render menuBtn('signature', t('cmd.sign'), signMenu, k('Alt+G'))}
     {@render cmdBtn('sign.date', 'calendar', t('tool.date'))}
     {@render menuBtn('stamp', t('tool.stamp'), stampMenu)}
     <button class="tool" onclick={addImage} use:tip={t('tool.image')}><Icon name="image" /><span class="lbl">{t('tool.image')}</span></button>
@@ -247,8 +247,8 @@
     <span class="grow"></span>
     <button class="tool accent" onclick={() => (!ui.inspectorOpen && ui.toggleInspector(), void m.smart.start('toolbar'))} data-smartfill-origin="toolbar" use:tip={t('banner.autoFill')}><Icon name="sparkles" /><span class="lbl">{t('tool.smartFill')}</span></button>
   {:else}
-    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
-    {@render toolBtn('edit-text', 'text-cursor', t('tool.editText'), 'E')}
+    {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), k('Alt+V'))}
+    {@render toolBtn('edit-text', 'text-cursor', t('tool.editText'), k('Alt+E'))}
     {@render toolBtn('add-text', 'type', t('tool.addText'))}
     {@render toolBtn('whiteout', 'eraser', t('tool.whiteout'), undefined, t('tool.whiteoutHint'))}
     <span class="vsep"></span>
