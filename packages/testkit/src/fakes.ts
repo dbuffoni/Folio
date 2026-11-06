@@ -10,6 +10,7 @@ import type {
   Clipboard,
   FileKind,
   FileRef,
+  WriteResult,
   FileService,
   HttpClient,
   HttpRequest,
@@ -22,6 +23,13 @@ import type {
 } from '@folio/ports';
 
 /** Virtual file system. Paths are plain strings ("/docs/a.pdf"); folders are implicit. */
+/** Stand-in for the shell's short hash of a full path (the real one is tested in Rust). */
+function pathHash(path: string): string {
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(path)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
 export class FakeFileService implements FileService {
   readonly capabilities = { nativePaths: true, watch: false, writeInPlace: true, reveal: true };
   readonly files = new Map<string, Uint8Array>();
@@ -30,7 +38,11 @@ export class FakeFileService implements FileService {
   nextSave: (string | null)[] = [];
   nextFolder: (string | null)[] = [];
   readonly revealed: string[] = [];
-  readonly writes: Array<{ path: string; atomic: boolean; backup: boolean }> = [];
+  readonly writes: Array<{ path: string; atomic: boolean; backup: boolean; backupFolder?: string }> = [];
+  /** Simulates a backup folder that is missing or not writable: the write succeeds, the backup does not. */
+  failBackups = false;
+  /** Folder last given to `setBackupFolder` (the persistent grant); null when cleared. */
+  backupFolderGrant: string | null = null;
   failWrites = false;
   private external = new Set<(refs: FileRef[]) => void>();
 
@@ -65,13 +77,24 @@ export class FakeFileService implements FileService {
     if (!data) throw new IoError(`No such file: ${ref.path ?? ref.id}`);
     return data.slice();
   }
-  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean } = {}): Promise<void> {
+  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean; backupFolder?: string } = {}): Promise<WriteResult> {
     if (this.failWrites) throw new IoError('Disk full (simulated)');
     const path = ref.path ?? ref.id;
     const previous = this.files.get(path);
-    if (opts.backup && previous) this.files.set(`${path}.bak`, previous);
+    let backupFailed = false;
+    if (opts.backup && previous) {
+      if (this.failBackups) backupFailed = true;
+      else if (opts.backupFolder) {
+        // One .bak per document in a shared folder: the name carries a hash of the full path.
+        this.files.set(`${opts.backupFolder}/${path.split('/').pop()}.${pathHash(path)}.bak`, previous);
+      } else this.files.set(`${path}.bak`, previous);
+    }
     this.files.set(path, data.slice());
-    this.writes.push({ path, atomic: !!opts.atomic, backup: !!opts.backup });
+    this.writes.push({ path, atomic: !!opts.atomic, backup: !!opts.backup, ...(opts.backupFolder ? { backupFolder: opts.backupFolder } : {}) });
+    return { backupFailed };
+  }
+  async setBackupFolder(folder: FileRef | null): Promise<void> {
+    this.backupFolderGrant = folder ? (folder.path ?? folder.id) : null;
   }
   async writeInFolder(folder: FileRef, name: string, data: Uint8Array): Promise<FileRef> {
     const ref = this.ref(`${folder.path ?? folder.id}/${name}`);

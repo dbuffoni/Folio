@@ -44,7 +44,7 @@ pub fn storage_write(request: Request<'_>, storage: State<'_, Storage>) -> Resul
         fs::create_dir_all(dir)?;
     }
     match request.body() {
-        InvokeBody::Raw(bytes) => write_atomic(&path, bytes, false),
+        InvokeBody::Raw(bytes) => write_atomic(&path, bytes, crate::files::Backup::Off).map(|_| ()),
         InvokeBody::Json(_) => Err(Error::Invalid("expected a binary body".into())),
     }
 }

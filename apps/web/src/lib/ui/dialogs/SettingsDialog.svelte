@@ -230,6 +230,14 @@
         <div class="field"><span class="hint">{t('settings.sizePctHint')}</span></div>
         <div class="field"><label for="au">{t('settings.author')}</label><input id="au" type="text" value={s.authorName} onchange={(e) => set('authorName', e.currentTarget.value)} /><span class="hint">{t('settings.authorHint', { name: services.platform.app.userName ?? '—' })}</span></div>
         <div class="togrow"><div>{t('settings.keepBackup')}<small>{t('settings.keepBackupHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.keepBackup')} checked={s.keepBackup} onchange={(e) => set('keepBackup', e.currentTarget.checked)} /></div>
+        {#if desktop}
+          <div class="togrow" data-testid="backup-folder"><div>{t('settings.backupFolder')}<small>{s.backupFolder || t('settings.backupFolderNext')}</small><small>{t('settings.backupFolderHint')}</small></div>
+            <div class="row" style="gap:6px">
+              <button class="btn sm" disabled={!s.keepBackup} onclick={() => app.chooseBackupFolder()}>{t('settings.backupFolderChoose')}</button>
+              {#if s.backupFolder}<button class="btn sm" disabled={!s.keepBackup} onclick={() => app.clearBackupFolder()}>{t('settings.backupFolderReset')}</button>{/if}
+            </div>
+          </div>
+        {/if}
         <div class="togrow"><div>{t('settings.flattenStamps')}<small>{t('settings.flattenStampsHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.flattenStamps')} checked={s.flattenStampsOnSave} onchange={(e) => set('flattenStampsOnSave', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('sign.encrypt')}<small>{t('sign.encryptHint')}</small></div><input type="checkbox" class="tog" aria-label={t('sign.encrypt')} checked={s.encryptSignatures} onchange={(e) => set('encryptSignatures', e.currentTarget.checked)} /></div>
         <div class="togrow"><div>{t('settings.recents')}<small>{t('settings.recentsCount', { count: recentCount })}</small></div><button class="btn sm danger" onclick={clearRecents}>{t('settings.clearList')}</button></div>

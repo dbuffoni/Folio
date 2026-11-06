@@ -184,7 +184,7 @@ Release 1 shipped as version 0.1.0. This table stays as the record of what it co
 | FR-APP-01 | Open PDFs via dialog, drag and drop (window, tab bar, home), command line argument, OS file association, and "Open with". | P0 |
 | FR-APP-02 | Multi-document **tabs**; tabs can be reordered and closed with middle-click; unsaved indicator (dot). | P0 |
 | FR-APP-03 | **Home screen** with task tiles (Merge, Split, Organise pages, Sign, Fill a form, Images to PDF), recent files grid with thumbnails, drop zone. | P0 |
-| FR-APP-04 | **Save** (Ctrl+S), **Save As**, **Export a copy**. Default behaviour on first save of an opened file: write atomically (temp file + rename); optional "keep .bak of original" (setting, default on). | P0 |
+| FR-APP-04 | **Save** (Ctrl+S), **Save As**, **Export a copy**. Default behaviour on first save of an opened file: write atomically (temp file + rename); optional backup (setting, **default off** since 0.1.5): the previous version is kept as a single `.bak` per document, overwritten on every save, next to the file or — desktop only — in one folder chosen in Settings ▸ General (names then carry a short hash of the full path: `name.pdf.<hash>.bak`). Only that folder is granted, persistently. A missing or unwritable backup folder never fails the save: the file is written and a non-blocking notice says the backup was not made. | P0 |
 | FR-APP-05 | Unlimited **undo/redo** per document, with a visible history list (Edit → History). | P0 |
 | FR-APP-06 | **Auto-recovery**: every 30 s while dirty, write a recovery snapshot to the app data folder; on next start offer "Restore unsaved changes". | P0 |
 | FR-APP-07 | Close guard: prompt Save / Don't save / Cancel for dirty documents (window close and tab close). | P0 |
@@ -943,7 +943,7 @@ Rust is used **only** where a web runtime cannot do the job. Everything is expos
 |---|---|---|
 | App shell & window | Tauri 2 core, `tauri-plugin-window-state` | Native window, size/position memory |
 | File dialogs | `tauri-plugin-dialog` | Native pickers, portal-aware on Linux |
-| File I/O | custom commands `read_file`, `write_file_atomic` (temp + fsync + rename, optional `.bak`), `write_in_folder`, `reveal_in_folder` | Atomic writes, large files without base64 overhead (use binary IPC responses/`Channel`) |
+| File I/O | custom commands `read_file`, `write_file_atomic` (temp + fsync + rename, optional `.bak` beside the file or in the one persistently granted backup folder), `write_in_folder`, `reveal_in_folder` | Atomic writes, large files without base64 overhead (use binary IPC responses/`Channel`) |
 | Dynamic filesystem scope | Allow only paths granted by dialog / drop / CLI arg / recents, added at runtime to the fs scope | Least privilege (no blanket `$HOME` access) |
 | Open-with / file association | `tauri.conf.json > bundle > fileAssociations`; handle `argv`, macOS `RunEvent::Opened`, `tauri-plugin-single-instance` to forward to the running instance | OS integration |
 | SQLite | `tauri-plugin-sql` (sqlite) running the shared migrations; DB in app data dir | Persistent local DB |

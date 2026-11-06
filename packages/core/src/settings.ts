@@ -17,7 +17,10 @@ export const settingsSchema = z.object({
   defaultLayout: z.enum(['continuous', 'single', 'two-page']).default('continuous'),
   pageTheme: z.enum(['normal', 'dark', 'sepia', 'high-contrast']).default('normal'),
   units: z.enum(['mm', 'in', 'pt']).default('mm'),
-  keepBackup: z.boolean().default(true),
+  /** Keep the previous version of a file as a `.bak` when saving. Off by default. */
+  keepBackup: z.boolean().default(false),
+  /** Desktop only: folder for the `.bak` copies; empty keeps each one next to its file. */
+  backupFolder: z.string().default(''),
   recoveryIntervalSec: z.number().int().min(5).max(600).default(30),
   authorName: z.string().default(''),
   dateFormat: z.enum(DATE_FORMATS).default('iso'),

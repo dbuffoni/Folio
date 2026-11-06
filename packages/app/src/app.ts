@@ -401,7 +401,7 @@ export class AppModel {
       if (choice === 'cancel') return false;
       incremental = choice === 'incremental';
     }
-    return this.write(session, session.ref, { incremental, backup: this.settings.keepBackup });
+    return this.write(session, session.ref, { incremental, backup: this.settings.keepBackup, backupFolder: this.backupFolder() });
   }
   /**
    * FR-SEC-07: reopens a restricted file with its owner password, which lifts the restrictions for the session.
@@ -499,10 +499,15 @@ export class AppModel {
     if (ok) this.toast('success', msg('toast.exported', { name: ref.name }));
     return !!ok;
   }
+  /** The folder shared `.bak` copies go to, on platforms that know paths; undefined keeps them beside the file. */
+  private backupFolder(): string | undefined {
+    const folder = this.settings.backupFolder;
+    return folder && this.services.platform.files.capabilities.nativePaths ? folder : undefined;
+  }
   private async write(
     session: DocumentSession,
     ref: FileRef,
-    opts: { incremental: boolean; backup: boolean },
+    opts: { incremental: boolean; backup: boolean; backupFolder?: string },
   ): Promise<boolean> {
     const res = await this.guard(async () => {
       if (this.settings.flattenStampsOnSave) await session.doc.flattenAnnotations(undefined, ['stamp']);
@@ -519,6 +524,8 @@ export class AppModel {
     });
     session.recentId = recent.id;
     this.toast('success', msg('toast.saved', { name: ref.name }));
+    // The file is saved; only the extra copy failed, so this is a notice, not an error.
+    if (res.backupFailed) this.toast('warning', msg('toast.backupFailed'));
     this.syncWindow();
     return true;
   }
@@ -659,7 +666,26 @@ export class AppModel {
       await this.services.signaturesRepo.setEncryption(this.settings.encryptSignatures);
     this.emit();
   }
+  /**
+   * Desktop: asks for the folder the `.bak` copies go to. The shell remembers the grant for that one folder
+   * across restarts. Returns false when the dialog was dismissed.
+   */
+  async chooseBackupFolder(): Promise<boolean> {
+    const files = this.services.platform.files;
+    if (!files.capabilities.nativePaths || !files.setBackupFolder) return false;
+    const folder = await files.pickFolder();
+    if (!folder?.path) return false;
+    await files.setBackupFolder(folder);
+    await this.setSetting('backupFolder', folder.path);
+    return true;
+  }
+  /** Back to keeping each `.bak` next to its file. */
+  async clearBackupFolder(): Promise<void> {
+    await this.services.platform.files.setBackupFolder?.(null);
+    await this.setSetting('backupFolder', '');
+  }
   async resetSettings(): Promise<void> {
+    await this.services.platform.files.setBackupFolder?.(null);
     this.services.settings = await this.services.settingsRepo.reset();
     this.scheduler.start(this.settings.recoveryIntervalSec);
     this.emit();

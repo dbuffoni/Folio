@@ -136,12 +136,64 @@ describe('tabs and close guard', () => {
   });
 });
 
+describe('backup folder', () => {
+  it('keeps one .bak per file in the chosen folder, named with a hash of the full path @FR-APP-04', async () => {
+    const t = await createTestApp();
+    t.files.nextFolder = ['/backups'];
+    expect(await t.app.chooseBackupFolder()).toBe(true);
+    expect(t.files.backupFolderGrant).toBe('/backups');
+    expect(t.app.settings.backupFolder).toBe('/backups');
+    await t.app.setSetting('keepBackup', true);
+    const a = await t.open('text', '/one/doc.pdf');
+    const b = await t.open('text', '/two/doc.pdf');
+    for (const s of [a, b]) {
+      await t.organise(s).rotate(90, 0);
+      await t.app.save(s);
+      await t.organise(s).rotate(90, 0);
+      await t.app.save(s);
+    }
+    expect(t.files.writes.at(-1)).toMatchObject({ backup: true, backupFolder: '/backups' });
+    const baks = t.files.list("/").filter((k) => k.endsWith('.bak'));
+    expect(baks).toHaveLength(2);
+    expect(baks.every((k) => k.startsWith('/backups/doc.pdf.'))).toBe(true);
+    expect(t.files.get('/one/doc.pdf.bak')).toBeUndefined();
+  });
+
+  it('a backup that cannot be written warns but never fails the save @FR-APP-04', async () => {
+    const t = await createTestApp();
+    await t.app.setSetting('keepBackup', true);
+    await t.app.setSetting('backupFolder', '/gone');
+    t.files.failBackups = true;
+    const s = await t.open('text', '/docs/a.pdf');
+    await t.organise(s).rotate(90, 0);
+    expect(await t.app.save()).toBe(true);
+    expect(s.dirty).toBe(false);
+    expect(t.toastKeys()).toEqual(expect.arrayContaining(['toast.saved', 'toast.backupFailed']));
+  });
+
+  it('clearing the folder returns to backups next to the file and drops the grant @FR-APP-04', async () => {
+    const t = await createTestApp();
+    t.files.nextFolder = ['/backups'];
+    await t.app.chooseBackupFolder();
+    await t.app.clearBackupFolder();
+    expect(t.app.settings.backupFolder).toBe('');
+    expect(t.files.backupFolderGrant).toBeNull();
+    t.files.nextFolder = [];
+    expect(await t.app.chooseBackupFolder()).toBe(false);
+  });
+});
+
 describe('saving', () => {
   it('Save writes atomically with a backup; Save As and Export a copy behave differently @FR-APP-04', async () => {
     const t = await createTestApp();
     const s = await t.open('text', '/docs/a.pdf');
     await t.organise(s).rotate(90, 0);
     expect(await t.app.save()).toBe(true);
+    expect(t.files.writes.at(-1)).toEqual({ path: '/docs/a.pdf', atomic: true, backup: false });
+    expect(t.files.get('/docs/a.pdf.bak')).toBeUndefined();
+    await t.app.setSetting('keepBackup', true);
+    await t.organise(s).rotate(90, 0);
+    await t.app.save();
     expect(t.files.writes.at(-1)).toEqual({ path: '/docs/a.pdf', atomic: true, backup: true });
     expect(t.files.get('/docs/a.pdf.bak')).toBeDefined();
     expect(s.dirty).toBe(false);

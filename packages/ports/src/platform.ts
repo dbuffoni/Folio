@@ -8,13 +8,24 @@ export interface FileRef {
   path?: string;
 }
 
+export interface WriteResult {
+  /** True when a backup was asked for but could not be written (folder missing, not writable, not granted). */
+  backupFailed?: boolean;
+}
+
 export interface FileService {
   readonly capabilities: { nativePaths: boolean; watch: boolean; writeInPlace: boolean; reveal: boolean };
   pickOpen(opts: { multiple?: boolean; accept: FileKind[] }): Promise<FileRef[]>;
   pickSave(opts: { suggestedName: string; kind: FileKind }): Promise<FileRef | null>;
   pickFolder(): Promise<FileRef | null>;
   read(ref: FileRef): Promise<Uint8Array>;
-  write(ref: FileRef, data: Uint8Array, opts?: { atomic?: boolean; backup?: boolean }): Promise<void>;
+  /**
+   * With `backup`, the previous content is kept as one `.bak` that each save overwrites: next to the file, or
+   * in `backupFolder` (desktop). A backup that cannot be made never fails the write; it is reported instead.
+   */
+  write(ref: FileRef, data: Uint8Array, opts?: { atomic?: boolean; backup?: boolean; backupFolder?: string }): Promise<WriteResult | void>;
+  /** Desktop only: makes the folder the user just picked the persistent backup folder; `null` clears it. */
+  setBackupFolder?(folder: FileRef | null): Promise<void>;
   writeInFolder(folder: FileRef, name: string, data: Uint8Array): Promise<FileRef>;
   exists(folder: FileRef, name: string): Promise<boolean>;
   /** Folder containing the file, when the platform can know it. */
