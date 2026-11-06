@@ -214,6 +214,7 @@ export async function createTauriPlatform(): Promise<Platform> {
     http: new TauriHttpClient(),
     downloader: new TauriDownloader(new WebCryptoService()),
     network: new TauriBinaryTransport(),
+    updates: { latestRelease: () => call<string>('latest_release') },
     shell: new TauriShell(),
     clipboard: new BrowserClipboard(),
     window: new TauriWindow(),

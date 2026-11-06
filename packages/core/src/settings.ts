@@ -58,6 +58,16 @@ export const settingsSchema = z.object({
       embedValidation: z.boolean().default(false),
     })
     .default({}),
+  /** Update notice (FR-APP-16). Off by default: with it off Folio makes no network call of its own. */
+  updates: z
+    .object({
+      check: z.boolean().default(false),
+      /** ISO time of the last automatic or manual check; at most one automatic check a day. */
+      lastCheckAt: z.string().default(''),
+      /** A version the user chose not to hear about again. */
+      skippedVersion: z.string().default(''),
+    })
+    .default({}),
   onboardingDone: z.boolean().default(false),
   signatureNoteShown: z.boolean().default(false),
   ai: z

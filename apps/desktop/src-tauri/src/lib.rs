@@ -319,6 +319,7 @@ pub fn run() {
             files::read_file,
             files::write_file_atomic,
             files::set_backup_folder,
+            http::latest_release,
             files::write_in_folder,
             files::file_exists,
             files::path_exists,

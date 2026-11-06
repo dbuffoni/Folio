@@ -109,6 +109,8 @@ export interface TestAppOptions {
   userName?: string;
   /** Timestamp and revocation transport; absent = a shell without network access for signatures. */
   network?: import('@folio/ports').BinaryTransport;
+  /** The update feed (desktop only); absent = web build. */
+  updates?: import('@folio/ports').UpdateFeed;
 }
 
 export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp> {
@@ -132,6 +134,7 @@ export async function createTestApp(opts: TestAppOptions = {}): Promise<TestApp>
     images: new NodeImageCodec(),
     downloader: opts.downloader,
     network: opts.network,
+    updates: opts.updates,
   };
   let seq = 0;
   const services = new Services({ platform, engine, ai: opts.ai, ocr: opts.ocr, loadOcrLanguage: opts.loadOcrLanguage, newId: () => `id-${++seq}`, loadFont: (name) => readFile(new URL(`../../../assets/fonts/handwriting/${name}.ttf`, import.meta.url)) });

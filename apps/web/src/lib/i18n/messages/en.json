@@ -863,6 +863,7 @@
  "settings.privacy.body2": "There are no accounts, no telemetry and no crash reports.",
  "settings.privacy.body3": "The only feature that can use the network is Smart Fill with an AI service, and only after you switch it on, add your own key and start it yourself. By default it sends field names, never your values.",
  "settings.privacy.body4": "Whiteout only covers content; it does not remove it from the file. Folio has no tool that claims to redact securely in this release.",
+ "settings.privacy.updates": "One more network call exists, and it is off until you switch it on: the update check. It asks GitHub for the latest release of Folio (one request, no document and no identifier sent) and only tells you when a newer version exists. Folio does not download or install updates.",
  "settings.profile.addEntry": "Add entry",
  "settings.profile.empty": "No profiles yet. Create one to auto-fill forms with your own data.",
  "settings.profile.entries": "{count, plural, one {# entry} other {# entries}}",
@@ -908,6 +909,11 @@
  "settings.units.in": "Inches",
  "settings.units.mm": "Millimetres",
  "settings.units.pt": "Points",
+ "settings.updates.check": "Check for updates",
+ "settings.updates.checkHint": "At most once a day. Off by default.",
+ "settings.updates.now": "Check now",
+ "settings.updates.nowButton": "Check now",
+ "settings.updates.nowHint": "Asks GitHub for the latest release once, whatever the switch above says.",
  "sign.chooseFile": "Choose a file…",
  "sign.createInitials": "Create initials…",
  "sign.createNew": "Create new signature…",
@@ -1361,5 +1367,11 @@
  "ui.unsaved": "Unsaved changes",
  "ui.wholeWord": "Whole words",
  "ui.width": "Width",
- "ui.zoom": "Zoom"
+ "ui.zoom": "Zoom",
+ "updates.banner": "Folio {version} is available",
+ "updates.bannerHint": "You are told once; Folio never downloads or installs anything by itself.",
+ "updates.failed": "Could not check for updates. Try again later.",
+ "updates.skip": "Skip this version",
+ "updates.upToDate": "You have the latest version ({version}).",
+ "updates.view": "View release"
 }

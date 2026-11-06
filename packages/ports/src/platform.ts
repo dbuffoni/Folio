@@ -152,6 +152,11 @@ export interface ImageCodec {
   supports(format: ImageFormat): boolean;
 }
 
+/** Fetches the body of the latest-release answer of the project's GitHub repository; it can reach nothing else. */
+export interface UpdateFeed {
+  latestRelease(): Promise<string>;
+}
+
 export interface Platform {
   /** Verified downloads of OCR language data (FR-OCR-02); absent in builds that cannot download. */
   downloader?: import('./ocr.ts').Downloader;
@@ -160,6 +165,8 @@ export interface Platform {
   db: Database;
   secrets: SecretStore;
   http: HttpClient;
+  /** Desktop only: the single GET behind the update notice (FR-APP-16). Absent in the web build. */
+  updates?: UpdateFeed;
   /** Timestamp and revocation traffic of digital signatures; absent when the shell has no network access for it. */
   network?: BinaryTransport;
   shell: Shell;

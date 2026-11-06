@@ -5,6 +5,7 @@ import {
   msg,
   splitExt,
   type Msg,
+  type ReleaseInfo,
   type Settings,
   type SettingsKey,
 } from '@folio/core';
@@ -14,6 +15,7 @@ import { RecoveryScheduler, defaultOcrLanguages, isImageName, type Ticker } from
 import type { Prompts, Toast, ToastKind } from './prompts.ts';
 import type { Services } from './services.ts';
 import { DocumentSession, type SignatureImpact } from './session.ts';
+import { checkIsDue, checkUpdates } from './updates.ts';
 
 export type Tile = 'merge' | 'split' | 'organise' | 'fill' | 'sign' | 'images';
 /** Task tiles of the home screen, in order (FR-APP-03). */
@@ -109,7 +111,65 @@ export class AppModel {
     this.offClose = window.onCloseRequested(() => this.confirmQuit());
     this.scheduler.start(this.settings.recoveryIntervalSec);
     this.emit();
+    // Never delays start-up and never reports a failure: it is a courtesy, not a feature the user is waiting for.
+    this.autoUpdateCheck = this.runAutoUpdateCheck();
   }
+
+  // ---- update notice (FR-APP-16) -------------------------------------------------------------
+
+  /** A newer release the banner announces; null when none is known, it was dismissed, or the user skipped it. */
+  update: ReleaseInfo | null = null;
+  /** The automatic check started by `start()`; tests await it. */
+  autoUpdateCheck: Promise<void> = Promise.resolve();
+  /** The update notice exists only where the shell can make the request (desktop). */
+  get canCheckUpdates(): boolean {
+    return !!this.services.platform.updates;
+  }
+  private async runAutoUpdateCheck(): Promise<void> {
+    const { updates, clock } = this.services.platform;
+    const s = this.settings.updates;
+    if (!updates || !s.check || !checkIsDue(s.lastCheckAt, clock.now())) return;
+    await this.checkForUpdates(false);
+  }
+  /**
+   * Looks for a newer release. Automatic runs stay silent on failure; a manual one ("Check now") says what
+   * happened. Returns the release found, or null.
+   */
+  async checkForUpdates(manual: boolean): Promise<ReleaseInfo | null> {
+    const { updates, clock, app } = this.services.platform;
+    if (!updates) return null;
+    // Recorded before the request so a failing feed is still asked at most once a day.
+    await this.setSetting('updates', { ...this.settings.updates, lastCheckAt: clock.now().toISOString() });
+    let found: ReleaseInfo | null = null;
+    try {
+      found = await checkUpdates(updates, app.version);
+    } catch (e) {
+      this.services.platform.log.warn('update check failed', describeError(e).detail);
+      if (manual) this.toast('warning', msg('updates.failed'));
+      return null;
+    }
+    const skipped = !manual && found?.version === this.settings.updates.skippedVersion;
+    this.update = found && !skipped ? found : null;
+    if (manual && !found) this.toast('success', msg('updates.upToDate', { version: app.version }));
+    this.emit();
+    return found;
+  }
+  /** Closes the banner for this run; it comes back at the next check. */
+  dismissUpdate(): void {
+    this.update = null;
+    this.emit();
+  }
+  /** "Skip this version": no banner for it again; a later release is announced as usual. */
+  async skipUpdate(): Promise<void> {
+    const version = this.update?.version;
+    this.update = null;
+    if (version) await this.setSetting('updates', { ...this.settings.updates, skippedVersion: version });
+    else this.emit();
+  }
+  async openUpdate(): Promise<void> {
+    if (this.update) await this.services.platform.shell.openExternal(this.update.url);
+  }
+
   async stop(): Promise<void> {
     this.scheduler.stop();
     this.offExternal?.();

@@ -298,3 +298,20 @@ export class FakeOcrEngine implements OcrEngine {
   }
   async dispose(): Promise<void> {}
 }
+
+/** The update feed with a canned answer; counts the requests so tests can prove none was made. */
+export class FakeUpdateFeed {
+  calls = 0;
+  fail = false;
+  constructor(public body = '') {}
+  /** Sets the answer to a release with this tag. */
+  release(tag: string, extra: Record<string, unknown> = {}): this {
+    this.body = JSON.stringify({ tag_name: tag, html_url: `https://github.com/dbuffoni/Folio/releases/tag/${tag}`, draft: false, prerelease: false, ...extra });
+    return this;
+  }
+  async latestRelease(): Promise<string> {
+    this.calls++;
+    if (this.fail) throw new IoError('offline (simulated)');
+    return this.body;
+  }
+}

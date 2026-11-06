@@ -33,6 +33,7 @@
   import StatusBar from '#lib/ui/StatusBar.svelte';
   import TitleBar from '#lib/ui/TitleBar.svelte';
   import Toasts from '#lib/ui/Toasts.svelte';
+  import UpdateBanner from '#lib/ui/UpdateBanner.svelte';
   import Toolbar from '#lib/ui/Toolbar.svelte';
 
   import { untrack } from 'svelte';
@@ -148,6 +149,7 @@
         <div id="main">
           {#if ui.sidebarOpen && session.mode !== 'organise'}<Sidebar {session} />{/if}
           <div id="canvaswrap">
+            <UpdateBanner />
             {#if banner && banner.kind !== 'none' && bannerOff !== session.id}
               <div id="banner" role="status">
                 <Icon name="text-cursor-input" />

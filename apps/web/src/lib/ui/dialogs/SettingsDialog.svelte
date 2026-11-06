@@ -23,6 +23,17 @@
   const set = app.setSetting.bind(app);
   const ACCENTS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777'];
 
+  // ---- Updates ---------------------------------------------------------------------------------
+  let checking = $state(false);
+  async function checkNow(): Promise<void> {
+    checking = true;
+    try {
+      await app.checkForUpdates(true);
+    } finally {
+      checking = false;
+    }
+  }
+
   // ---- Smart Fill -----------------------------------------------------------------------------
   let keyInput = $state('');
   let hasKey = $state(false);
@@ -248,6 +259,11 @@
         <p style="margin:0">{t('settings.privacy.body2')}</p>
         <p style="margin:0">{t('settings.privacy.body3')}</p>
         <p style="margin:0">{t('settings.privacy.body4')}</p>
+        {#if app.canCheckUpdates}
+          <p style="margin:0">{t('settings.privacy.updates')}</p>
+          <div class="togrow" data-testid="update-check"><div>{t('settings.updates.check')}<small>{t('settings.updates.checkHint')}</small></div><input type="checkbox" class="tog" aria-label={t('settings.updates.check')} checked={s.updates.check} onchange={(e) => set('updates', { ...app.settings.updates, check: e.currentTarget.checked })} /></div>
+          <div class="togrow"><div>{t('settings.updates.now')}<small>{t('settings.updates.nowHint')}</small></div><button class="btn sm" disabled={checking} onclick={checkNow}>{t('settings.updates.nowButton')}</button></div>
+        {/if}
       {:else}
         <div class="row"><span class="brand" style="cursor:default;flex:none"><Logo size={36} /></span><div><b style="font-size:15px">Folio</b><div class="note">{t('settings.about.version', { version: services.platform.app.version || VERSION })}</div></div></div>
         <p class="note">{t('settings.about.body')}</p>
