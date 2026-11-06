@@ -2059,6 +2059,15 @@ export class SmartFillModel extends ViewModel {
   signFields = 0;
   signWith: StoredSignature | null = null;
   signIt = true;
+  /**
+   * Set when Smart Fill was started with no profile: names the control that was used (`toolbar`, `banner`,
+   * `inspector`, or `palette` when there is none) so the hint can be anchored next to it. Null otherwise.
+   */
+  needProfile: string | null = null;
+  dismissNeedProfile(): void {
+    this.needProfile = null;
+    this.emit();
+  }
   private abort?: AbortController;
 
   constructor(
@@ -2103,10 +2112,13 @@ export class SmartFillModel extends ViewModel {
   }
 
   /** "Auto-fill with my data": shows the pre-flight dialog when the mode has not been acknowledged. */
-  async start(): Promise<void> {
+  async start(origin = 'palette'): Promise<void> {
+    this.needProfile = null;
     await this.loadProfiles();
     if (!this.profile) {
-      this.app.toast('info', msg('smartfill.needProfile'));
+      // Not a toast: the hint stays next to the control that was used until it is acted on or dismissed.
+      this.needProfile = origin;
+      this.emit();
       return;
     }
     const ai = await this.aiAvailable();

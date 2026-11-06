@@ -211,7 +211,7 @@
       <h4>{t('form.fields')}</h4>
       <div class="kv"><span>{t('form.fields')}</span><b>{m.form.fillableCount}</b></div>
       <div class="kv"><span>{t('form.filled')}</span><b>{filled} / {m.form.fillableCount}</b></div>
-      <button class="btn primary" onclick={() => m.smart.start()}><Icon name="sparkles" />{t('banner.autoFill')}</button>
+      <button class="btn primary" onclick={() => m.smart.start('inspector')} data-smartfill-origin="inspector"><Icon name="sparkles" />{t('banner.autoFill')}</button>
       {#if m.form.fillableCount > 0}
         <div class="row"><button class="btn sm" onclick={() => m.form.exportJson()}>{t('form.export')}</button><button class="btn sm" onclick={() => m.form.importJson()}>{t('form.import')}</button></div>
         <button class="btn sm danger" onclick={() => m.form.reset()}>{t('form.reset')}</button>

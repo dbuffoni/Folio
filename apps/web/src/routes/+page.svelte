@@ -33,6 +33,7 @@
   import StatusBar from '#lib/ui/StatusBar.svelte';
   import TitleBar from '#lib/ui/TitleBar.svelte';
   import Toasts from '#lib/ui/Toasts.svelte';
+  import NeedProfilePopover from '#lib/ui/NeedProfilePopover.svelte';
   import UpdateBanner from '#lib/ui/UpdateBanner.svelte';
   import Toolbar from '#lib/ui/Toolbar.svelte';
 
@@ -157,7 +158,7 @@
                 <span class="grow note">{banner.kind === 'xfa' ? t('banner.xfa') : t('banner.formHint')}</span>
                 {#if banner.count > 0}
                   <button class="btn sm" aria-pressed={m.form.highlight} onclick={() => m.form.toggleHighlight()}><Icon name="scan-line" />{t('tool.highlightFields')}</button>
-                  <button class="btn sm primary" onclick={() => (!ui.inspectorOpen && ui.toggleInspector(), void m.smart.start())}><Icon name="sparkles" />{t('banner.autoFill')}</button>
+                  <button class="btn sm primary" onclick={() => (!ui.inspectorOpen && ui.toggleInspector(), void m.smart.start('banner'))} data-smartfill-origin="banner"><Icon name="sparkles" />{t('banner.autoFill')}</button>
                 {/if}
                 <button class="ib" onclick={() => (bannerOff = session.id)} aria-label={t('action.dismiss')}><Icon name="x" /></button>
               </div>
@@ -207,6 +208,7 @@
     </Dialog>
   {/if}
   <PromptHost />
+  {#if m}<NeedProfilePopover smart={m.smart} />{/if}
   <Tutorial />
   <Toasts />
   {#if dropping}<div class="dropveil">{t('ui.dropHere')}</div>{/if}

@@ -245,7 +245,7 @@
     <span class="vsep"></span>
     <button class="tool" disabled={m.form.fillableCount === 0} onclick={() => m.form.flatten()} use:tip={t('tool.flattenForm')}><Icon name="layers" /><span class="lbl">{t('tool.flattenForm')}</span></button>
     <span class="grow"></span>
-    <button class="tool accent" onclick={() => (!ui.inspectorOpen && ui.toggleInspector(), void m.smart.start())} use:tip={t('banner.autoFill')}><Icon name="sparkles" /><span class="lbl">{t('tool.smartFill')}</span></button>
+    <button class="tool accent" onclick={() => (!ui.inspectorOpen && ui.toggleInspector(), void m.smart.start('toolbar'))} data-smartfill-origin="toolbar" use:tip={t('banner.autoFill')}><Icon name="sparkles" /><span class="lbl">{t('tool.smartFill')}</span></button>
   {:else}
     {@render toolBtn('select', 'mouse-pointer-2', t('tool.select'), 'V')}
     {@render toolBtn('edit-text', 'text-cursor', t('tool.editText'), 'E')}
