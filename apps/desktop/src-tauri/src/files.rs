@@ -159,7 +159,10 @@ pub fn write_file_atomic(request: Request<'_>, scope: State<'_, Scope>) -> Resul
         .map(|v| v == "1")
         .unwrap_or(false);
     let folder = match request.headers().get("x-folio-backup-dir") {
-        Some(v) => Some(decode(v.to_str().map_err(|_| Error::Invalid("bad header".into()))?)?),
+        Some(v) => Some(decode(
+            v.to_str()
+                .map_err(|_| Error::Invalid("bad header".into()))?,
+        )?),
         None => None,
     };
     scope.check(&path)?;
@@ -403,9 +406,15 @@ mod tests {
 
     #[test]
     fn path_hash_is_stable() {
-        assert_eq!(short_path_hash(Path::new("/docs/a.pdf")), short_path_hash(Path::new("/docs/a.pdf")));
+        assert_eq!(
+            short_path_hash(Path::new("/docs/a.pdf")),
+            short_path_hash(Path::new("/docs/a.pdf"))
+        );
         assert_eq!(short_path_hash(Path::new("")), "811c9dc5");
-        assert_ne!(short_path_hash(Path::new("/a/doc.pdf")), short_path_hash(Path::new("/b/doc.pdf")));
+        assert_ne!(
+            short_path_hash(Path::new("/a/doc.pdf")),
+            short_path_hash(Path::new("/b/doc.pdf"))
+        );
     }
 
     #[test]

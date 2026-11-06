@@ -14,7 +14,36 @@ Status of the delivery phases of SPEC §16.6. Update this file at the end of eac
 | P7 Platform shell | done | web and Tauri adapters, Rust commands with tests, AppImage smoke test; `services-complete` gate passed 2026-10-11 |
 | P8 User interface | done | Svelte screens bound to `packages/app`; Playwright on Chromium, Firefox and WebKit (epics E1–E7, screens, axe in both themes, no-network); visual baselines; AppImage ships the real UI |
 | P9 Release hardening | done locally | interop, golden and performance suites; i18n lint; licence review and notices; bundle budget; CI and release workflows written; `tools/gate.sh P9` passed 2026-10-12 |
-| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 and 0.1.2 delivered; 0.1.3 (quality and protection, 13 cards) delivered; 0.1.4 (6 cards) built, in review |
+| P10 Incremental releases | in progress | releases built from the Notion plan (SPEC §16.10); 0.1.1 and 0.1.2 delivered; 0.1.3 (quality and protection, 13 cards) delivered; 0.1.4 (6 cards) delivered; 0.1.5 (5 cards) built on `release/0.1.5`, in review |
+
+## Release 0.1.5
+
+Five cards of the Folio Kanban (Notion), built on `release/0.1.5`. The card *Open with* (#171) is not part of it: it was
+already implemented and the owner considers it obsolete. Assumptions taken: see the end of this section.
+
+| Card | Requirements | Where |
+|---|---|---|
+| #168 Backup | FR-APP-04 | `keepBackup` default off and `backupFolder` (`core/settings.ts`); `DocumentService.save` (`?? false`, `backupFailed`); `files.rs` (`Backup`, `backup_path`, `short_path_hash`, a failed backup never fails the save), `scope.rs` (`set_backup_folder`, persisted grant of that one folder), `AppModel.chooseBackupFolder`, General pane |
+| #170 Update check | FR-APP-16 | `core/updates.ts` (semver, `newerRelease`), `app/updates.ts` (`checkUpdates`, daily limit), `AppModel.checkForUpdates`, `http.rs` `latest_release` (fixed URL, no argument), `UpdateBanner.svelte`, Privacy pane, ADR 0008 |
+| #169 Tutorial | FR-APP-17 | `UiState.tutorial` (replaces the coach marks), `AppModel.endTutorial`/`tutorialToSettings`, `Tutorial.svelte`, Help ▸ Tutorial (`help.tutorial`); Settings already opened on a given pane (`UiState.openSettings`) |
+| #172 Needs-a-profile popover | FR-AIF-03 | `SmartFillModel.needProfile`, `NeedProfilePopover.svelte` (anchored, Esc closes and returns focus), `epics.test.ts` |
+| #173 Alt+letter tool shortcuts | FR-APP-18 | `keymap.ts` (`code` of the event), `registry.ts`, SPEC Appendix A, Toolbar/Organise hints |
+
+Verification: `pnpm test` 711, `test:conformance` 175, `test:interop` 32, `cargo test` 38, `test:e2e` (chromium, firefox, webkit)
+296 passed and 13 skipped as before, `pnpm lint`, `pnpm check` and `pnpm trace` clean. New tests: `core/updates.test.ts`,
+`app/updates.test.ts`, `app/tutorial.test.ts`, the backup-folder and shortcut cases in `app/app.test.ts`, Rust unit tests in
+`files.rs`, `scope.rs` and `http.rs`, and `apps/web/tests/release-0-1-5.spec.ts`. Screenshots (two themes, four window sizes)
+in `docs/screenshots/0.1.5`: tutorial slides, popover, shortcuts list.
+
+Assumptions: *Check now* works even while the automatic check is off (an explicit click is consent); a manual check ignores the
+daily limit and the skipped version; a failing backup (also the one beside the file) no longer fails the save and shows a
+warning; the backup folder must have been chosen with the folder picker in this or an earlier session, else the backup is
+reported as not made; closing the tutorial by any route (Skip, Esc, a link) counts as seen; the tutorial switches for backup
+and update check appear on the desktop app only; the web build shows neither the backup folder nor the update check.
+
+Known limits: the desktop-only parts (update banner, backup-folder row, tutorial switches) were not screenshotted because the
+web build cannot show them; the real route to GitHub and the native folder picker were not exercised here (no network call is
+made in tests); the AppImage was not rebuilt for this branch.
 
 ## Release 0.1.4
 
