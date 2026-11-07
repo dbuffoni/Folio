@@ -111,6 +111,8 @@ export class UiState {
   inspectorOpen = true;
   /** Tutorial slide shown (0-based), or null when it is closed. */
   tutorial: number | null = null;
+  /** Slide to return to when the Settings opened from a slide is closed. */
+  tutorialResume: number | null = null;
 
   private emit(): void {
     this.changed.emit();
@@ -128,6 +130,10 @@ export class UiState {
   }
   closeDialog(): void {
     this.dialog = null;
+    if (this.tutorialResume !== null) {
+      this.tutorial = this.tutorialResume;
+      this.tutorialResume = null;
+    }
     this.emit();
   }
   togglePalette(open = !this.palette): void {
@@ -167,8 +173,24 @@ export class UiState {
     this.tutorial--;
     this.emit();
   }
+  /** A dot of the progress bar. */
+  gotoTutorial(slide: number): void {
+    if (this.tutorial === null || slide < 0 || slide >= TUTORIAL_SLIDES) return;
+    this.tutorial = slide;
+    this.emit();
+  }
   closeTutorial(): void {
     this.tutorial = null;
+    this.tutorialResume = null;
     this.emit();
+  }
+  /**
+   * A slide's link to a Settings pane: the tutorial steps aside, Settings opens on the pane, and closing Settings
+   * brings the tutorial back on the same slide.
+   */
+  tutorialToSettings(pane: SettingsPane): void {
+    this.tutorialResume = this.tutorial;
+    this.tutorial = null;
+    this.openSettings(pane);
   }
 }

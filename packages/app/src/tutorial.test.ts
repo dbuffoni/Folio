@@ -44,15 +44,41 @@ describe('tutorial', () => {
     expect(t.ui.tutorial).toBe(0);
   });
 
-  it('links in the slides open Settings directly on the pane they name @FR-APP-17', async () => {
+  it('a link opens Settings on its pane, and closing Settings brings the tutorial back on the same slide @FR-APP-17', async () => {
     const t = await createTestApp();
     t.ui.openTutorial();
-    await t.app.tutorialToSettings(t.ui, 'profiles');
+    t.ui.nextTutorial();
+    t.ui.nextTutorial();
+    t.app.tutorialToSettings(t.ui, 'profiles');
     expect(t.ui.tutorial).toBeNull();
-    expect(t.ui.dialog).toBe('settings');
-    expect(t.ui.settingsPane).toBe('profiles');
-    await t.app.tutorialToSettings(t.ui, 'smartFill');
+    expect([t.ui.dialog, t.ui.settingsPane]).toEqual(['settings', 'profiles']);
+    // Not ended: the tutorial still counts as unseen until Done or Skip.
+    expect(t.app.settings.onboardingDone).toBe(false);
+    t.ui.closeDialog();
+    expect(t.ui.dialog).toBeNull();
+    expect(t.ui.tutorial).toBe(2);
+    t.ui.nextTutorial();
+    t.app.tutorialToSettings(t.ui, 'smartFill');
     expect(t.ui.settingsPane).toBe('smartFill');
+    t.ui.closeDialog();
+    expect(t.ui.tutorial).toBe(3);
+    // A plain Settings close does not open a tutorial.
+    t.ui.openSettings('general');
+    t.ui.closeDialog();
+    expect(t.ui.tutorial).toBe(3);
+    await t.app.endTutorial(t.ui);
+    t.ui.openSettings('general');
+    t.ui.closeDialog();
+    expect(t.ui.tutorial).toBeNull();
+  });
+
+  it('the progress dots jump to a slide @FR-APP-17', async () => {
+    const t = await createTestApp();
+    t.ui.openTutorial();
+    t.ui.gotoTutorial(4);
+    expect(t.ui.tutorial).toBe(4);
+    t.ui.gotoTutorial(9);
+    expect(t.ui.tutorial).toBe(4);
   });
 
   it('the privacy switches shown in the tutorial start off and change the real settings @FR-APP-17 @FR-APP-16', async () => {

@@ -174,10 +174,9 @@ export class AppModel {
     ui.closeTutorial();
     if (!this.settings.onboardingDone) await this.setSetting('onboardingDone', true);
   }
-  /** A link inside a slide: ends the tutorial and opens Settings on the pane the slide talks about. */
-  async tutorialToSettings(ui: UiState, pane: SettingsPane): Promise<void> {
-    await this.endTutorial(ui);
-    ui.openSettings(pane);
+  /** A link inside a slide: opens Settings on the pane the slide talks about; the tutorial continues when Settings is closed. */
+  tutorialToSettings(ui: UiState, pane: SettingsPane): void {
+    ui.tutorialToSettings(pane);
   }
   async openUpdate(): Promise<void> {
     if (this.update) await this.services.platform.shell.openExternal(this.update.url);

@@ -41,7 +41,15 @@ test('Skip and Esc close the tutorial; Help > Tutorial opens it again; links ope
   await expect(dialog).toBeHidden();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await expect(settings.getByRole('button', { name: 'Profiles' })).toHaveAttribute('aria-current', 'page');
+  // Closing Settings brings the tutorial back on the same slide.
   await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  await expect(dialog.getByRole('heading', { name: 'Your profile' })).toBeVisible();
+  await expect(dialog.getByText('3 of 6')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Go to slide 1' }).click();
+  await expect(dialog.getByText('1 of 6')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Skip' }).click();
+  await expect(dialog).toBeHidden();
   await page.getByRole('button', { name: 'Main menu' }).click();
   await page.getByRole('menuitem', { name: 'Tutorial' }).click();
   await dialog.getByRole('button', { name: 'Skip' }).click();
