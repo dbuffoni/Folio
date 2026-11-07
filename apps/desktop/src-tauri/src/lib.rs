@@ -103,9 +103,19 @@ pub fn parse_saved_window(json: &str, label: &str) -> Option<SavedWindow> {
 
 /// Where the first frame goes: the remembered place (clamped to the work area, so a size larger than the screen
 /// or a monitor that is gone cannot hide the window), or the configured default centred.
-pub fn initial_rect(saved: Option<SavedWindow>, scale: f64, configured: (f64, f64), work: Rect) -> Rect {
+pub fn initial_rect(
+    saved: Option<SavedWindow>,
+    scale: f64,
+    configured: (f64, f64),
+    work: Rect,
+) -> Rect {
     let wanted = match saved {
-        Some(w) => Rect { x: w.x / scale, y: w.y / scale, w: w.width / scale, h: w.height / scale },
+        Some(w) => Rect {
+            x: w.x / scale,
+            y: w.y / scale,
+            w: w.width / scale,
+            h: w.height / scale,
+        },
         None => Rect {
             x: work.x + ((work.w - configured.0) / 2.0).max(0.0),
             y: work.y + ((work.h - configured.1) / 2.0).max(0.0),
@@ -146,12 +156,25 @@ fn place_window(app: &AppHandle) {
         .ok()
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten())
-        .or_else(|| window.available_monitors().ok().and_then(|m| m.into_iter().next()));
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|m| m.into_iter().next())
+        });
     if let Some(monitor) = monitor {
         let scale = monitor.scale_factor();
         let area = monitor.work_area();
-        let (p, s) = (area.position.to_logical::<f64>(scale), area.size.to_logical::<f64>(scale));
-        let work = Rect { x: p.x, y: p.y, w: s.width, h: s.height };
+        let (p, s) = (
+            area.position.to_logical::<f64>(scale),
+            area.size.to_logical::<f64>(scale),
+        );
+        let work = Rect {
+            x: p.x,
+            y: p.y,
+            w: s.width,
+            h: s.height,
+        };
         let fitted = initial_rect(saved, scale, configured, work);
         log::info!("window placement: scale {scale}, work area {work:?}, saved {saved:?}, placed {fitted:?}");
         let (min_w, min_h) = fit_minimum((900.0, 560.0), work);
@@ -318,6 +341,8 @@ pub fn run() {
             exit_app,
             files::read_file,
             files::write_file_atomic,
+            files::set_backup_folder,
+            http::latest_release,
             files::write_in_folder,
             files::file_exists,
             files::path_exists,
@@ -391,33 +416,88 @@ mod tests {
     }
 
     fn work(w: f64, h: f64) -> Rect {
-        Rect { x: 0.0, y: 0.0, w, h }
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            w,
+            h,
+        }
     }
 
     #[test]
     fn the_window_never_exceeds_the_screen() {
         // 1366x768 laptop with a task bar: 1366x728 work area; the 1100x780 default loses height.
-        let r = fit_rect(Rect { x: 100.0, y: 80.0, w: 1100.0, h: 780.0 }, work(1366.0, 728.0));
+        let r = fit_rect(
+            Rect {
+                x: 100.0,
+                y: 80.0,
+                w: 1100.0,
+                h: 780.0,
+            },
+            work(1366.0, 728.0),
+        );
         assert_eq!((r.w, r.h), (1100.0, 688.0));
         assert!(r.y + r.h <= 728.0, "bottom border stays visible");
         // Large screen: untouched.
-        let big = Rect { x: 200.0, y: 100.0, w: 1100.0, h: 780.0 };
+        let big = Rect {
+            x: 200.0,
+            y: 100.0,
+            w: 1100.0,
+            h: 780.0,
+        };
         assert_eq!(fit_rect(big, work(2560.0, 1400.0)), big);
     }
 
     #[test]
     fn a_saved_size_larger_than_the_screen_is_clamped() {
-        let r = fit_rect(Rect { x: -300.0, y: -50.0, w: 3000.0, h: 2000.0 }, work(1920.0, 1040.0));
-        assert_eq!(r, Rect { x: 0.0, y: 0.0, w: 1904.0, h: 1000.0 });
+        let r = fit_rect(
+            Rect {
+                x: -300.0,
+                y: -50.0,
+                w: 3000.0,
+                h: 2000.0,
+            },
+            work(1920.0, 1040.0),
+        );
+        assert_eq!(
+            r,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1904.0,
+                h: 1000.0
+            }
+        );
     }
 
     #[test]
     fn a_window_saved_on_a_removed_monitor_comes_back_inside() {
-        let r = fit_rect(Rect { x: 2400.0, y: 900.0, w: 1100.0, h: 780.0 }, work(1920.0, 1040.0));
+        let r = fit_rect(
+            Rect {
+                x: 2400.0,
+                y: 900.0,
+                w: 1100.0,
+                h: 780.0,
+            },
+            work(1920.0, 1040.0),
+        );
         assert_eq!((r.x, r.y), (820.0, 260.0));
         // Work area that does not start at the origin (second monitor, top bar).
-        let area = Rect { x: 1920.0, y: 30.0, w: 1280.0, h: 690.0 };
-        let r = fit_rect(Rect { x: 100.0, y: 100.0, w: 1100.0, h: 780.0 }, area);
+        let area = Rect {
+            x: 1920.0,
+            y: 30.0,
+            w: 1280.0,
+            h: 690.0,
+        };
+        let r = fit_rect(
+            Rect {
+                x: 100.0,
+                y: 100.0,
+                w: 1100.0,
+                h: 780.0,
+            },
+            area,
+        );
         assert_eq!((r.x, r.y, r.h), (1920.0, 70.0, 650.0));
     }
 
@@ -426,9 +506,21 @@ mod tests {
         let json = r#"{"main":{"width":1400,"height":900,"x":10,"y":20,"prev_x":0,"prev_y":0,"maximized":false,"visible":true}}"#;
         assert_eq!(
             parse_saved_window(json, "main"),
-            Some(SavedWindow { x: 10.0, y: 20.0, width: 1400.0, height: 900.0, maximized: false })
+            Some(SavedWindow {
+                x: 10.0,
+                y: 20.0,
+                width: 1400.0,
+                height: 900.0,
+                maximized: false
+            })
         );
-        for bad in ["", "{}", "not json", r#"{"main":{"width":0,"height":0,"x":0,"y":0}}"#, r#"{"other":{"width":9,"height":9,"x":0,"y":0}}"#] {
+        for bad in [
+            "",
+            "{}",
+            "not json",
+            r#"{"main":{"width":0,"height":0,"x":0,"y":0}}"#,
+            r#"{"other":{"width":9,"height":9,"x":0,"y":0}}"#,
+        ] {
             assert_eq!(parse_saved_window(bad, "main"), None, "{bad}");
         }
     }
@@ -438,21 +530,55 @@ mod tests {
         let screen = work(1366.0, 728.0);
         // Nothing remembered: the configured size, shrunk to the screen, centred.
         let first = initial_rect(None, 1.0, (1100.0, 780.0), screen);
-        assert_eq!(first, Rect { x: 133.0, y: 20.0, w: 1100.0, h: 688.0 });
+        assert_eq!(
+            first,
+            Rect {
+                x: 133.0,
+                y: 20.0,
+                w: 1100.0,
+                h: 688.0
+            }
+        );
         // Remembered on a bigger screen: clamped, position kept where it still fits.
-        let big = SavedWindow { x: 300.0, y: 200.0, width: 1800.0, height: 1000.0, maximized: false };
+        let big = SavedWindow {
+            x: 300.0,
+            y: 200.0,
+            width: 1800.0,
+            height: 1000.0,
+            maximized: false,
+        };
         let back = initial_rect(Some(big), 1.0, (1100.0, 780.0), screen);
         assert_eq!((back.w, back.h), (1350.0, 688.0));
         assert!(back.x >= 0.0 && back.x + back.w <= 1366.0 && back.y + back.h <= 728.0);
         // Remembered and still fitting: restored exactly. Physical pixels are divided by the scale factor.
-        let fits = SavedWindow { x: 200.0, y: 40.0, width: 1600.0, height: 1000.0, maximized: false };
-        assert_eq!(initial_rect(Some(fits), 2.0, (1100.0, 780.0), screen), Rect { x: 100.0, y: 20.0, w: 800.0, h: 500.0 });
+        let fits = SavedWindow {
+            x: 200.0,
+            y: 40.0,
+            width: 1600.0,
+            height: 1000.0,
+            maximized: false,
+        };
+        assert_eq!(
+            initial_rect(Some(fits), 2.0, (1100.0, 780.0), screen),
+            Rect {
+                x: 100.0,
+                y: 20.0,
+                w: 800.0,
+                h: 500.0
+            }
+        );
     }
 
     #[test]
     fn the_minimum_size_follows_small_screens() {
-        assert_eq!(fit_minimum((900.0, 560.0), work(1366.0, 728.0)), (900.0, 560.0));
-        assert_eq!(fit_minimum((900.0, 560.0), work(800.0, 500.0)), (784.0, 460.0));
+        assert_eq!(
+            fit_minimum((900.0, 560.0), work(1366.0, 728.0)),
+            (900.0, 560.0)
+        );
+        assert_eq!(
+            fit_minimum((900.0, 560.0), work(800.0, 500.0)),
+            (784.0, 460.0)
+        );
     }
 
     #[test]

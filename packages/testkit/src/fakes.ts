@@ -10,6 +10,7 @@ import type {
   Clipboard,
   FileKind,
   FileRef,
+  WriteResult,
   FileService,
   HttpClient,
   HttpRequest,
@@ -22,6 +23,13 @@ import type {
 } from '@folio/ports';
 
 /** Virtual file system. Paths are plain strings ("/docs/a.pdf"); folders are implicit. */
+/** Stand-in for the shell's short hash of a full path (the real one is tested in Rust). */
+function pathHash(path: string): string {
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(path)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
 export class FakeFileService implements FileService {
   readonly capabilities = { nativePaths: true, watch: false, writeInPlace: true, reveal: true };
   readonly files = new Map<string, Uint8Array>();
@@ -30,7 +38,11 @@ export class FakeFileService implements FileService {
   nextSave: (string | null)[] = [];
   nextFolder: (string | null)[] = [];
   readonly revealed: string[] = [];
-  readonly writes: Array<{ path: string; atomic: boolean; backup: boolean }> = [];
+  readonly writes: Array<{ path: string; atomic: boolean; backup: boolean; backupFolder?: string }> = [];
+  /** Simulates a backup folder that is missing or not writable: the write succeeds, the backup does not. */
+  failBackups = false;
+  /** Folder last given to `setBackupFolder` (the persistent grant); null when cleared. */
+  backupFolderGrant: string | null = null;
   failWrites = false;
   private external = new Set<(refs: FileRef[]) => void>();
 
@@ -65,13 +77,24 @@ export class FakeFileService implements FileService {
     if (!data) throw new IoError(`No such file: ${ref.path ?? ref.id}`);
     return data.slice();
   }
-  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean } = {}): Promise<void> {
+  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean; backupFolder?: string } = {}): Promise<WriteResult> {
     if (this.failWrites) throw new IoError('Disk full (simulated)');
     const path = ref.path ?? ref.id;
     const previous = this.files.get(path);
-    if (opts.backup && previous) this.files.set(`${path}.bak`, previous);
+    let backupFailed = false;
+    if (opts.backup && previous) {
+      if (this.failBackups) backupFailed = true;
+      else if (opts.backupFolder) {
+        // One .bak per document in a shared folder: the name carries a hash of the full path.
+        this.files.set(`${opts.backupFolder}/${path.split('/').pop()}.${pathHash(path)}.bak`, previous);
+      } else this.files.set(`${path}.bak`, previous);
+    }
     this.files.set(path, data.slice());
-    this.writes.push({ path, atomic: !!opts.atomic, backup: !!opts.backup });
+    this.writes.push({ path, atomic: !!opts.atomic, backup: !!opts.backup, ...(opts.backupFolder ? { backupFolder: opts.backupFolder } : {}) });
+    return { backupFailed };
+  }
+  async setBackupFolder(folder: FileRef | null): Promise<void> {
+    this.backupFolderGrant = folder ? (folder.path ?? folder.id) : null;
   }
   async writeInFolder(folder: FileRef, name: string, data: Uint8Array): Promise<FileRef> {
     const ref = this.ref(`${folder.path ?? folder.id}/${name}`);
@@ -274,4 +297,21 @@ export class FakeOcrEngine implements OcrEngine {
     return { width: image.width, height: image.height, lines, confidence: this.confidence };
   }
   async dispose(): Promise<void> {}
+}
+
+/** The update feed with a canned answer; counts the requests so tests can prove none was made. */
+export class FakeUpdateFeed {
+  calls = 0;
+  fail = false;
+  constructor(public body = '') {}
+  /** Sets the answer to a release with this tag. */
+  release(tag: string, extra: Record<string, unknown> = {}): this {
+    this.body = JSON.stringify({ tag_name: tag, html_url: `https://github.com/dbuffoni/Folio/releases/tag/${tag}`, draft: false, prerelease: false, ...extra });
+    return this;
+  }
+  async latestRelease(): Promise<string> {
+    this.calls++;
+    if (this.fail) throw new IoError('offline (simulated)');
+    return this.body;
+  }
 }

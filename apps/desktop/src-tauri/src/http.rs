@@ -278,6 +278,47 @@ pub async fn download_file(url: String, max_bytes: u64) -> Result<tauri::ipc::Re
     Ok(tauri::ipc::Response::new(bytes.to_vec()))
 }
 
+/// The one address the update notice may read (FR-APP-16): the latest release of the project's repository.
+/// Fixed in the binary; the command takes no argument, so page content cannot point it anywhere else.
+pub const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/dbuffoni/Folio/releases/latest";
+const RELEASE_MAX_BODY: usize = 1024 * 1024;
+
+/// One GET of the latest release of dbuffoni/Folio, answered as raw JSON text. No cookies, no redirects,
+/// no body, nothing identifying beyond the product name and version in the User-Agent.
+#[tauri::command]
+pub async fn latest_release(app: AppHandle) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(format!("Folio/{}", app.package_info().version))
+        .build()
+        .map_err(|e| Error::Network(e.to_string()))?;
+    let res = client
+        .get(LATEST_RELEASE_URL)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if !res.status().is_success() {
+        return Err(Error::Network(format!("HTTP {}", res.status().as_u16())));
+    }
+    if res
+        .content_length()
+        .map(|n| n as usize > RELEASE_MAX_BODY)
+        .unwrap_or(false)
+    {
+        return Err(Error::Network("response is too large".into()));
+    }
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| Error::Network(e.without_url().to_string()))?;
+    if bytes.len() > RELEASE_MAX_BODY {
+        return Err(Error::Network("response is too large".into()));
+    }
+    Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
 /// Hosts the user approved for signature traffic (timestamp, OCSP and CRL servers) in this run.
 #[derive(Default)]
 pub struct ApprovedNetworkHosts(Mutex<Vec<String>>);
@@ -466,6 +507,18 @@ mod tests {
         );
         std::fs::write(&file, "javascript:alert(1)").unwrap();
         assert_eq!(AllowedOrigin::new(Some(file)).get(), DEFAULT_ORIGIN);
+    }
+
+    #[test]
+    fn the_update_route_is_one_fixed_https_address() {
+        let u = url::Url::parse(LATEST_RELEASE_URL).unwrap();
+        assert_eq!(u.scheme(), "https");
+        assert_eq!(u.host_str(), Some("api.github.com"));
+        assert_eq!(u.path(), "/repos/dbuffoni/Folio/releases/latest");
+        assert!(u.query().is_none() && u.port().is_none());
+        // It is not a generic route: the AI allow-list and the OCR download list do not include it.
+        assert!(!AllowedOrigin::new(None).permits(LATEST_RELEASE_URL));
+        assert!(download_allowed(LATEST_RELEASE_URL).is_err());
     }
 
     #[test]

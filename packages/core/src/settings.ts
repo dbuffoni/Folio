@@ -17,7 +17,10 @@ export const settingsSchema = z.object({
   defaultLayout: z.enum(['continuous', 'single', 'two-page']).default('continuous'),
   pageTheme: z.enum(['normal', 'dark', 'sepia', 'high-contrast']).default('normal'),
   units: z.enum(['mm', 'in', 'pt']).default('mm'),
-  keepBackup: z.boolean().default(true),
+  /** Keep the previous version of a file as a `.bak` when saving. Off by default. */
+  keepBackup: z.boolean().default(false),
+  /** Desktop only: folder for the `.bak` copies; empty keeps each one next to its file. */
+  backupFolder: z.string().default(''),
   recoveryIntervalSec: z.number().int().min(5).max(600).default(30),
   authorName: z.string().default(''),
   dateFormat: z.enum(DATE_FORMATS).default('iso'),
@@ -53,6 +56,16 @@ export const settingsSchema = z.object({
       tsaUrl: z.string().default(''),
       /** Store certificates and revocation answers in the file when signing (PAdES-LT). */
       embedValidation: z.boolean().default(false),
+    })
+    .default({}),
+  /** Update notice (FR-APP-16). Off by default: with it off Folio makes no network call of its own. */
+  updates: z
+    .object({
+      check: z.boolean().default(false),
+      /** ISO time of the last automatic or manual check; at most one automatic check a day. */
+      lastCheckAt: z.string().default(''),
+      /** A version the user chose not to hear about again. */
+      skippedVersion: z.string().default(''),
     })
     .default({}),
   onboardingDone: z.boolean().default(false),

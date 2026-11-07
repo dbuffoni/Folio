@@ -55,6 +55,7 @@
       { icon: 'history', label: t('cmd.history'), disabled: !has, run: () => void run('edit.history') },
       { icon: 'printer', label: t('cmd.print'), shortcut: k('Mod+P'), disabled: !has, run: () => void run('file.print') },
       { kind: 'sep' },
+      { icon: 'book-open', label: t('cmd.tutorial'), run: () => void run('help.tutorial') },
       { icon: 'keyboard', label: t('cmd.shortcuts'), run: () => void run('help.shortcuts') },
       { icon: 'settings', label: t('cmd.settings'), run: () => void run('settings.open') },
       { icon: 'x', label: t('cmd.closeTab'), shortcut: k('Mod+W'), disabled: !has, run: () => void run('file.close') },

@@ -182,8 +182,8 @@ describe('utilities', () => {
 });
 
 describe('settings @FR-APP-10', () => {
-  it('has sensible defaults: private AI mode, backups on, 30 s recovery', () => {
-    expect(DEFAULT_SETTINGS).toMatchObject({ theme: 'system', keepBackup: true, recoveryIntervalSec: 30, units: 'mm', language: 'en' });
+  it('has sensible defaults: private AI mode, backups off, 30 s recovery', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ theme: 'system', keepBackup: false, backupFolder: '', recoveryIntervalSec: 30, units: 'mm', language: 'en' });
     expect(DEFAULT_SETTINGS.ai).toMatchObject({ enabled: false, mode: 'mapping_only', includeImage: false, baseUrl: 'https://api.openai.com/v1' });
   });
   it('validates stored values key by key and falls back to defaults', () => {

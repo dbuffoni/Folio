@@ -16,6 +16,8 @@ pub struct Scope {
 struct Inner {
     files: HashSet<PathBuf>,
     folders: HashSet<PathBuf>,
+    /// The one folder shared `.bak` copies go to. Unlike other folders it survives a restart.
+    backup_folder: Option<PathBuf>,
 }
 
 fn normalize(path: &Path) -> PathBuf {
@@ -45,8 +47,40 @@ impl Scope {
                     scope.inner.lock().unwrap().files.extend(list);
                 }
             }
+            if let Ok(text) = std::fs::read_to_string(Self::backup_store(file)) {
+                let text = text.trim();
+                if !text.is_empty() {
+                    scope.inner.lock().unwrap().backup_folder = Some(PathBuf::from(text));
+                }
+            }
         }
         scope
+    }
+
+    fn backup_store(persist: &Path) -> PathBuf {
+        persist.with_file_name("backup-folder")
+    }
+
+    /// Grants (or, with `None`, withdraws) write access to one folder for `.bak` files, remembered
+    /// across restarts. Nothing else in the folder becomes readable or writable.
+    pub fn set_backup_folder(&self, path: Option<&Path>) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.backup_folder = path.map(normalize);
+        if let Some(file) = &self.persist {
+            let text = inner
+                .backup_folder
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(Self::backup_store(file), text);
+        }
+    }
+
+    pub fn allows_backup_folder(&self, path: &Path) -> bool {
+        self.inner.lock().unwrap().backup_folder.as_ref() == Some(&normalize(path))
     }
 
     pub fn grant_file(&self, path: &Path) {
@@ -72,6 +106,10 @@ impl Scope {
         let mut inner = self.inner.lock().unwrap();
         inner.files.clear();
         inner.folders.clear();
+        inner.backup_folder = None;
+        if let Some(file) = &self.persist {
+            let _ = std::fs::remove_file(Self::backup_store(file));
+        }
         self.save(&inner);
     }
 
@@ -199,5 +237,31 @@ mod tests {
         again.grant_file(&a);
         again.revoke_all();
         assert!(!Scope::new(Some(store)).allows(&a));
+    }
+
+    #[test]
+    fn backup_folder_is_remembered_and_covers_only_that_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("grants.json");
+        let backups = dir.path().join("backups");
+        std::fs::create_dir(&backups).unwrap();
+        let other = dir.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        {
+            let scope = Scope::new(Some(store.clone()));
+            assert!(!scope.allows_backup_folder(&backups));
+            scope.set_backup_folder(Some(&backups));
+            assert!(scope.allows_backup_folder(&backups));
+        }
+        let again = Scope::new(Some(store.clone()));
+        assert!(again.allows_backup_folder(&backups));
+        assert!(!again.allows_backup_folder(&other));
+        // It is not a general grant: files in it cannot be read through the scope.
+        assert!(!again.allows(&backups.join("x.pdf")));
+        again.set_backup_folder(None);
+        assert!(!Scope::new(Some(store.clone())).allows_backup_folder(&backups));
+        again.set_backup_folder(Some(&backups));
+        again.revoke_all();
+        assert!(!Scope::new(Some(store)).allows_backup_folder(&backups));
     }
 }

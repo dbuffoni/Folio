@@ -3,6 +3,7 @@
   import { t } from '#lib/i18n/index.ts';
   import { app, desktop, isMac, services, sign, models, track, ui } from '#lib/state.svelte.ts';
   import Icon from './Icon.svelte';
+  import UpdateBanner from './UpdateBanner.svelte';
   import Menu, { type MenuItem } from './Menu.svelte';
   import { png } from './raster.ts';
 
@@ -52,6 +53,7 @@
 </script>
 
 <div id="home">
+  <UpdateBanner />
   <div class="hwrap">
     <div>
       <h1>{t(app.greeting())}</h1>

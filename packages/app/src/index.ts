@@ -11,3 +11,4 @@ export * from './signing.ts';
 export * from './ui.ts';
 export * from './registry.ts';
 export * from './ai-settings.ts';
+export * from './updates.ts';

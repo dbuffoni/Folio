@@ -12,8 +12,10 @@ export interface OpenedDocument {
 export interface SaveOptions {
   /** Append changes instead of rewriting (keeps existing digital signatures valid, FR-APP-11). */
   incremental?: boolean;
-  /** Keep `<name>.bak` with the previous content (setting, default on). */
+  /** Keep a `.bak` with the previous content (setting `keepBackup`, default off). */
   backup?: boolean;
+  /** Folder for the `.bak` (setting `backupFolder`); absent keeps it next to the file. */
+  backupFolder?: string;
 }
 export interface DocumentProperties {
   meta: DocMeta;
@@ -77,14 +79,20 @@ export class DocumentService {
   }
 
   /** Save to `ref`: temp file + rename, optional .bak (FR-APP-04). */
-  async save(doc: PdfDocument, ref: FileRef, opts: SaveOptions = {}): Promise<{ byteSize: number }> {
+  async save(doc: PdfDocument, ref: FileRef, opts: SaveOptions = {}): Promise<{ byteSize: number; backupFailed: boolean }> {
     const bytes = await this.serialize(doc, opts);
+    let result: Awaited<ReturnType<FileService['write']>>;
     try {
-      await this.deps.files.write(ref, bytes, { atomic: true, backup: opts.backup ?? true });
+      const backup = opts.backup ?? false;
+      result = await this.deps.files.write(ref, bytes, {
+        atomic: true,
+        backup,
+        ...(backup && opts.backupFolder ? { backupFolder: opts.backupFolder } : {}),
+      });
     } catch (e) {
       throw e instanceof IoError ? e : new IoError(`Could not write ${ref.name}`, e);
     }
-    return { byteSize: bytes.length };
+    return { byteSize: bytes.length, backupFailed: !!result?.backupFailed };
   }
 
   /** Export a copy: never touches history or the document's own file. */

@@ -8,6 +8,8 @@ export interface Chord {
 /** The fields of a DOM KeyboardEvent the keymap needs (kept structural so there is no DOM dependency). */
 export interface KeyEventLike {
   key: string;
+  /** Physical key (`KeyV`). With Alt held it names the letter, whatever the layout or Option does to `key`. */
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
@@ -25,7 +27,10 @@ export function parseChord(text: string): Chord {
 }
 
 export function chordOfEvent(e: KeyEventLike, isMac: boolean): Chord {
-  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  let key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  // Alt (Option on macOS) changes the character a key produces (Option+V is √), so letters are read from the
+  // physical key. That is why the tool shortcuts are Alt+letter and match on `event.code`.
+  if (e.altKey && e.code && /^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
   return { key, mod: isMac ? e.metaKey : e.ctrlKey, shift: e.shiftKey, alt: e.altKey };
 }
 export function sameChord(a: Chord, b: Chord): boolean {

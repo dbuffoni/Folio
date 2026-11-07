@@ -8,13 +8,24 @@ export interface FileRef {
   path?: string;
 }
 
+export interface WriteResult {
+  /** True when a backup was asked for but could not be written (folder missing, not writable, not granted). */
+  backupFailed?: boolean;
+}
+
 export interface FileService {
   readonly capabilities: { nativePaths: boolean; watch: boolean; writeInPlace: boolean; reveal: boolean };
   pickOpen(opts: { multiple?: boolean; accept: FileKind[] }): Promise<FileRef[]>;
   pickSave(opts: { suggestedName: string; kind: FileKind }): Promise<FileRef | null>;
   pickFolder(): Promise<FileRef | null>;
   read(ref: FileRef): Promise<Uint8Array>;
-  write(ref: FileRef, data: Uint8Array, opts?: { atomic?: boolean; backup?: boolean }): Promise<void>;
+  /**
+   * With `backup`, the previous content is kept as one `.bak` that each save overwrites: next to the file, or
+   * in `backupFolder` (desktop). A backup that cannot be made never fails the write; it is reported instead.
+   */
+  write(ref: FileRef, data: Uint8Array, opts?: { atomic?: boolean; backup?: boolean; backupFolder?: string }): Promise<WriteResult | void>;
+  /** Desktop only: makes the folder the user just picked the persistent backup folder; `null` clears it. */
+  setBackupFolder?(folder: FileRef | null): Promise<void>;
   writeInFolder(folder: FileRef, name: string, data: Uint8Array): Promise<FileRef>;
   exists(folder: FileRef, name: string): Promise<boolean>;
   /** Folder containing the file, when the platform can know it. */
@@ -141,6 +152,11 @@ export interface ImageCodec {
   supports(format: ImageFormat): boolean;
 }
 
+/** Fetches the body of the latest-release answer of the project's GitHub repository; it can reach nothing else. */
+export interface UpdateFeed {
+  latestRelease(): Promise<string>;
+}
+
 export interface Platform {
   /** Verified downloads of OCR language data (FR-OCR-02); absent in builds that cannot download. */
   downloader?: import('./ocr.ts').Downloader;
@@ -149,6 +165,8 @@ export interface Platform {
   db: Database;
   secrets: SecretStore;
   http: HttpClient;
+  /** Desktop only: the single GET behind the update notice (FR-APP-16). Absent in the web build. */
+  updates?: UpdateFeed;
   /** Timestamp and revocation traffic of digital signatures; absent when the shell has no network access for it. */
   network?: BinaryTransport;
   shell: Shell;

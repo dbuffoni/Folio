@@ -118,17 +118,17 @@ export function createRegistry(): CommandRegistry<CommandContext> {
       (mode): C => ({ id: `mode.${mode}`, title: `mode.${mode}`, group: 'mode', shortcut: mode === 'organise' ? 'Mod+Shift+O' : undefined, global: mode === 'organise', when: doc, run: ({ session }) => session!.setMode(mode) }),
     ),
     // Tools (Appendix A)
-    tool('select', 'tool.select', 'mouse-pointer-2', 'V', 'view'),
-    tool('edit-text', 'tool.editText', 'text-cursor-input', 'E', 'edit', 'typo fix change text'),
+    tool('select', 'tool.select', 'mouse-pointer-2', 'Alt+V', 'view'),
+    tool('edit-text', 'tool.editText', 'text-cursor-input', 'Alt+E', 'edit', 'typo fix change text'),
     tool('add-text', 'tool.addText', 'type', undefined, 'edit'),
     tool('whiteout', 'tool.whiteout', 'eraser', undefined, 'edit', 'cover hide white'),
-    tool('highlight', 'tool.highlight', 'highlighter', 'H', 'annotate', 'marker'),
+    tool('highlight', 'tool.highlight', 'highlighter', 'Alt+H', 'annotate', 'marker'),
     tool('underline', 'tool.underline', 'underline', undefined, 'annotate'),
     tool('strikeout', 'tool.strikeout', 'strikethrough', undefined, 'annotate'),
     tool('squiggly', 'tool.squiggly', 'spline', undefined, 'annotate'),
-    tool('note', 'tool.note', 'message-square', 'N', 'annotate', 'comment sticky'),
-    tool('textbox', 'tool.textbox', 'text-cursor', 'T', 'annotate', 'typewriter free text'),
-    tool('rect', 'tool.shape', 'square', 'S', 'annotate', 'rectangle box'),
+    tool('note', 'tool.note', 'message-square', 'Alt+N', 'annotate', 'comment sticky'),
+    tool('textbox', 'tool.textbox', 'text-cursor', 'Alt+T', 'annotate', 'typewriter free text'),
+    tool('rect', 'tool.shape', 'square', 'Alt+S', 'annotate', 'rectangle box'),
     tool('ellipse', 'tool.ellipse', 'circle', undefined, 'annotate', 'oval'),
     tool('line', 'tool.line', 'minus', undefined, 'annotate'),
     tool('arrow', 'tool.arrow', 'move-up-right', undefined, 'annotate'),
@@ -140,7 +140,7 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     tool('table', 'tool.table', 'table', undefined, 'view', 'extract table csv spreadsheet grid'),
     { id: 'task.tableWhole', title: 'cmd.tableWholePage', group: 'file', icon: 'table', when: doc, keywords: 'extract table csv page', run: ({ ui }) => ui.openDialog('tables') },
     // Sign & stamps
-    { id: 'sign.sign', needs: 'annotate', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
+    { id: 'sign.sign', needs: 'annotate', title: 'cmd.sign', group: 'sign', icon: 'signature', shortcut: 'Alt+G', when: doc, keywords: 'signature autograph', run: async ({ session, sign, tools, ui }) => {
         session!.setMode('fill');
         if ((await sign.sign(tools!)) === 'creating') ui.openDialog('signature');
       } },
@@ -158,8 +158,8 @@ export function createRegistry(): CommandRegistry<CommandContext> {
       } },
     { id: 'sign.stamps', title: 'cmd.manageStamps', group: 'sign', icon: 'stamp', run: ({ ui }) => ui.openDialog('stampEditor') },
     // Pages (Organise)
-    { id: 'pages.rotateCw', needs: 'assemble', title: 'cmd.rotateCw', group: 'pages', icon: 'rotate-cw', shortcut: 'R', when: hasPages, run: ({ organise }) => void organise?.rotate(90) },
-    { id: 'pages.rotateCcw', needs: 'assemble', title: 'cmd.rotateCcw', group: 'pages', icon: 'rotate-ccw', shortcut: 'Shift+R', when: hasPages, run: ({ organise }) => void organise?.rotate(270) },
+    { id: 'pages.rotateCw', needs: 'assemble', title: 'cmd.rotateCw', group: 'pages', icon: 'rotate-cw', shortcut: 'Alt+R', when: hasPages, run: ({ organise }) => void organise?.rotate(90) },
+    { id: 'pages.rotateCcw', needs: 'assemble', title: 'cmd.rotateCcw', group: 'pages', icon: 'rotate-ccw', shortcut: 'Alt+Shift+R', when: hasPages, run: ({ organise }) => void organise?.rotate(270) },
     { id: 'pages.rotate180', needs: 'assemble', title: 'cmd.rotate180', group: 'pages', icon: 'refresh-cw', when: hasPages, run: ({ organise }) => void organise?.rotate(180) },
     { id: 'pages.duplicate', needs: 'assemble', title: 'cmd.duplicate', group: 'pages', icon: 'copy-plus', shortcut: 'Mod+D', global: true, when: hasPages, run: ({ organise }) => void organise?.duplicate() },
     { id: 'pages.extract', needs: 'assemble', title: 'cmd.extract', group: 'pages', icon: 'file-output', when: hasPages, run: ({ organise }) => void organise?.extract(false) },
@@ -177,6 +177,7 @@ export function createRegistry(): CommandRegistry<CommandContext> {
     // Settings & help
     { id: 'settings.open', title: 'cmd.settings', group: 'settings', icon: 'settings', keywords: 'preferences options theme language units ai key', run: ({ ui }) => ui.openDialog('settings') },
     { id: 'settings.profiles', title: 'cmd.profiles', group: 'settings', icon: 'contact', keywords: 'my data reference auto fill', run: ({ ui }) => ui.openDialog('profiles') },
+    { id: 'help.tutorial', title: 'cmd.tutorial', group: 'help', icon: 'book-open', run: ({ ui }) => ui.openTutorial() },
     { id: 'help.shortcuts', title: 'cmd.shortcuts', group: 'help', icon: 'keyboard', run: ({ ui }) => ui.openDialog('shortcuts') },
     { id: 'help.privacy', title: 'cmd.privacy', group: 'help', icon: 'shield', run: ({ ui }) => ui.openDialog('privacy') },
     { id: 'help.about', title: 'cmd.about', group: 'help', icon: 'badge-info', run: ({ ui }) => ui.openDialog('about') },

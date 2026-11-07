@@ -127,7 +127,7 @@ jobs:
       - name: Playwright version
         id: pw
         run: echo "v=$(pnpm --filter @folio/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: browsers
         with:
           path: ~/.cache/ms-playwright

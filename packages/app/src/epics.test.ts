@@ -965,8 +965,14 @@ describe('E5 Smart Fill', () => {
     // No profile yet → a hint instead of an empty panel.
     const empty = await createTestApp();
     const doc = await empty.open('acroform', '/f.pdf');
-    await empty.smartFill(doc).start();
-    expect(empty.toastKeys()).toEqual(['smartfill.needProfile']);
+    const hint = empty.smartFill(doc);
+    await hint.start('toolbar');
+    // A popover next to the button, not a toast; it goes away when dismissed and nothing started.
+    expect(empty.toastKeys()).toEqual([]);
+    expect(hint.needProfile).toBe('toolbar');
+    expect(hint.stage).toBe('idle');
+    hint.dismissNeedProfile();
+    expect(hint.needProfile).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { FolioError, IoError, NetworkError, type ErrorCode } from '@folio/core';
-import type { AppStorage, BinaryTransport, Database, Downloader, FileKind, FileRef, FileService, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
+import type { AppStorage, BinaryTransport, Database, Downloader, FileKind, FileRef, FileService, WriteResult, HttpClient, HttpRequest, HttpResponse, Platform, SecretStore, Shell, Unsubscribe, WindowService } from '@folio/ports';
 import { BrowserClipboard, CanvasImageCodec, IframePrinting, RingLogger, SystemClock, WebCryptoService } from './common.ts';
 
 /** Rust errors arrive as `{ code, message }`; turn them into the typed errors the app understands. */
@@ -56,8 +56,13 @@ class TauriFileService implements FileService {
   async read(ref: FileRef): Promise<Uint8Array> {
     return bytesOf(await call<ArrayBuffer>('read_file', { path: ref.path }));
   }
-  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean } = {}): Promise<void> {
-    await call('write_file_atomic', data, { 'x-folio-path': enc(ref.path!), 'x-folio-backup': opts.backup ? '1' : '0' });
+  async write(ref: FileRef, data: Uint8Array, opts: { atomic?: boolean; backup?: boolean; backupFolder?: string } = {}): Promise<WriteResult> {
+    const headers: Record<string, string> = { 'x-folio-path': enc(ref.path!), 'x-folio-backup': opts.backup ? '1' : '0' };
+    if (opts.backup && opts.backupFolder) headers['x-folio-backup-dir'] = enc(opts.backupFolder);
+    return call<WriteResult>('write_file_atomic', data, headers);
+  }
+  async setBackupFolder(folder: FileRef | null): Promise<void> {
+    await call('set_backup_folder', { path: folder?.path ?? null });
   }
   writeInFolder(folder: FileRef, name: string, data: Uint8Array): Promise<FileRef> {
     return call('write_in_folder', data, { 'x-folio-dir': enc(folder.path!), 'x-folio-name': enc(name) });
@@ -209,6 +214,7 @@ export async function createTauriPlatform(): Promise<Platform> {
     http: new TauriHttpClient(),
     downloader: new TauriDownloader(new WebCryptoService()),
     network: new TauriBinaryTransport(),
+    updates: { latestRelease: () => call<string>('latest_release') },
     shell: new TauriShell(),
     clipboard: new BrowserClipboard(),
     window: new TauriWindow(),

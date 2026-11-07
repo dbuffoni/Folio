@@ -31,9 +31,46 @@ pub fn file_ref(path: &Path) -> FileRef {
     }
 }
 
+/// Where the `.bak` copy of the previous content goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backup<'a> {
+    Off,
+    /// `<name>.bak` next to the file.
+    Beside,
+    /// `<name>.<hash>.bak` in a shared folder; the hash of the full path keeps equal names apart.
+    Folder(&'a Path),
+}
+
+/// What happened to the backup. A failed backup never fails the save; the caller shows a notice.
+#[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteOutcome {
+    pub backup_failed: bool,
+}
+
+/// FNV-1a over the path bytes, 32 bits as 8 hex digits: stable across releases and platforms.
+pub fn short_path_hash(path: &Path) -> String {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in path.to_string_lossy().as_bytes() {
+        h ^= u32::from(*b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("{h:08x}")
+}
+
+/// The backup file for `path`: one per document, overwritten on every save.
+pub fn backup_path(path: &Path, backup: Backup<'_>) -> Option<PathBuf> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    match backup {
+        Backup::Off => None,
+        Backup::Beside => Some(path.parent()?.join(format!("{name}.bak"))),
+        Backup::Folder(dir) => Some(dir.join(format!("{name}.{}.bak", short_path_hash(path)))),
+    }
+}
+
 /// Temp file in the same directory + fsync + rename, so a crash never leaves a half-written file.
-/// With `backup`, the previous content is kept as `<name>.bak`.
-pub fn write_atomic(path: &Path, data: &[u8], backup: bool) -> Result<()> {
+/// With a `backup`, the previous content is kept as a single `.bak` that each save overwrites.
+pub fn write_atomic(path: &Path, data: &[u8], backup: Backup<'_>) -> Result<WriteOutcome> {
     let dir = path
         .parent()
         .ok_or_else(|| Error::Invalid("path has no parent".into()))?;
@@ -48,12 +85,12 @@ pub fn write_atomic(path: &Path, data: &[u8], backup: bool) -> Result<()> {
         f.write_all(data)?;
         f.sync_all()?;
     }
-    if backup && path.exists() {
-        let mut bak_name = name.to_os_string();
-        bak_name.push(".bak");
-        if let Err(e) = fs::copy(path, dir.join(bak_name)) {
-            let _ = fs::remove_file(&tmp);
-            return Err(e.into());
+    let mut outcome = WriteOutcome::default();
+    if path.exists() {
+        if let Some(bak) = backup_path(path, backup) {
+            if fs::copy(path, bak).is_err() {
+                outcome.backup_failed = true;
+            }
         }
     }
     if let Err(e) = fs::rename(&tmp, path) {
@@ -64,7 +101,7 @@ pub fn write_atomic(path: &Path, data: &[u8], backup: bool) -> Result<()> {
     if let Ok(d) = fs::File::open(dir) {
         let _ = d.sync_all();
     }
-    Ok(())
+    Ok(outcome)
 }
 
 fn header<'a>(request: &'a Request<'_>, name: &str) -> Result<&'a str> {
@@ -114,15 +151,48 @@ pub fn read_file(path: String, scope: State<'_, Scope>) -> Result<Response> {
 }
 
 #[tauri::command]
-pub fn write_file_atomic(request: Request<'_>, scope: State<'_, Scope>) -> Result<()> {
+pub fn write_file_atomic(request: Request<'_>, scope: State<'_, Scope>) -> Result<WriteOutcome> {
     let path = decode(header(&request, "x-folio-path")?)?;
-    let backup = request
+    let want_backup = request
         .headers()
         .get("x-folio-backup")
         .map(|v| v == "1")
         .unwrap_or(false);
+    let folder = match request.headers().get("x-folio-backup-dir") {
+        Some(v) => Some(decode(
+            v.to_str()
+                .map_err(|_| Error::Invalid("bad header".into()))?,
+        )?),
+        None => None,
+    };
     scope.check(&path)?;
-    write_atomic(&path, body(&request)?, backup)
+    // A backup folder is only honoured when it is the one the user granted; otherwise the save
+    // still happens and the caller is told the backup was not made.
+    let (backup, denied) = match (&folder, want_backup) {
+        (_, false) => (Backup::Off, false),
+        (None, true) => (Backup::Beside, false),
+        (Some(dir), true) if scope.allows_backup_folder(dir) => (Backup::Folder(dir), false),
+        (Some(_), true) => (Backup::Off, true),
+    };
+    let mut outcome = write_atomic(&path, body(&request)?, backup)?;
+    outcome.backup_failed |= denied;
+    Ok(outcome)
+}
+
+/// Makes the folder just picked in a dialog the persistent backup folder; `None` clears it.
+#[tauri::command]
+pub fn set_backup_folder(path: Option<String>, scope: State<'_, Scope>) -> Result<()> {
+    match path {
+        None => scope.set_backup_folder(None),
+        Some(p) => {
+            let p = PathBuf::from(p);
+            if !scope.allows_folder(&p) && !scope.allows_backup_folder(&p) {
+                return Err(Error::NotGranted);
+            }
+            scope.set_backup_folder(Some(&p));
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -137,7 +207,7 @@ pub fn write_in_folder(request: Request<'_>, scope: State<'_, Scope>) -> Result<
         return Err(Error::NotGranted);
     }
     let path = dir.join(&name);
-    write_atomic(&path, body(&request)?, false)?;
+    write_atomic(&path, body(&request)?, Backup::Off)?;
     scope.grant_file(&path);
     Ok(file_ref(&path))
 }
@@ -295,26 +365,80 @@ mod tests {
     fn atomic_write_replaces_content_and_keeps_a_backup() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("doc.pdf");
-        write_atomic(&path, b"first", true).unwrap();
+        write_atomic(&path, b"first", Backup::Beside).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"first");
         assert!(!dir.path().join("doc.pdf.bak").exists());
-        write_atomic(&path, b"second", true).unwrap();
+        write_atomic(&path, b"second", Backup::Beside).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"second");
         assert_eq!(fs::read(dir.path().join("doc.pdf.bak")).unwrap(), b"first");
-        write_atomic(&path, b"third", false).unwrap();
+        write_atomic(&path, b"third", Backup::Off).unwrap();
         assert_eq!(fs::read(dir.path().join("doc.pdf.bak")).unwrap(), b"first");
         assert!(!dir.path().join("doc.pdf.folio-tmp").exists());
+    }
+
+    #[test]
+    fn shared_folder_keeps_one_bak_per_file_named_with_a_path_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("backups");
+        fs::create_dir(&shared).unwrap();
+        let a = dir.path().join("x").join("doc.pdf");
+        let b = dir.path().join("y").join("doc.pdf");
+        fs::create_dir(a.parent().unwrap()).unwrap();
+        fs::create_dir(b.parent().unwrap()).unwrap();
+        for (p, v) in [(&a, "a"), (&b, "b")] {
+            write_atomic(p, v.as_bytes(), Backup::Folder(&shared)).unwrap();
+            write_atomic(p, format!("{v}2").as_bytes(), Backup::Folder(&shared)).unwrap();
+            write_atomic(p, format!("{v}3").as_bytes(), Backup::Folder(&shared)).unwrap();
+        }
+        let baks = |p: &Path| backup_path(p, Backup::Folder(&shared)).unwrap();
+        assert_ne!(baks(&a), baks(&b));
+        assert!(baks(&a)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("doc.pdf."));
+        // Overwritten on every save: only the previous version is kept.
+        assert_eq!(fs::read(baks(&a)).unwrap(), b"a2");
+        assert_eq!(fs::read(baks(&b)).unwrap(), b"b2");
+        assert_eq!(fs::read_dir(&shared).unwrap().count(), 2);
+        assert!(!a.parent().unwrap().join("doc.pdf.bak").exists());
+    }
+
+    #[test]
+    fn path_hash_is_stable() {
+        assert_eq!(
+            short_path_hash(Path::new("/docs/a.pdf")),
+            short_path_hash(Path::new("/docs/a.pdf"))
+        );
+        assert_eq!(short_path_hash(Path::new("")), "811c9dc5");
+        assert_ne!(
+            short_path_hash(Path::new("/a/doc.pdf")),
+            short_path_hash(Path::new("/b/doc.pdf"))
+        );
+    }
+
+    #[test]
+    fn a_missing_backup_folder_does_not_fail_the_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.pdf");
+        write_atomic(&path, b"one", Backup::Off).unwrap();
+        let gone = dir.path().join("gone");
+        let out = write_atomic(&path, b"two", Backup::Folder(&gone)).unwrap();
+        assert!(out.backup_failed);
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        let ok = write_atomic(&path, b"three", Backup::Beside).unwrap();
+        assert!(!ok.backup_failed);
     }
 
     #[test]
     fn failed_write_leaves_the_original_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing-dir").join("doc.pdf");
-        assert!(write_atomic(&path, b"x", false).is_err());
+        assert!(write_atomic(&path, b"x", Backup::Off).is_err());
         let target = dir.path().join("target");
         fs::create_dir(&target).unwrap();
         // Renaming a file over a directory fails: the temp file must be cleaned up.
-        assert!(write_atomic(&target, b"x", false).is_err());
+        assert!(write_atomic(&target, b"x", Backup::Off).is_err());
         assert!(target.is_dir());
         assert!(!dir.path().join("target.folio-tmp").exists());
     }
